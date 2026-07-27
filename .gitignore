@@ -1,0 +1,73 @@
+# Python (backend, Python 3.12)
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyright/
+
+# Node / frontend (Vue 3 + Vite + TypeScript)
+node_modules/
+.pnpm-store/
+.npm/
+.yarn/
+.vite/
+*.tsbuildinfo
+
+# Build outputs
+dist/
+build/
+out/
+coverage/
+.nyc_output/
+.cache/
+test-results/
+playwright-report/
+
+# Local environment and secrets (project must contain no secrets)
+.env
+.env.*
+!.env.example
+.local/
+secrets/
+*.pem
+*.key
+
+# Local runtime state and user configuration overrides
+config/local.yaml
+config/*.local.yaml
+*.local.yaml
+
+# Logs and runtime artifacts
+logs/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Canon archives and ad-hoc dumps (canon lives only in the tracked Markdown files)
+.context/archive/
+*.zip
+*.7z
+*.rar
+*.tar
+*.tar.gz
+*.bak
+*.orig
+*.tmp
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+Desktop.ini

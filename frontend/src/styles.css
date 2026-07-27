@@ -1,0 +1,100 @@
+:root {
+  color-scheme: dark;
+  --bg: #0d0d0f;
+  --surface: #17171b;
+  --text: #f4f1ec;
+  --muted: #a7a29a;
+  --accent: #ff6a00;
+  --danger: #ff5c5c;
+  --font-display: "Segoe UI", "Trebuchet MS", sans-serif;
+  --font-body: "Segoe UI", "Trebuchet MS", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  font-family: var(--font-body);
+  background:
+    radial-gradient(ellipse 80% 50% at 50% -10%, rgb(255 106 0 / 18%), transparent),
+    linear-gradient(180deg, #141418 0%, var(--bg) 55%);
+  color: var(--text);
+}
+
+.shell {
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: 3rem 1.25rem 4rem;
+}
+
+.hero {
+  margin-bottom: 2.5rem;
+}
+
+.brand {
+  margin: 0 0 0.75rem;
+  font-family: var(--font-display);
+  font-size: clamp(2rem, 6vw, 2.75rem);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+}
+
+.hero h1 {
+  margin: 0 0 0.75rem;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.lead {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.status {
+  background: var(--surface);
+  border: 1px solid rgb(255 255 255 / 8%);
+  border-radius: 0.75rem;
+  padding: 1.25rem 1.35rem;
+}
+
+.status h2 {
+  margin: 0 0 0.85rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.facts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.55rem;
+}
+
+.facts li {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.facts span {
+  color: var(--muted);
+}
+
+.error {
+  margin: 0;
+  color: var(--danger);
+}

@@ -59,8 +59,8 @@
 
 | ID | Этап | Статус | Commit | Проверки |
 |---|---|---|---|---|
-| L001 | Canon bootstrap | DONE | hash в отчёте L001, запись в L002 | PASS — см. `L001 — Результаты проверок` |
-| L002 | Workspace scaffold | PENDING | — | — |
+| L001 | Canon bootstrap | DONE | `1807357` | PASS — см. `L001 — Результаты проверок` |
+| L002 | Workspace scaffold | DONE | hash в отчёте L002, запись в L003 | PASS — см. `L002 — Результаты проверок` |
 | L003 | Config, fixtures and patch | PENDING | — | — |
 | L004 | Deterministic engine and layers | PENDING | — | — |
 | L005 | Mock/Art-Net transports and safety | PENDING | — | — |
@@ -105,6 +105,7 @@ Verification:
 #### L001 — Результаты проверок
 
 Статус: `DONE`. Дата: `2026-07-28`. Ветка: `main`.
+Commit: `180735714a12046f675e1964892cacaa6f4dd64b` (`1807357`).
 
 | Проверка | Результат |
 |---|---|
@@ -164,6 +165,34 @@ Verification:
 - frontend typecheck;
 - frontend production build;
 - PowerShell scripts проходят syntax check, доступный в среде.
+
+#### L002 — Результаты проверок
+
+Статус: `DONE`. Дата: `2026-07-28`. Ветка: `main`.
+Commit hash текущего этапа сообщается в отчёте и записывается следующим запросом.
+
+| Проверка | Результат |
+|---|---|
+| Структура `backend/` + `frontend/` + `scripts/` + `README.md` | PASS |
+| `GET /api/health` возвращает Mock / `output_armed: false` | PASS |
+| Backend unit smoke (`pytest`) | PASS — 1 passed |
+| Backend ruff format/check | PASS |
+| Frontend typecheck (`vue-tsc`) | PASS |
+| Frontend lint (`eslint`) | PASS |
+| Frontend production build (`vite build`) | PASS |
+| SPA раздаётся FastAPI из `frontend/dist` | PASS — `GET /` → 200 |
+| PowerShell syntax (`Parser::ParseFile`) | PASS — bootstrap/run/run-dev/check |
+| `.\scripts\bootstrap.ps1` установка deps | PASS — Python 3.12.10, npm |
+| Docker / Cloudflare / auth не добавлены | PASS |
+
+Зафиксированные особенности:
+
+- hash L001 записан в таблицу и в блок результатов L001;
+- предметный DMX-движок, пресеты, пульт и симулятор **не** входят в L002 и не
+  реализованы;
+- Art-Net output не активируется; реальные сетевые пакеты не отправлялись;
+- предупреждение Starlette о `httpx`/`TestClient` зафиксировано, на acceptance
+  не влияет.
 
 ### L003 — Config, fixtures and patch
 

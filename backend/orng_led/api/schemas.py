@@ -64,11 +64,56 @@ class AppStateResponse(ApiModel):
     sequence: int
     preview_speed: float = 1.0
     simulator: SimulatorView
+    raw_tester: dict[str, Any] | None = None
 
 
 class PreviewSpeedCommand(ApiModel):
     value: Annotated[float, Field(ge=1.0, le=120.0)]
     client_command_id: str | None = None
+
+
+class RawTesterSetCommand(ApiModel):
+    channel: Annotated[int, Field(ge=1, le=512)] | None = None
+    value: Annotated[int, Field(ge=0, le=255)] | None = None
+    channels: dict[str, Annotated[int, Field(ge=0, le=255)]] | None = None
+    client_command_id: str | None = None
+
+
+class RawTesterCommand(ApiModel):
+    client_command_id: str | None = None
+
+
+class IdentifyFixtureCommand(ApiModel):
+    fixture_id: str
+    level: Annotated[int, Field(ge=0, le=255)] = 200
+    client_command_id: str | None = None
+
+
+class IdentifyGroupCommand(ApiModel):
+    group: str
+    level: Annotated[int, Field(ge=0, le=255)] = 180
+    client_command_id: str | None = None
+
+
+class ValidatePatchRequest(ApiModel):
+    patch: dict[str, Any]
+    profiles: dict[str, Any] | None = None
+
+
+class SaveAppConfigRequest(ApiModel):
+    config: dict[str, Any]
+
+
+class SavePatchRequest(ApiModel):
+    patch: dict[str, Any]
+
+
+class SaveProfileRequest(ApiModel):
+    profile: dict[str, Any]
+
+
+class SaveLayoutRequest(ApiModel):
+    layout: dict[str, Any]
 
 
 class CommandAck(ApiModel):

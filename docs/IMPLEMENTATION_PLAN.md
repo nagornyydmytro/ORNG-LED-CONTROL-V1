@@ -66,8 +66,8 @@
 | L005 | Mock/Art-Net transports and safety | DONE | `f1cb34a` | PASS — см. `L005 — Результаты проверок` |
 | L006 | Backend API and realtime state | DONE | `ea3fae8` | PASS — см. `L006 — Результаты проверок` |
 | L007 | UI shell and control panel | DONE | `7493e01` | PASS — см. `L007 — Результаты проверок` |
-| L008 | Stage simulator | DONE | hash в отчёте L008, запись в L009 | PASS — см. `L008 — Результаты проверок` |
-| L009 | Setup and calibration wizard | PENDING | — | — |
+| L008 | Stage simulator | DONE | `48687b0` | PASS — см. `L008 — Результаты проверок` |
+| L009 | Setup and calibration wizard | DONE | hash в отчёте L009, запись в L010 | PASS — см. `L009 — Результаты проверок` |
 | L010 | Preset editor | PENDING | — | — |
 | L011 | Ten complete presets | PENDING | — | — |
 | L012 | Input adapter and 16-button mapping | PENDING | — | — |
@@ -493,7 +493,7 @@ Verification:
 #### L008 — Результаты проверок
 
 Статус: `DONE`. Дата: `2026-07-28`. Ветка: `main`.
-Commit hash текущего этапа сообщается в отчёте и записывается следующим запросом.
+Commit: `48687b0a2b84f9ab7abccdf1ba799ec0d9b9595e` (`48687b0`).
 
 | Проверка | Результат |
 |---|---|
@@ -544,6 +544,26 @@ Verification:
 - API persistence tests;
 - raw tester safety tests;
 - mobile smoke.
+
+#### L009 — Результаты проверок
+
+Статус: `DONE`. Дата: `2026-07-28`. Ветка: `main`.
+Commit hash текущего этапа сообщается в отчёте и записывается следующим запросом.
+
+| Проверка | Результат |
+|---|---|
+| 10 шагов wizard в UI (Mock path) | PASS |
+| Hardware badges `Не перевірено на обладнанні` | PASS — не помечаются DONE |
+| Patch validate до save; overlap → 400, диск не меняется | PASS |
+| App/profile/layout atomic YAML save; `hardware_verified`/`output_armed` forced false | PASS |
+| Raw tester start/exit zeros (Mock only, no arm) | PASS |
+| Identify fixture/group + readiness summary | PASS |
+| Form/component tests (vitest setup) | PASS — 3 passed |
+| API persistence + raw safety (`test_setup.py`) | PASS — 6 passed |
+| Mobile smoke | PASS — wizard-steps 2-col CSS ≤900px; без browser MCP |
+| Frontend typecheck / lint / production build | PASS |
+| Backend regression (`pytest`) | PASS — 66 passed |
+| Preset editor / L010+ не начаты | PASS |
 
 ### L010 — Preset editor
 

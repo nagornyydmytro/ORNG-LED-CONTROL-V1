@@ -36,11 +36,11 @@ def footprint_range(start_address: int, footprint: int) -> tuple[int, int]:
     return first, last
 
 
-def validate_patch(
+def collect_patch_errors(
     patch: PatchDocument,
     profiles: Mapping[str, FixtureProfile],
-) -> None:
-    """Validate IDs, profile refs, footprints, ranges and overlaps."""
+) -> list[str]:
+    """Return patch validation errors without raising."""
     errors: list[str] = []
     seen_ids: set[str] = set()
     occupied: dict[int, str] = {}
@@ -77,6 +77,15 @@ def validate_patch(
             else:
                 occupied[channel] = fixture.id
 
+    return errors
+
+
+def validate_patch(
+    patch: PatchDocument,
+    profiles: Mapping[str, FixtureProfile],
+) -> None:
+    """Validate IDs, profile refs, footprints, ranges and overlaps."""
+    errors = collect_patch_errors(patch, profiles)
     if errors:
         raise ConfigError("Patch validation failed:\n- " + "\n- ".join(errors))
 

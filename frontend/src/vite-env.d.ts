@@ -92,6 +92,12 @@ export interface AppState {
   sequence: number;
   preview_speed: number;
   simulator: SimulatorView;
+  raw_tester?: {
+    active: boolean;
+    nonzero_channels: number;
+    frame: number[] | null;
+    universe_size: number;
+  } | null;
 }
 
 export interface CommandAck {

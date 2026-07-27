@@ -7,18 +7,36 @@ import time
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from orng_led.api.schemas import (
     AppStateResponse,
     EngineState,
     OutputState,
 )
-from orng_led.config import load_show_config
-from orng_led.config.models import ShowConfig
+from orng_led.config import (
+    collect_patch_errors,
+    default_config_dir,
+    load_show_config,
+    save_model,
+)
+from orng_led.config.io import parse_model
+from orng_led.config.models import (
+    AppConfig,
+    ChannelRole,
+    ConfigError,
+    FixtureProfile,
+    PatchDocument,
+    ShowConfig,
+    SpatialLayout,
+    TransportMode,
+)
+from orng_led.config.validation import global_channel
 from orng_led.engine.clock import FRAME_DT
 from orng_led.engine.engine import Engine, EngineSnapshot
 from orng_led.output.contract import OutputError
 from orng_led.output.controller import OutputController
+from orng_led.setup.raw_tester import RawTesterSession
 from orng_led.simulator.decode import decode_simulator_view
 
 WsSender = Callable[[dict], Awaitable[None]]
@@ -45,10 +63,19 @@ class AppRuntime:
     autostart_loop: bool = True
     max_idempotency_keys: int = 256
     preview_speed: float = 1.0
+    raw_tester: RawTesterSession = field(default_factory=RawTesterSession)
+    config_dir: Path = field(default_factory=default_config_dir)
 
     @classmethod
-    def create(cls, *, autostart_loop: bool = True, show: ShowConfig | None = None) -> AppRuntime:
-        loaded = show or load_show_config()
+    def create(
+        cls,
+        *,
+        autostart_loop: bool = True,
+        show: ShowConfig | None = None,
+        config_dir: Path | None = None,
+    ) -> AppRuntime:
+        root = config_dir or default_config_dir()
+        loaded = show or load_show_config(root)
         engine = Engine(show=loaded)
         output = OutputController(engine=engine)
         return cls(
@@ -56,6 +83,7 @@ class AppRuntime:
             engine=engine,
             output=output,
             autostart_loop=autostart_loop,
+            config_dir=root,
         )
 
     async def start(self) -> None:
@@ -92,7 +120,12 @@ class AppRuntime:
         # preview_speed advances show time faster for simulator review only.
         scaled = max(0.0, dt_s) * self.preview_speed
         snapshot = self.engine.tick(dt_s=scaled)
-        frame = snapshot.frame
+        frame = list(self.raw_tester.frame) if self.raw_tester.active else snapshot.frame
+        self._publish_frame(frame)
+        self.sequence += 1
+        return snapshot
+
+    def _publish_frame(self, frame: list[int]) -> None:
         if self.output.transport_kind.value == "mock":
             self.output.publish(frame)
         elif self.output.armed:
@@ -101,13 +134,11 @@ class AppRuntime:
             except OutputError:
                 # Fault already recorded on controller; engine keeps running.
                 pass
-        self.sequence += 1
-        return snapshot
 
     def build_state(self) -> AppStateResponse:
         snap = self.engine.render_at(self.engine.clock.time(), dt_s=0.0)
         out = self.output.status()
-        frame = list(snap.frame)
+        frame = list(self.raw_tester.frame) if self.raw_tester.active else list(snap.frame)
         return AppStateResponse(
             engine=EngineState(
                 preset_id=snap.preset_id,
@@ -137,6 +168,7 @@ class AppRuntime:
             sequence=self.sequence,
             preview_speed=self.preview_speed,
             simulator=decode_simulator_view(self.show, frame),
+            raw_tester=self.raw_tester.as_dict(),
         )
 
     def apply_preview_speed(
@@ -152,6 +184,213 @@ class AppRuntime:
         state = self.build_state()
         self._remember(client_command_id, state)
         return state, False
+
+    def enter_raw_tester(self) -> AppStateResponse:
+        # Raw tester is Mock-only and never arms Art-Net.
+        self.output.use_mock()
+        self.raw_tester.enter()
+        self._publish_frame(self.raw_tester.frame)
+        self.sequence += 1
+        return self.build_state()
+
+    def exit_raw_tester(self) -> AppStateResponse:
+        zeros = self.raw_tester.exit()
+        self._publish_frame(zeros)
+        self.sequence += 1
+        return self.build_state()
+
+    def raw_tester_blackout(self) -> AppStateResponse:
+        if not self.raw_tester.active:
+            self.enter_raw_tester()
+        zeros = self.raw_tester.blackout()
+        self._publish_frame(zeros)
+        self.sequence += 1
+        return self.build_state()
+
+    def raw_tester_set(
+        self,
+        *,
+        channel: int | None = None,
+        value: int | None = None,
+        channels: dict[int, int] | None = None,
+    ) -> AppStateResponse:
+        if not self.raw_tester.active:
+            raise RuntimeError("Raw tester is not active")
+        if channels:
+            self.raw_tester.set_channels(channels)
+        elif channel is not None and value is not None:
+            self.raw_tester.set_channel(channel, value)
+        else:
+            raise ValueError("Provide channel+value or channels map")
+        self._publish_frame(self.raw_tester.frame)
+        self.sequence += 1
+        return self.build_state()
+
+    def identify_fixture(self, fixture_id: str, level: int = 200) -> AppStateResponse:
+        fixture = next((fx for fx in self.show.patch.fixtures if fx.id == fixture_id), None)
+        if fixture is None:
+            raise KeyError(f"Unknown fixture {fixture_id!r}")
+        profile = self.show.profile_for(fixture)
+        if not self.raw_tester.active:
+            self.enter_raw_tester()
+        else:
+            self.raw_tester.blackout()
+        dimmer = next((ch for ch in profile.channels if ch.role is ChannelRole.DIMMER), None)
+        if dimmer is None:
+            raise ConfigError(f"Fixture {fixture_id!r} has no dimmer channel for identify")
+        channel = global_channel(fixture.start_address, dimmer.local)
+        self.raw_tester.set_channel(channel, level)
+        self._publish_frame(self.raw_tester.frame)
+        self.sequence += 1
+        return self.build_state()
+
+    def identify_group(self, group: str, level: int = 180) -> AppStateResponse:
+        matches = [fx for fx in self.show.patch.fixtures if group in fx.groups]
+        if not matches:
+            raise KeyError(f"No fixtures in group {group!r}")
+        if not self.raw_tester.active:
+            self.enter_raw_tester()
+        else:
+            self.raw_tester.blackout()
+        for fixture in matches:
+            profile = self.show.profile_for(fixture)
+            dimmer = next((ch for ch in profile.channels if ch.role is ChannelRole.DIMMER), None)
+            if dimmer is None:
+                continue
+            channel = global_channel(fixture.start_address, dimmer.local)
+            self.raw_tester.set_channel(channel, level)
+        self._publish_frame(self.raw_tester.frame)
+        self.sequence += 1
+        return self.build_state()
+
+    def validate_patch_payload(
+        self,
+        patch_data: dict,
+        profiles_data: dict | None = None,
+    ) -> dict:
+        profiles = self.show.profiles
+        if profiles_data:
+            profiles = {
+                pid: parse_model(FixtureProfile, pdata, source=f"profiles[{pid}]")
+                for pid, pdata in profiles_data.items()
+            }
+        patch = parse_model(PatchDocument, patch_data, source="patch")
+        errors = collect_patch_errors(patch, profiles)
+        return {"ok": not errors, "errors": errors}
+
+    def save_app_config(self, data: dict) -> AppStateResponse:
+        app = parse_model(AppConfig, data, source="app.yaml")
+        # HOME safety: never persist armed Art-Net or fake hardware verification.
+        app = app.model_copy(
+            update={
+                "output_armed": False,
+                "artnet": app.artnet.model_copy(update={"hardware_verified": False}),
+            }
+        )
+        if app.transport is TransportMode.ARTNET and not app.artnet.target_ip:
+            # Allow selecting Art-Net mode in YAML draft only with IP filled later;
+            # keep preferred transport but do not enable real output.
+            pass
+        save_model(self.config_dir / "app.yaml", app)
+        self.show = self.show.model_copy(update={"app": app})
+        self.engine.show = self.show
+        self.engine.overlays.master_brightness = app.master_brightness
+        # Configure Art-Net settings in memory but stay on Mock unless already forced.
+        if app.artnet.target_ip:
+            self.output.configure_artnet(
+                target_ip=app.artnet.target_ip,
+                universe=app.artnet.universe,
+                udp_port=app.artnet.udp_port,
+            )
+        # Never auto-arm; keep Mock publishing during HOME wizard.
+        self.output.use_mock()
+        return self.build_state()
+
+    def save_patch(self, data: dict) -> AppStateResponse:
+        patch = parse_model(PatchDocument, data, source="patch.yaml")
+        errors = collect_patch_errors(patch, self.show.profiles)
+        if errors:
+            raise ConfigError("Patch validation failed:\n- " + "\n- ".join(errors))
+        layout_ids = set(self.show.layout.fixtures)
+        patch_ids = {fx.id for fx in patch.fixtures}
+        if layout_ids != patch_ids:
+            raise ConfigError(
+                "layout.fixtures must list exactly the patch fixture ids. "
+                f"missing={sorted(patch_ids - layout_ids)}, "
+                f"extra={sorted(layout_ids - patch_ids)}."
+            )
+        save_model(self.config_dir / "patch.yaml", patch)
+        self.show = self.show.model_copy(update={"patch": patch})
+        self.engine.show = self.show
+        return self.build_state()
+
+    def save_profile(self, data: dict) -> AppStateResponse:
+        profile = parse_model(FixtureProfile, data, source="profile")
+        profile = profile.model_copy(update={"hardware_verified": False})
+        path = self.config_dir / "profiles" / f"{profile.id}.yaml"
+        save_model(path, profile)
+        profiles = dict(self.show.profiles)
+        profiles[profile.id] = profile
+        self.show = self.show.model_copy(update={"profiles": profiles})
+        self.engine.show = self.show
+        return self.build_state()
+
+    def save_layout(self, data: dict) -> AppStateResponse:
+        layout = parse_model(SpatialLayout, data, source="layout.yaml")
+        patch_ids = {fx.id for fx in self.show.patch.fixtures}
+        if set(layout.fixtures) != patch_ids:
+            raise ConfigError(
+                "layout.fixtures must list exactly the patch fixture ids. "
+                f"missing={sorted(patch_ids - set(layout.fixtures))}, "
+                f"extra={sorted(set(layout.fixtures) - patch_ids)}."
+            )
+        save_model(self.config_dir / "layout.yaml", layout)
+        self.show = self.show.model_copy(update={"layout": layout})
+        self.engine.show = self.show
+        return self.build_state()
+
+    def reload_from_disk(self) -> AppStateResponse:
+        if self.raw_tester.active:
+            self.exit_raw_tester()
+        loaded = load_show_config(self.config_dir)
+        self.show = loaded
+        self.engine.show = loaded
+        self.engine.overlays.master_brightness = loaded.app.master_brightness
+        self.output.use_mock()
+        if loaded.app.artnet.target_ip:
+            self.output.configure_artnet(
+                target_ip=loaded.app.artnet.target_ip,
+                universe=loaded.app.artnet.universe,
+                udp_port=loaded.app.artnet.udp_port,
+            )
+        return self.build_state()
+
+    def readiness_summary(self) -> dict:
+        profiles = [
+            {
+                "id": profile.id,
+                "label": profile.label,
+                "hardware_verified": False,
+                "badge": "Не перевірено на обладнанні",
+            }
+            for profile in self.show.profiles.values()
+        ]
+        return {
+            "transport_preferred": self.show.app.transport.value,
+            "runtime_transport": self.output.transport_kind.value,
+            "output_armed": False,
+            "artnet_network_enabled": False,
+            "artnet_hardware_verified": False,
+            "artnet_badge": "Не перевірено на обладнанні",
+            "profiles": profiles,
+            "fixture_count": len(self.show.patch.fixtures),
+            "patch_ok": len(collect_patch_errors(self.show.patch, self.show.profiles)) == 0,
+            "raw_tester_active": self.raw_tester.active,
+            "notes": [
+                "Mock wizard path does not confirm hardware.",
+                "Art-Net remains disarmed; real network send is blocked by default.",
+            ],
+        }
 
     def _remember(self, client_command_id: str | None, state: AppStateResponse) -> None:
         if not client_command_id:
@@ -309,6 +548,8 @@ class AppRuntime:
             return []
         self._shutting_down = True
         self._running = False
+        if self.raw_tester.active:
+            self.raw_tester.exit()
         task = self._loop_task
         self._loop_task = None
         if task is not None:

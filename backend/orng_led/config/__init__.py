@@ -26,7 +26,7 @@ from orng_led.config.schema import (
     DMX_UNIVERSE_SIZE,
     SCHEMA_VERSION,
 )
-from orng_led.config.validation import global_channel, validate_patch
+from orng_led.config.validation import collect_patch_errors, global_channel, validate_patch
 
 __all__ = [
     "AppConfig",
@@ -43,6 +43,7 @@ __all__ = [
     "ShowConfig",
     "SpatialLayout",
     "atomic_write_yaml",
+    "collect_patch_errors",
     "default_config_dir",
     "global_channel",
     "load_app_config",

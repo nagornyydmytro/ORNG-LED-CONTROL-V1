@@ -16,6 +16,9 @@ from orng_led.api.schemas import (
     HealthResponse,
     IdentifyFixtureCommand,
     IdentifyGroupCommand,
+    InputButtonRequest,
+    InputDispatchResponse,
+    InputKeyboardRequest,
     MasterBrightnessCommand,
     PresetCreateRequest,
     PresetDuplicateRequest,
@@ -420,5 +423,82 @@ def build_api_router() -> APIRouter:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         await runtime.broadcast_state()
         return CommandAck(state=state)
+
+    @router.get("/input/mapping")
+    def input_mapping() -> dict:
+        from orng_led.input.contract import (
+            ALL_BUTTON_IDS,
+            BRIGHTNESS_STEP,
+            BUTTON_PRESET_IDS,
+        )
+        from orng_led.input.mapping import KEYBOARD_CODE_MAP
+
+        return {
+            "buttons": list(ALL_BUTTON_IDS),
+            "presets": BUTTON_PRESET_IDS,
+            "brightness_step": BRIGHTNESS_STEP,
+            "keyboard": {
+                code: {"button_id": button_id, "edge": edge}
+                for code, (button_id, edge) in KEYBOARD_CODE_MAP.items()
+            },
+            "gpio": {
+                "implemented": False,
+                "detail": "Raspberry GPIO adapter is PENDING HARDWARE / future stage",
+            },
+        }
+
+    @router.post("/input/button", response_model=InputDispatchResponse)
+    async def input_button(body: InputButtonRequest, request: Request) -> InputDispatchResponse:
+        from orng_led.input.contract import InputSource
+        from orng_led.input.mapping import button_to_event
+
+        runtime = get_runtime(request)
+        if runtime.input_dispatcher is None:
+            raise HTTPException(status_code=503, detail="Input dispatcher not ready")
+        try:
+            event = button_to_event(
+                body.button_id,
+                source=InputSource(body.source),
+                edge=body.edge,
+                client_command_id=body.client_command_id,
+            )
+            result = runtime.input_dispatcher.dispatch(event)
+        except (ValueError, KeyError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if result.accepted and result.state is not None and not result.idempotent_replay:
+            await runtime.broadcast_state()
+        state = result.state or runtime.build_state()
+        return InputDispatchResponse(
+            accepted=result.accepted,
+            reason=result.reason,
+            idempotent_replay=result.idempotent_replay,
+            state=state,
+        )
+
+    @router.post("/input/keyboard", response_model=InputDispatchResponse)
+    async def input_keyboard(body: InputKeyboardRequest, request: Request) -> InputDispatchResponse:
+        from orng_led.input.adapters import KeyboardInputAdapter
+
+        runtime = get_runtime(request)
+        if runtime.input_dispatcher is None:
+            raise HTTPException(status_code=503, detail="Input dispatcher not ready")
+        adapter = KeyboardInputAdapter()
+        events = adapter.handle_raw(body.model_dump())
+        if not events:
+            return InputDispatchResponse(
+                accepted=False,
+                reason="unmapped_or_repeat",
+                state=runtime.build_state(),
+            )
+        result = runtime.input_dispatcher.dispatch(events[0])
+        if result.accepted and result.state is not None and not result.idempotent_replay:
+            await runtime.broadcast_state()
+        state = result.state or runtime.build_state()
+        return InputDispatchResponse(
+            accepted=result.accepted,
+            reason=result.reason,
+            idempotent_replay=result.idempotent_replay,
+            state=state,
+        )
 
     return router

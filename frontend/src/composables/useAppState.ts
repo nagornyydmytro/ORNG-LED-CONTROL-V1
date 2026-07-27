@@ -5,8 +5,17 @@ import {
   fetchState,
   postCommand,
 } from "../api/client";
+import {
+  BUTTON_BLACKOUT,
+  BUTTON_FACE,
+  BUTTON_STROBE,
+  BUTTON_WHITE_HIT,
+  PRESET_BUTTONS,
+  postInputButton,
+} from "../api/input";
 import type { AppState, PresetInfo } from "../vite-env";
 import { useToasts } from "./useToasts";
+import { useKeyboardPad } from "./useKeyboardPad";
 
 export type ConnectionStatus = "connecting" | "online" | "offline" | "reconnecting";
 
@@ -113,45 +122,73 @@ export function useAppState() {
     }
   }
 
+  async function dispatchPad(
+    buttonId: number,
+    edge: "press" | "release" | "pulse" = "pulse",
+    successMessage?: string,
+  ) {
+    try {
+      const ack = await postInputButton(buttonId, edge, "ui");
+      if (ack.accepted) {
+        applyState(ack.state);
+        if (successMessage) toasts.push(successMessage, "success");
+      }
+      return ack;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Помилка input";
+      toasts.push(message, "error");
+      throw err;
+    }
+  }
+
   async function selectPreset(presetId: string) {
     if (!availableIds.value.has(presetId)) {
       toasts.push(`Пресет ${presetId} ще не завантажено на сервері`, "error");
       return;
     }
-    await runCommand("select-preset", { preset_id: presetId, reset_clock: true });
+    const buttonId = PRESET_BUTTONS[presetId];
+    if (!buttonId) {
+      await runCommand("select-preset", { preset_id: presetId, reset_clock: true });
+      return;
+    }
+    await dispatchPad(buttonId);
   }
 
   async function whiteHit() {
-    await runCommand("white-hit", {}, "White Hit");
+    await dispatchPad(BUTTON_WHITE_HIT, "pulse", "White Hit");
   }
 
   async function strobePress() {
-    await runCommand("strobe", { action: "press" });
+    await dispatchPad(BUTTON_STROBE, "press");
   }
 
   async function strobeRelease() {
     if (!state.value?.engine.strobe_held && connection.value !== "online") return;
     try {
-      await runCommand("strobe", { action: "release" });
+      await dispatchPad(BUTTON_STROBE, "release");
     } catch {
       // failsafe best-effort
     }
   }
 
   async function setBlackout(enabled: boolean) {
+    // Pad contract is toggle; keep explicit set via command for API completeness.
     await runCommand("blackout", { enabled });
   }
 
   async function toggleBlackout() {
-    const enabled = !(state.value?.engine.blackout ?? false);
-    await setBlackout(enabled);
+    await dispatchPad(BUTTON_BLACKOUT);
   }
 
   async function setFace(enabled: boolean, brightness?: number) {
-    await runCommand("face", {
-      enabled,
-      ...(brightness === undefined ? {} : { brightness }),
-    });
+    if (brightness !== undefined) {
+      await runCommand("face", { enabled, brightness });
+      return;
+    }
+    const current = state.value?.engine.face_on ?? false;
+    if (enabled !== current) {
+      await dispatchPad(BUTTON_FACE);
+    }
   }
 
   async function setMasterBrightness(value: number) {
@@ -187,6 +224,11 @@ export function useAppState() {
     void notifyFocusLoss();
     void strobeRelease();
   }
+
+  useKeyboardPad({
+    enabled: () => connection.value === "online" || connection.value === "reconnecting",
+    onState: (next) => applyState(next),
+  });
 
   onMounted(async () => {
     try {

@@ -69,8 +69,8 @@
 | L008 | Stage simulator | DONE | `48687b0` | PASS — см. `L008 — Результаты проверок` |
 | L009 | Setup and calibration wizard | DONE | `02f414c` | PASS — см. `L009 — Результаты проверок` |
 | L010 | Preset editor | DONE | `9151dbf` | PASS — см. `L010 — Результаты проверок` |
-| L011 | Ten complete presets | DONE | hash в отчёте L011, запись в L012 | PASS — см. `L011 — Результаты проверок` |
-| L012 | Input adapter and 16-button mapping | PENDING | — | — |
+| L011 | Ten complete presets | DONE | `15f8053` | PASS — см. `L011 — Результаты проверок` |
+| L012 | Input adapter and 16-button mapping | DONE | hash в отчёте L012, запись в L013 | PASS — см. `L012 — Результаты проверок` |
 | L013 | Integration, Windows scripts and HOME acceptance | PENDING | — | — |
 | H001+ | Real hardware acceptance | PENDING HARDWARE | — | — |
 
@@ -655,7 +655,7 @@ Verification:
 #### L011 — Результаты проверок
 
 Статус: `DONE`. Дата: `2026-07-28`. Ветка: `main`.
-Commit hash текущего этапа сообщается в отчёте и записывается следующим запросом.
+Commit: `15f805323f3a7a14979988f191661b375fe3ea48` (`15f8053`).
 
 | Проверка | Результат |
 |---|---|
@@ -701,6 +701,25 @@ Verification:
 - mapping tests;
 - key repeat/debounce tests;
 - disconnect/release safety tests.
+
+#### L012 — Результаты проверок
+
+Статус: `DONE`. Дата: `2026-07-28`. Ветка: `main`.
+Commit hash текущего этапа сообщается в отчёте и записывается следующим запросом.
+
+| Проверка | Результат |
+|---|---|
+| InputEvent contract + 16-button mapping (1–10→P01–P10) | PASS |
+| Keyboard/mock adapters + GPIO stub boundary | PASS |
+| Debounce / key-repeat не залипає Strobe | PASS |
+| Brightness step ±0.05 через contract | PASS |
+| UI pad actions через `/api/input/button` | PASS |
+| Disconnect clears strobe + debouncer | PASS |
+| Mapping/key tests (`test_input_adapter.py`) | PASS — 8 passed |
+| Frontend input constants/API tests | PASS — 3 passed |
+| Backend regression (`pytest`) | PASS — 138 passed |
+| Frontend vitest / typecheck / lint / build | PASS — 18 passed |
+| L013 integration/scripts не начат | PASS |
 
 ### L013 — Integration, Windows scripts and HOME acceptance
 

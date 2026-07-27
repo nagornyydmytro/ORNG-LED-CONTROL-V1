@@ -139,6 +139,28 @@ class PresetPreviewRequest(ApiModel):
     speed: Annotated[float, Field(ge=1.0, le=120.0)] = 10.0
 
 
+class InputButtonRequest(ApiModel):
+    button_id: Annotated[int, Field(ge=1, le=16)]
+    edge: Literal["press", "release", "pulse"] = "pulse"
+    source: Literal["ui", "keyboard", "mock", "gpio"] = "mock"
+    client_command_id: str | None = None
+
+
+class InputKeyboardRequest(ApiModel):
+    code: str
+    type: Literal["keydown", "keyup"] = "keydown"
+    repeat: bool = False
+    client_command_id: str | None = None
+
+
+class InputDispatchResponse(ApiModel):
+    ok: bool = True
+    accepted: bool
+    reason: str | None = None
+    idempotent_replay: bool = False
+    state: AppStateResponse
+
+
 class CommandAck(ApiModel):
     ok: bool = True
     idempotent_replay: bool = False

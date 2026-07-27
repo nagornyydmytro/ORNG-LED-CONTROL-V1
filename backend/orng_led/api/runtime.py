@@ -34,6 +34,7 @@ from orng_led.config.models import (
 from orng_led.config.validation import global_channel
 from orng_led.engine.clock import FRAME_DT
 from orng_led.engine.engine import Engine, EngineSnapshot
+from orng_led.input.dispatcher import InputDispatcher
 from orng_led.output.contract import OutputError
 from orng_led.output.controller import OutputController
 from orng_led.presets.models import PresetDocument
@@ -68,6 +69,7 @@ class AppRuntime:
     raw_tester: RawTesterSession = field(default_factory=RawTesterSession)
     config_dir: Path = field(default_factory=default_config_dir)
     preset_store: PresetStore = field(default_factory=PresetStore)
+    input_dispatcher: InputDispatcher | None = None
 
     @classmethod
     def create(
@@ -82,7 +84,7 @@ class AppRuntime:
         store = PresetStore.load(root / "presets")
         engine = Engine(show=loaded, presets=store.programs())
         output = OutputController(engine=engine)
-        return cls(
+        runtime = cls(
             show=loaded,
             engine=engine,
             output=output,
@@ -90,6 +92,8 @@ class AppRuntime:
             config_dir=root,
             preset_store=store,
         )
+        runtime.input_dispatcher = InputDispatcher(runtime=runtime)
+        return runtime
 
     def refresh_presets(self) -> None:
         self.engine.presets = self.preset_store.programs()
@@ -584,6 +588,8 @@ class AppRuntime:
     def on_ws_disconnect(self) -> None:
         # Losing the controlling socket must clear held actions, not stop the show.
         self.output.on_disconnect()
+        if self.input_dispatcher is not None:
+            self.input_dispatcher.debouncer.clear()
 
     def subscribe(self, sender: WsSender) -> None:
         self._subscribers.add(sender)

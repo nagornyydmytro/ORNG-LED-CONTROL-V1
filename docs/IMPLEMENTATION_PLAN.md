@@ -64,8 +64,8 @@
 | L003 | Config, fixtures and patch | DONE | `fbaf08a` | PASS — см. `L003 — Результаты проверок` |
 | L004 | Deterministic engine and layers | DONE | `1c01252` | PASS — см. `L004 — Результаты проверок` |
 | L005 | Mock/Art-Net transports and safety | DONE | `f1cb34a` | PASS — см. `L005 — Результаты проверок` |
-| L006 | Backend API and realtime state | DONE | hash в отчёте L006, запись в L007 | PASS — см. `L006 — Результаты проверок` |
-| L007 | UI shell and control panel | PENDING | — | — |
+| L006 | Backend API and realtime state | DONE | `ea3fae8` | PASS — см. `L006 — Результаты проверок` |
+| L007 | UI shell and control panel | DONE | hash в отчёте L007, запись в L008 | PASS — см. `L007 — Результаты проверок` |
 | L008 | Stage simulator | PENDING | — | — |
 | L009 | Setup and calibration wizard | PENDING | — | — |
 | L010 | Preset editor | PENDING | — | — |
@@ -389,7 +389,7 @@ Verification:
 #### L006 — Результаты проверок
 
 Статус: `DONE`. Дата: `2026-07-28`. Ветка: `main`.
-Commit hash текущего этапа сообщается в отчёте и записывается следующим запросом.
+Commit: `ea3fae87eaa0a9fc3bfb426c3379d5cfbc16bb93` (`ea3fae8`).
 
 | Проверка | Результат |
 |---|---|
@@ -439,6 +439,25 @@ Verification:
 - viewport checks;
 - frontend typecheck/build;
 - axe/basic accessibility checks, если tooling позволяет.
+
+#### L007 — Результаты проверок
+
+Статус: `DONE`. Дата: `2026-07-28`. Ветка: `main`.
+Commit hash текущего этапа сообщается в отчёте и записывается следующим запросом.
+
+| Проверка | Результат |
+|---|---|
+| Маршруты Пульт / Пресети / Налаштування + mobile nav | PASS |
+| 10 кнопок пресетов, Face/White Hit/Strobe/Blackout/brightness | PASS |
+| Strobe pointer/key + cancel; blur/visibility failsafe hooks | PASS |
+| Blackout без modal | PASS |
+| Status: Mock/output off, без false Art-Net connected | PASS |
+| Component tests (vitest) | PASS — 7 passed |
+| Viewport CSS contract (`preset-pad` + media queries) | PASS |
+| Frontend typecheck / lint / production build | PASS |
+| axe | SKIP — отдельный axe tooling не подключался; есть `aria-pressed`/labels в тестах |
+| Backend regression (`pytest`) | PASS |
+| Simulator / setup wizard / preset editor не реализованы полностью | PASS — placeholder pages only |
 
 ### L008 — Stage simulator
 

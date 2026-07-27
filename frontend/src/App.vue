@@ -1,74 +1,25 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
-import type { HealthResponse } from "./vite-env";
+import { computed, provide } from "vue";
+import AppShell from "./components/AppShell.vue";
+import { APP_STATE_KEY } from "./composables/appStateKey";
+import { useAppState } from "./composables/useAppState";
+import { provideToasts } from "./composables/useToasts";
 
-const health = ref<HealthResponse | null>(null);
-const error = ref<string | null>(null);
-const loading = ref(true);
+provideToasts();
+const appState = useAppState();
+provide(APP_STATE_KEY, appState);
 
-onMounted(async () => {
-  try {
-    const response = await fetch("/api/health");
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-    health.value = (await response.json()) as HealthResponse;
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : "Невідома помилка";
-  } finally {
-    loading.value = false;
-  }
-});
+const connection = computed(() => appState.connection.value);
+const transport = computed(() => appState.output.value?.transport ?? "mock");
+const armed = computed(() => appState.output.value?.armed ?? false);
+const outputError = computed(() => appState.output.value?.last_error ?? null);
 </script>
 
 <template>
-  <div class="shell">
-    <header class="hero">
-      <p class="brand">
-        ORNG LED CONTROL
-      </p>
-      <h1>Локальний світловий пульт</h1>
-      <p class="lead">
-        Scaffold HOME PLAN. Повний пульт, пресети та симулятор з’являться на
-        наступних етапах.
-      </p>
-    </header>
-
-    <section
-      class="status"
-      aria-live="polite"
-    >
-      <h2>Стан backend</h2>
-      <p v-if="loading">
-        Перевірка…
-      </p>
-      <p
-        v-else-if="error"
-        class="error"
-      >
-        Помилка: {{ error }}
-      </p>
-      <ul
-        v-else-if="health"
-        class="facts"
-      >
-        <li>
-          <span>Статус</span>
-          {{ health.status }}
-        </li>
-        <li>
-          <span>Версія</span>
-          {{ health.version }}
-        </li>
-        <li>
-          <span>Transport</span>
-          {{ health.transport }}
-        </li>
-        <li>
-          <span>Art-Net armed</span>
-          {{ health.output_armed ? "так" : "ні" }}
-        </li>
-      </ul>
-    </section>
-  </div>
+  <AppShell
+    :connection="connection"
+    :transport="transport"
+    :armed="armed"
+    :output-error="outputError"
+  />
 </template>

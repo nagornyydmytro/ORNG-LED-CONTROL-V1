@@ -49,6 +49,10 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "frontend lint failed" }
     }
 
+    Write-Host "== frontend unit tests =="
+    & npm run test
+    if ($LASTEXITCODE -ne 0) { throw "frontend tests failed" }
+
     Write-Host "== frontend production build =="
     & npm run build
     if ($LASTEXITCODE -ne 0) { throw "frontend build failed" }

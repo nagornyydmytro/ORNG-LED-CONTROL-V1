@@ -63,8 +63,8 @@
 | L002 | Workspace scaffold | DONE | `df98ab6` | PASS — см. `L002 — Результаты проверок` |
 | L003 | Config, fixtures and patch | DONE | `fbaf08a` | PASS — см. `L003 — Результаты проверок` |
 | L004 | Deterministic engine and layers | DONE | `1c01252` | PASS — см. `L004 — Результаты проверок` |
-| L005 | Mock/Art-Net transports and safety | DONE | hash в отчёте L005, запись в L006 | PASS — см. `L005 — Результаты проверок` |
-| L006 | Backend API and realtime state | PENDING | — | — |
+| L005 | Mock/Art-Net transports and safety | DONE | `f1cb34a` | PASS — см. `L005 — Результаты проверок` |
+| L006 | Backend API and realtime state | DONE | hash в отчёте L006, запись в L007 | PASS — см. `L006 — Результаты проверок` |
 | L007 | UI shell and control panel | PENDING | — | — |
 | L008 | Stage simulator | PENDING | — | — |
 | L009 | Setup and calibration wizard | PENDING | — | — |
@@ -336,7 +336,7 @@ Verification:
 #### L005 — Результаты проверок
 
 Статус: `DONE`. Дата: `2026-07-28`. Ветка: `main`.
-Commit hash текущего этапа сообщается в отчёте и записывается следующим запросом.
+Commit: `f1cb34a42ea1be6239bdba96cc50390d3a856259` (`f1cb34a`).
 
 | Проверка | Результат |
 |---|---|
@@ -385,6 +385,26 @@ Verification:
 - API tests;
 - WebSocket connect/reconnect tests;
 - lifecycle integration tests.
+
+#### L006 — Результаты проверок
+
+Статус: `DONE`. Дата: `2026-07-28`. Ветка: `main`.
+Commit hash текущего этапа сообщается в отчёте и записывается следующим запросом.
+
+| Проверка | Результат |
+|---|---|
+| Health / ready | PASS |
+| GET `/api/state` полный snapshot + frame 512 | PASS |
+| Config app/patch/profiles/layout + presets | PASS |
+| Commands: preset/face/white-hit/strobe/blackout/brightness | PASS |
+| Command idempotency (`client_command_id`) | PASS |
+| WebSocket hello + command broadcast | PASS |
+| Reconnect не дублирует engine; disconnect снимает Strobe | PASS |
+| Focus/visibility failsafe через WS | PASS |
+| Shutdown → output safety (zeros/disarm/Mock) | PASS |
+| Backend regression (`pytest`) | PASS — 53 passed |
+| Ruff check/format | PASS |
+| UI shell / simulator не добавлены | PASS — вне scope |
 
 ### L007 — UI shell and control panel
 

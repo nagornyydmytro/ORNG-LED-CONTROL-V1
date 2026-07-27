@@ -182,10 +182,13 @@ def test_release_held_controls_preserves_preset_clock() -> None:
 def test_health_reports_safe_defaults() -> None:
     from fastapi.testclient import TestClient
 
-    from orng_led.main import app
+    from orng_led.api.runtime import AppRuntime
+    from orng_led.main import create_app
 
-    client = TestClient(app)
-    payload = client.get("/api/health").json()
-    assert payload["transport"] == "mock"
-    assert payload["output_armed"] is False
-    assert payload["artnet_network_enabled"] is False
+    runtime = AppRuntime.create(autostart_loop=False)
+    application = create_app(runtime=runtime, autostart_loop=False)
+    with TestClient(application) as client:
+        payload = client.get("/api/health").json()
+        assert payload["transport"] == "mock"
+        assert payload["output_armed"] is False
+        assert payload["artnet_network_enabled"] is False

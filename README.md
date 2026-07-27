@@ -54,11 +54,14 @@ Health: `http://127.0.0.1:8000/api/health`.
 ```text
 backend/          FastAPI (Python 3.12)
 frontend/         Vue 3 + Vite + TypeScript
+config/           provisional YAML (profiles, patch, layout, app)
 scripts/          bootstrap / run / run-dev / check
 .context/         PROJECT_CANON.md
 docs/             IMPLEMENTATION_PLAN.md, HARDWARE_DAY_CHECKLIST.md
 ```
 
+Конфигурация `config/` versioned (`schema_version: 1`). Все provisional-профили
+помечены `hardware_verified: false`.
 ## Безопасность output
 
 На старте активен только **Mock** transport. Art-Net output по умолчанию

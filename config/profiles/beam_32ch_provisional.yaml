@@ -1,0 +1,84 @@
+schema_version: 1
+id: beam_32ch_provisional
+label: Beam 32ch (provisional)
+kind: beam
+footprint: 32
+hardware_verified: false
+capabilities:
+  - dimmer
+  - pan_tilt
+  - color_wheel
+  - gobo
+  - strobe
+notes: >
+  Footprint reserved at 32. Exact channel functions, reset ranges and
+  pan/tilt limits are PENDING HARDWARE.
+channels:
+  - local: 1
+    role: pan_coarse
+  - local: 2
+    role: pan_fine
+  - local: 3
+    role: tilt_coarse
+  - local: 4
+    role: tilt_fine
+  - local: 5
+    role: movement_speed
+  - local: 6
+    role: dimmer
+  - local: 7
+    role: shutter
+  - local: 8
+    role: strobe
+  - local: 9
+    role: color
+  - local: 10
+    role: gobo
+  - local: 11
+    role: focus
+  - local: 12
+    role: prism
+  - local: 13
+    role: unknown
+    label: Provisional
+  - local: 14
+    role: unknown
+    label: Provisional
+  - local: 15
+    role: unknown
+    label: Provisional
+  - local: 16
+    role: reset
+    label: Reset/service (dangerous ranges PENDING HARDWARE)
+  - local: 17
+    role: unknown
+  - local: 18
+    role: unknown
+  - local: 19
+    role: unknown
+  - local: 20
+    role: unknown
+  - local: 21
+    role: unknown
+  - local: 22
+    role: unknown
+  - local: 23
+    role: unknown
+  - local: 24
+    role: unknown
+  - local: 25
+    role: unknown
+  - local: 26
+    role: unknown
+  - local: 27
+    role: unknown
+  - local: 28
+    role: unknown
+  - local: 29
+    role: unknown
+  - local: 30
+    role: unknown
+  - local: 31
+    role: unknown
+  - local: 32
+    role: unknown

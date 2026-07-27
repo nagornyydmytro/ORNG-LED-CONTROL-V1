@@ -1,0 +1,18 @@
+schema_version: 1
+viewer_facing: true
+description: >
+  Left/right are from the audience looking at the stage (canon §3.3).
+  Physical Bar orientation and Beam home/invert remain PENDING HARDWARE.
+fixtures:
+  - par_1
+  - par_2
+  - par_3
+  - par_4
+  - beam_right
+  - beam_left
+  - bar_1
+  - bar_2
+  - bar_3
+  - bar_4
+  - face_par_1
+  - face_par_2

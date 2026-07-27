@@ -1,0 +1,139 @@
+schema_version: 1
+universe: 0
+fixtures:
+  - id: par_1
+    profile_id: par_7ch_provisional
+    label: PAR 1
+    start_address: 1
+    kind: par
+    groups: [rear, par, left, outer, all_rear]
+    spatial:
+      side: left
+      ring: outer
+      face: false
+      order: 1
+  - id: par_2
+    profile_id: par_7ch_provisional
+    label: PAR 2
+    start_address: 8
+    kind: par
+    groups: [rear, par, left, inner, all_rear]
+    spatial:
+      side: left
+      ring: inner
+      face: false
+      order: 2
+  - id: par_3
+    profile_id: par_7ch_provisional
+    label: PAR 3
+    start_address: 15
+    kind: par
+    groups: [rear, par, right, inner, all_rear]
+    spatial:
+      side: right
+      ring: inner
+      face: false
+      order: 3
+  - id: par_4
+    profile_id: par_7ch_provisional
+    label: PAR 4
+    start_address: 22
+    kind: par
+    groups: [rear, par, right, outer, all_rear]
+    spatial:
+      side: right
+      ring: outer
+      face: false
+      order: 4
+  - id: beam_right
+    profile_id: beam_32ch_provisional
+    label: Beam Right
+    start_address: 29
+    kind: beam
+    groups: [rear, beam, right, all_rear]
+    spatial:
+      side: right
+      ring: none
+      face: false
+      order: 1
+  - id: beam_left
+    profile_id: beam_32ch_provisional
+    label: Beam Left
+    start_address: 61
+    kind: beam
+    groups: [rear, beam, left, all_rear]
+    spatial:
+      side: left
+      ring: none
+      face: false
+      order: 2
+  - id: bar_1
+    profile_id: bar_16ch_provisional
+    label: Bar 1
+    start_address: 93
+    kind: bar
+    groups: [rear, bar, left, outer, all_rear]
+    spatial:
+      side: left
+      ring: outer
+      face: false
+      order: 1
+      invert_segments: false
+  - id: bar_2
+    profile_id: bar_16ch_provisional
+    label: Bar 2
+    start_address: 109
+    kind: bar
+    groups: [rear, bar, left, inner, all_rear]
+    spatial:
+      side: left
+      ring: inner
+      face: false
+      order: 2
+      invert_segments: false
+  - id: bar_3
+    profile_id: bar_16ch_provisional
+    label: Bar 3
+    start_address: 125
+    kind: bar
+    groups: [rear, bar, right, inner, all_rear]
+    spatial:
+      side: right
+      ring: inner
+      face: false
+      order: 3
+      invert_segments: false
+  - id: bar_4
+    profile_id: bar_16ch_provisional
+    label: Bar 4
+    start_address: 141
+    kind: bar
+    groups: [rear, bar, right, outer, all_rear]
+    spatial:
+      side: right
+      ring: outer
+      face: false
+      order: 4
+      invert_segments: false
+  - id: face_par_1
+    profile_id: face_par_7ch_provisional
+    label: Face PAR 1
+    start_address: 157
+    kind: face_par
+    groups: [face, face_par, left]
+    spatial:
+      side: left
+      ring: none
+      face: true
+      order: 1
+  - id: face_par_2
+    profile_id: face_par_7ch_provisional
+    label: Face PAR 2
+    start_address: 164
+    kind: face_par
+    groups: [face, face_par, right]
+    spatial:
+      side: right
+      ring: none
+      face: true
+      order: 2

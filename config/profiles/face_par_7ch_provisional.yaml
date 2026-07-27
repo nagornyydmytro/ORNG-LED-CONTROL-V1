@@ -1,0 +1,35 @@
+schema_version: 1
+id: face_par_7ch_provisional
+label: Face PAR 7ch (provisional)
+kind: face_par
+footprint: 7
+hardware_verified: false
+capabilities:
+  - dimmer
+  - rgb
+  - white
+  - face_only
+notes: >
+  Face PAR are outside automatic presets. Channel map provisional.
+channels:
+  - local: 1
+    role: dimmer
+    label: Dimmer
+  - local: 2
+    role: red
+    label: Red
+  - local: 3
+    role: green
+    label: Green
+  - local: 4
+    role: blue
+    label: Blue
+  - local: 5
+    role: white
+    label: White
+  - local: 6
+    role: strobe
+    label: Strobe/shutter (provisional)
+  - local: 7
+    role: unknown
+    label: Mode/macro (provisional)

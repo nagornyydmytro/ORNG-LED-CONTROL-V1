@@ -60,8 +60,8 @@
 | ID | Этап | Статус | Commit | Проверки |
 |---|---|---|---|---|
 | L001 | Canon bootstrap | DONE | `1807357` | PASS — см. `L001 — Результаты проверок` |
-| L002 | Workspace scaffold | DONE | hash в отчёте L002, запись в L003 | PASS — см. `L002 — Результаты проверок` |
-| L003 | Config, fixtures and patch | PENDING | — | — |
+| L002 | Workspace scaffold | DONE | `df98ab6` | PASS — см. `L002 — Результаты проверок` |
+| L003 | Config, fixtures and patch | DONE | hash в отчёте L003, запись в L004 | PASS — см. `L003 — Результаты проверок` |
 | L004 | Deterministic engine and layers | PENDING | — | — |
 | L005 | Mock/Art-Net transports and safety | PENDING | — | — |
 | L006 | Backend API and realtime state | PENDING | — | — |
@@ -169,7 +169,7 @@ Verification:
 #### L002 — Результаты проверок
 
 Статус: `DONE`. Дата: `2026-07-28`. Ветка: `main`.
-Commit hash текущего этапа сообщается в отчёте и записывается следующим запросом.
+Commit: `df98ab696656ace7374c7036074b44587183c6c6` (`df98ab6`).
 
 | Проверка | Результат |
 |---|---|
@@ -225,6 +225,25 @@ Verification:
 - unit tests моделей и YAML round-trip;
 - negative fixtures/patch tests;
 - UTF-8 paths/config smoke на Windows.
+
+#### L003 — Результаты проверок
+
+Статус: `DONE`. Дата: `2026-07-28`. Ветка: `main`.
+Commit hash текущего этапа сообщается в отчёте и записывается следующим запросом.
+
+| Проверка | Результат |
+|---|---|
+| Provisional show config загружается (12 fixtures) | PASS |
+| Все profiles `hardware_verified: false` | PASS |
+| Глобальный канал `start + local - 1` | PASS |
+| Overlap / out-of-range / duplicate ID отклоняются | PASS |
+| Неизвестная `schema_version` и unknown fields отклоняются | PASS |
+| YAML round-trip app/profile | PASS |
+| Atomic write + invalid edit не портит last-good | PASS |
+| UTF-8 path smoke (`конфіг/налаштування.yaml`) | PASS |
+| Backend regression (`pytest`, включая health) | PASS — 14 passed |
+| Ruff check/format | PASS |
+| Art-Net / engine / presets не добавлены | PASS — вне scope |
 
 ### L004 — Deterministic engine and layers
 

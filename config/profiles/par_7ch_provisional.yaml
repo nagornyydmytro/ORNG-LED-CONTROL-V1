@@ -1,0 +1,34 @@
+schema_version: 1
+id: par_7ch_provisional
+label: PAR 7ch (provisional)
+kind: par
+footprint: 7
+hardware_verified: false
+capabilities:
+  - dimmer
+  - rgb
+  - strobe
+notes: >
+  Provisional channel map. Real mode and ranges are PENDING HARDWARE.
+channels:
+  - local: 1
+    role: dimmer
+    label: Dimmer
+  - local: 2
+    role: red
+    label: Red
+  - local: 3
+    role: green
+    label: Green
+  - local: 4
+    role: blue
+    label: Blue
+  - local: 5
+    role: white
+    label: White
+  - local: 6
+    role: strobe
+    label: Strobe/shutter (provisional)
+  - local: 7
+    role: unknown
+    label: Mode/macro (provisional)

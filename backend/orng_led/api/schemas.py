@@ -116,6 +116,29 @@ class SaveLayoutRequest(ApiModel):
     layout: dict[str, Any]
 
 
+class PresetCreateRequest(ApiModel):
+    preset: dict[str, Any] | None = None
+    id: str | None = None
+    label: str | None = None
+
+
+class PresetUpdateRequest(ApiModel):
+    preset: dict[str, Any]
+
+
+class PresetRenameRequest(ApiModel):
+    label: Annotated[str, Field(min_length=1, max_length=80)]
+
+
+class PresetDuplicateRequest(ApiModel):
+    new_id: Annotated[str, Field(min_length=1, max_length=32, pattern=r"^[A-Za-z][A-Za-z0-9_-]*$")]
+    label: str | None = None
+
+
+class PresetPreviewRequest(ApiModel):
+    speed: Annotated[float, Field(ge=1.0, le=120.0)] = 10.0
+
+
 class CommandAck(ApiModel):
     ok: bool = True
     idempotent_replay: bool = False

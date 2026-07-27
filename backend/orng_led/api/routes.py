@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request
+from pydantic import ValidationError
 
 from orng_led import __version__
 from orng_led.api.runtime import AppRuntime
@@ -16,6 +17,11 @@ from orng_led.api.schemas import (
     IdentifyFixtureCommand,
     IdentifyGroupCommand,
     MasterBrightnessCommand,
+    PresetCreateRequest,
+    PresetDuplicateRequest,
+    PresetPreviewRequest,
+    PresetRenameRequest,
+    PresetUpdateRequest,
     PreviewSpeedCommand,
     RawTesterCommand,
     RawTesterSetCommand,
@@ -96,11 +102,91 @@ def build_api_router() -> APIRouter:
     @router.get("/presets")
     def presets(request: Request) -> dict:
         runtime = get_runtime(request)
-        items = []
-        for preset_id, preset in sorted(runtime.engine.presets.items()):
-            label = getattr(preset, "label", preset_id)
-            items.append({"id": preset_id, "label": label})
-        return {"presets": items}
+        return {"presets": runtime.list_preset_summaries()}
+
+    @router.get("/presets/{preset_id}")
+    def get_preset(preset_id: str, request: Request) -> dict:
+        runtime = get_runtime(request)
+        try:
+            return runtime.get_preset_document(preset_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @router.post("/presets", response_model=CommandAck)
+    async def create_preset(body: PresetCreateRequest, request: Request) -> CommandAck:
+        runtime = get_runtime(request)
+        try:
+            if body.preset:
+                state = runtime.create_preset(body.preset)
+            elif body.id and body.label:
+                state = runtime.create_default_custom(body.id, body.label)
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Provide full preset document or id+label for a default custom preset",
+                )
+        except (ConfigError, ValidationError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        await runtime.broadcast_state()
+        return CommandAck(state=state)
+
+    @router.put("/presets/{preset_id}", response_model=CommandAck)
+    async def put_preset(preset_id: str, body: PresetUpdateRequest, request: Request) -> CommandAck:
+        runtime = get_runtime(request)
+        try:
+            state = runtime.update_preset(preset_id, body.preset)
+        except (ConfigError, KeyError, ValidationError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        await runtime.broadcast_state()
+        return CommandAck(state=state)
+
+    @router.post("/presets/{preset_id}/rename", response_model=CommandAck)
+    async def rename_preset(
+        preset_id: str, body: PresetRenameRequest, request: Request
+    ) -> CommandAck:
+        runtime = get_runtime(request)
+        try:
+            state = runtime.rename_preset(preset_id, body.label)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        await runtime.broadcast_state()
+        return CommandAck(state=state)
+
+    @router.post("/presets/{preset_id}/duplicate", response_model=CommandAck)
+    async def duplicate_preset(
+        preset_id: str, body: PresetDuplicateRequest, request: Request
+    ) -> CommandAck:
+        runtime = get_runtime(request)
+        try:
+            state = runtime.duplicate_preset(preset_id, body.new_id, body.label)
+        except (ConfigError, KeyError) as exc:
+            status = 404 if isinstance(exc, KeyError) else 400
+            raise HTTPException(status_code=status, detail=str(exc)) from exc
+        await runtime.broadcast_state()
+        return CommandAck(state=state)
+
+    @router.delete("/presets/{preset_id}", response_model=CommandAck)
+    async def delete_preset(preset_id: str, request: Request) -> CommandAck:
+        runtime = get_runtime(request)
+        try:
+            state = runtime.delete_preset(preset_id)
+        except (ConfigError, KeyError) as exc:
+            status = 404 if isinstance(exc, KeyError) else 400
+            raise HTTPException(status_code=status, detail=str(exc)) from exc
+        await runtime.broadcast_state()
+        return CommandAck(state=state)
+
+    @router.post("/presets/{preset_id}/preview", response_model=CommandAck)
+    async def preview_preset(
+        preset_id: str, body: PresetPreviewRequest, request: Request
+    ) -> CommandAck:
+        runtime = get_runtime(request)
+        try:
+            state = runtime.preview_preset(preset_id, speed=body.speed)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        await runtime.broadcast_state()
+        return CommandAck(state=state)
 
     @router.post("/commands/select-preset", response_model=CommandAck)
     async def select_preset(body: SelectPresetCommand, request: Request) -> CommandAck:

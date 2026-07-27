@@ -67,8 +67,8 @@
 | L006 | Backend API and realtime state | DONE | `ea3fae8` | PASS — см. `L006 — Результаты проверок` |
 | L007 | UI shell and control panel | DONE | `7493e01` | PASS — см. `L007 — Результаты проверок` |
 | L008 | Stage simulator | DONE | `48687b0` | PASS — см. `L008 — Результаты проверок` |
-| L009 | Setup and calibration wizard | DONE | hash в отчёте L009, запись в L010 | PASS — см. `L009 — Результаты проверок` |
-| L010 | Preset editor | PENDING | — | — |
+| L009 | Setup and calibration wizard | DONE | `02f414c` | PASS — см. `L009 — Результаты проверок` |
+| L010 | Preset editor | DONE | hash в отчёте L010, запись в L011 | PASS — см. `L010 — Результаты проверок` |
 | L011 | Ten complete presets | PENDING | — | — |
 | L012 | Input adapter and 16-button mapping | PENDING | — | — |
 | L013 | Integration, Windows scripts and HOME acceptance | PENDING | — | — |
@@ -548,7 +548,7 @@ Verification:
 #### L009 — Результаты проверок
 
 Статус: `DONE`. Дата: `2026-07-28`. Ветка: `main`.
-Commit hash текущего этапа сообщается в отчёте и записывается следующим запросом.
+Commit: `02f414cfd4dd7a3a768e5caf3f483eefa0ecdeba` (`02f414c`).
 
 | Проверка | Результат |
 |---|---|
@@ -598,6 +598,25 @@ Verification:
 - invalid YAML/config recovery;
 - preview integration;
 - build/mobile checks.
+
+#### L010 — Результаты проверок
+
+Статус: `DONE`. Дата: `2026-07-28`. Ветка: `main`.
+Commit hash текущего этапа сообщается в отчёте и записывается следующим запросом.
+
+| Проверка | Результат |
+|---|---|
+| YAML preset schema + `config/presets/P05.yaml` + semantic evaluate | PASS |
+| Карточки / create / rename / duplicate / edit / delete | PASS |
+| Episode-card editor: fields, add/delete, reorder (↑↓ + drag) | PASS |
+| Invalid update не заменяет last valid на диске | PASS |
+| Preview через engine, Mock only, Art-Net не armed | PASS |
+| CRUD/editor API tests (`test_presets_editor.py`) | PASS — 6 passed |
+| Frontend editor tests (vitest) | PASS — 2 passed |
+| Frontend typecheck / lint / production build | PASS |
+| Mobile smoke | PASS — editor CSS stack ≤900px; без browser MCP |
+| Backend regression (`pytest`) | PASS — 72 passed |
+| Ten complete P01–P10 artistic packs / L011 не начаты | PASS |
 
 ### L011 — Ten complete presets
 

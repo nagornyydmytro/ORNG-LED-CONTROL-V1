@@ -1,0 +1,86 @@
+schema_version: 1
+id: P05
+label: Універсальний
+hardware_tuned: false
+builtin: true
+episodes:
+  - id: ep1
+    duration_s: 18
+    groups: [all_rear]
+    palette: warm_orange
+    effect: pulse
+    speed: 0.45
+    intensity: 0.7
+    transition: soft
+  - id: ep2
+    duration_s: 18
+    groups: [par, bar]
+    palette: amber
+    effect: wave
+    speed: 0.5
+    intensity: 0.68
+    transition: soft
+  - id: ep3
+    duration_s: 18
+    groups: [all_rear]
+    palette: warm_orange
+    effect: breathe
+    speed: 0.4
+    intensity: 0.72
+    transition: fade
+  - id: ep4
+    duration_s: 18
+    groups: [outer, bar]
+    palette: deep_red
+    effect: pulse
+    speed: 0.55
+    intensity: 0.65
+    transition: soft
+  - id: ep5
+    duration_s: 18
+    groups: [all_rear]
+    palette: amber
+    effect: chase
+    speed: 0.5
+    intensity: 0.7
+    transition: soft
+  - id: ep6
+    duration_s: 18
+    groups: [par, beam]
+    palette: warm_orange
+    effect: mirror_sweep
+    speed: 0.35
+    intensity: 0.66
+    transition: fade
+  - id: ep7
+    duration_s: 18
+    groups: [all_rear]
+    palette: white_warm
+    effect: pulse
+    speed: 0.48
+    intensity: 0.6
+    transition: soft
+  - id: ep8
+    duration_s: 18
+    groups: [inner, bar]
+    palette: violet_orange
+    effect: wave
+    speed: 0.52
+    intensity: 0.7
+    transition: soft
+  - id: ep9
+    duration_s: 18
+    groups: [all_rear]
+    palette: amber
+    effect: breathe
+    speed: 0.42
+    intensity: 0.74
+    transition: fade
+  - id: ep10
+    duration_s: 18
+    groups: [all_rear]
+    palette: warm_orange
+    effect: pulse
+    speed: 0.45
+    intensity: 0.7
+    transition: soft

@@ -36,6 +36,8 @@ from orng_led.engine.clock import FRAME_DT
 from orng_led.engine.engine import Engine, EngineSnapshot
 from orng_led.output.contract import OutputError
 from orng_led.output.controller import OutputController
+from orng_led.presets.models import PresetDocument
+from orng_led.presets.store import PresetStore
 from orng_led.setup.raw_tester import RawTesterSession
 from orng_led.simulator.decode import decode_simulator_view
 
@@ -65,6 +67,7 @@ class AppRuntime:
     preview_speed: float = 1.0
     raw_tester: RawTesterSession = field(default_factory=RawTesterSession)
     config_dir: Path = field(default_factory=default_config_dir)
+    preset_store: PresetStore = field(default_factory=PresetStore)
 
     @classmethod
     def create(
@@ -76,7 +79,8 @@ class AppRuntime:
     ) -> AppRuntime:
         root = config_dir or default_config_dir()
         loaded = show or load_show_config(root)
-        engine = Engine(show=loaded)
+        store = PresetStore.load(root / "presets")
+        engine = Engine(show=loaded, presets=store.programs())
         output = OutputController(engine=engine)
         return cls(
             show=loaded,
@@ -84,7 +88,14 @@ class AppRuntime:
             output=output,
             autostart_loop=autostart_loop,
             config_dir=root,
+            preset_store=store,
         )
+
+    def refresh_presets(self) -> None:
+        self.engine.presets = self.preset_store.programs()
+        if self.engine.active_preset_id not in self.engine.presets:
+            fallback = next(iter(self.engine.presets))
+            self.engine.select_preset(fallback, reset_clock=True)
 
     async def start(self) -> None:
         if self._running:
@@ -519,6 +530,56 @@ class AppRuntime:
         state = self.build_state()
         self._remember(client_command_id, state)
         return state, False
+
+    def list_preset_summaries(self) -> list[dict]:
+        return [item.model_dump(mode="json") for item in self.preset_store.summaries()]
+
+    def get_preset_document(self, preset_id: str) -> dict:
+        return self.preset_store.get(preset_id).model_dump(mode="json")
+
+    def create_preset(self, data: dict) -> AppStateResponse:
+        document = PresetDocument.model_validate(data)
+        document = document.model_copy(update={"hardware_tuned": False, "builtin": False})
+        self.preset_store.create(document)
+        self.refresh_presets()
+        return self.build_state()
+
+    def create_default_custom(self, preset_id: str, label: str) -> AppStateResponse:
+        document = self.preset_store.default_custom_document(preset_id, label)
+        self.preset_store.create(document)
+        self.refresh_presets()
+        return self.build_state()
+
+    def update_preset(self, preset_id: str, data: dict) -> AppStateResponse:
+        self.preset_store.update(preset_id, data)
+        self.refresh_presets()
+        return self.build_state()
+
+    def rename_preset(self, preset_id: str, label: str) -> AppStateResponse:
+        self.preset_store.rename(preset_id, label)
+        self.refresh_presets()
+        return self.build_state()
+
+    def duplicate_preset(
+        self, preset_id: str, new_id: str, new_label: str | None = None
+    ) -> AppStateResponse:
+        self.preset_store.duplicate(preset_id, new_id, new_label)
+        self.refresh_presets()
+        return self.build_state()
+
+    def delete_preset(self, preset_id: str) -> AppStateResponse:
+        self.preset_store.delete(preset_id)
+        self.refresh_presets()
+        return self.build_state()
+
+    def preview_preset(self, preset_id: str, *, speed: float = 10.0) -> AppStateResponse:
+        """Select preset and accelerate preview on Mock only (never arms Art-Net)."""
+        self.output.use_mock()
+        if self.raw_tester.active:
+            self.exit_raw_tester()
+        self.engine.select_preset(preset_id, reset_clock=True)
+        self.preview_speed = max(1.0, min(120.0, float(speed)))
+        return self.build_state()
 
     def on_ws_disconnect(self) -> None:
         # Losing the controlling socket must clear held actions, not stop the show.

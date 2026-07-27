@@ -109,4 +109,9 @@ export interface CommandAck {
 export interface PresetInfo {
   id: string;
   label: string;
+  builtin?: boolean;
+  hardware_tuned?: boolean;
+  episode_count?: number;
+  total_duration_s?: number;
+  source?: string;
 }

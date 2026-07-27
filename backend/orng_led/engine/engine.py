@@ -145,14 +145,21 @@ class Engine:
             frame = render_stage(self.show, composed, self.beam_motion)
 
         assert_frame_bounds(frame)
-        pos = cycle_position(self.preset_elapsed_s)
+        position_fn = getattr(preset, "cycle_position", None)
+        if callable(position_fn):
+            pos = position_fn(self.preset_elapsed_s)
+            cycle_len = getattr(preset, "total_duration_s", CYCLE_DURATION_S) or CYCLE_DURATION_S
+            preset_time = self.preset_elapsed_s % cycle_len
+        else:
+            pos = cycle_position(self.preset_elapsed_s)
+            preset_time = self.preset_elapsed_s % CYCLE_DURATION_S
         white_hit_active = (
             self.overlays.white_hit_until is not None and time_s < self.overlays.white_hit_until
         )
         return EngineSnapshot(
             time_s=time_s,
             preset_id=self.active_preset_id,
-            preset_time_s=self.preset_elapsed_s % CYCLE_DURATION_S,
+            preset_time_s=preset_time,
             episode_index=pos.episode_index,
             episode_time_s=pos.episode_time_s,
             blackout=self.overlays.blackout,

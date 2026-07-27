@@ -356,6 +356,84 @@ input {
   color: var(--muted);
 }
 
+.create-box,
+.editor {
+  margin: 1rem 0;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.create-box h2,
+.editor-head h2 {
+  margin: 0 0 0.55rem;
+  font-size: 1.05rem;
+}
+
+.card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.editor-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 0.85rem;
+}
+
+.field.inline {
+  min-width: 12rem;
+}
+
+.episode-card {
+  margin-bottom: 0.75rem;
+  padding: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 0.7rem;
+  background: var(--bg-2);
+  cursor: grab;
+}
+
+.episode-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.55rem;
+}
+
+.episode-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: 0.55rem;
+}
+
+.group-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.65rem;
+}
+
+.group-chips .chip {
+  cursor: pointer;
+  background: transparent;
+}
+
+@media (max-width: 900px) {
+  .episode-toolbar,
+  .editor-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
 .setup-list {
   list-style: none;
   margin: 0;

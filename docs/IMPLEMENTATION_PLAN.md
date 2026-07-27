@@ -61,8 +61,8 @@
 |---|---|---|---|---|
 | L001 | Canon bootstrap | DONE | `1807357` | PASS — см. `L001 — Результаты проверок` |
 | L002 | Workspace scaffold | DONE | `df98ab6` | PASS — см. `L002 — Результаты проверок` |
-| L003 | Config, fixtures and patch | DONE | hash в отчёте L003, запись в L004 | PASS — см. `L003 — Результаты проверок` |
-| L004 | Deterministic engine and layers | PENDING | — | — |
+| L003 | Config, fixtures and patch | DONE | `fbaf08a` | PASS — см. `L003 — Результаты проверок` |
+| L004 | Deterministic engine and layers | DONE | hash в отчёте L004, запись в L005 | PASS — см. `L004 — Результаты проверок` |
 | L005 | Mock/Art-Net transports and safety | PENDING | — | — |
 | L006 | Backend API and realtime state | PENDING | — | — |
 | L007 | UI shell and control panel | PENDING | — | — |
@@ -229,7 +229,7 @@ Verification:
 #### L003 — Результаты проверок
 
 Статус: `DONE`. Дата: `2026-07-28`. Ветка: `main`.
-Commit hash текущего этапа сообщается в отчёте и записывается следующим запросом.
+Commit: `fbaf08a3e6a659a14f34c11e62d353de6e6b9f41` (`fbaf08a`).
 
 | Проверка | Результат |
 |---|---|
@@ -280,6 +280,24 @@ Verification:
 - layer-priority tests;
 - cycle-boundary tests;
 - Beam slope/speed tests.
+
+#### L004 — Результаты проверок
+
+Статус: `DONE`. Дата: `2026-07-28`. Ветка: `main`.
+Commit hash текущего этапа сообщается в отчёте и записывается следующим запросом.
+
+| Проверка | Результат |
+|---|---|
+| Одинаковое preset time → одинаковый кадр | PASS |
+| Frame values всегда `0..255` (512 каналов) | PASS |
+| Blackout обнуляет все каналы, clock пресета идёт | PASS |
+| White Hit / Strobe не меняют Face PAR | PASS |
+| Overlay не сбрасывает preset id / clock | PASS |
+| Cycle boundary `180s → 0` / episode wrap | PASS |
+| Beam speed limit / no teleport | PASS |
+| Backend regression (`pytest`) | PASS — 25 passed |
+| Ruff check/format | PASS |
+| Art-Net / UI / 10 artistic presets не добавлены | PASS — вне scope |
 
 ### L005 — Mock/Art-Net transports and safety
 

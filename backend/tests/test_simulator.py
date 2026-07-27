@@ -1,0 +1,94 @@
+"""Simulator decode and accelerated preview clock tests."""
+
+from __future__ import annotations
+
+from orng_led.api.runtime import AppRuntime
+from orng_led.config import load_show_config
+from orng_led.engine.engine import Engine
+from orng_led.simulator.decode import decode_simulator_view
+
+
+def test_decode_counts_twelve_fixtures() -> None:
+    show = load_show_config()
+    engine = Engine(show=show)
+    snap = engine.tick(dt_s=0.0)
+    view = decode_simulator_view(show, list(snap.frame))
+    assert len(view.pars) == 4
+    assert len(view.bars) == 4
+    assert len(view.beams) == 2
+    assert len(view.faces) == 2
+    assert all(len(bar.segments) == 8 for bar in view.bars)
+
+
+def test_blackout_zeros_simulator_and_frame() -> None:
+    show = load_show_config()
+    engine = Engine(show=show)
+    engine.select_preset("P05")
+    engine.tick(dt_s=0.5)
+    engine.set_blackout(True)
+    snap = engine.tick(dt_s=0.0)
+    frame = list(snap.frame)
+    assert all(value == 0 for value in frame)
+    view = decode_simulator_view(show, frame)
+    assert view.blackout_visual is True
+    assert view.nonzero_channels == 0
+    assert all(par.intensity == 0 for par in view.pars)
+    assert all(bar.dimmer == 0 and sum(bar.segments) == 0 for bar in view.bars)
+    assert all(beam.dimmer == 0 for beam in view.beams)
+    assert all(face.intensity == 0 for face in view.faces)
+
+
+def test_simulator_matches_frame_not_parallel_fiction() -> None:
+    show = load_show_config()
+    engine = Engine(show=show)
+    engine.select_preset("P05")
+    snap = engine.tick(dt_s=1.0)
+    frame = list(snap.frame)
+    view = decode_simulator_view(show, frame)
+
+    # PAR 1 starts at address 1: dimmer local 1, RGB on provisional profile.
+    par1 = next(p for p in view.pars if p.id == "par_1")
+    assert abs(par1.intensity - frame[0] / 255.0) < 1e-9
+    assert abs(par1.r - frame[1] / 255.0) < 1e-9
+
+    bar1 = next(b for b in view.bars if b.id == "bar_1")
+    # Bar 1 start 93 → index 92 dimmer; segments at locals 3..10 → indices 94..101
+    assert abs(bar1.dimmer - frame[92] / 255.0) < 1e-9
+    assert abs(bar1.segments[0] - frame[94] / 255.0) < 1e-9
+
+
+def test_beam_sides_are_spatially_distinct() -> None:
+    show = load_show_config()
+    engine = Engine(show=show)
+    snap = engine.tick(dt_s=0.0)
+    view = decode_simulator_view(show, list(snap.frame))
+    left = next(b for b in view.beams if b.id == "beam_left")
+    right = next(b for b in view.beams if b.id == "beam_right")
+    assert left.side == "left"
+    assert right.side == "right"
+
+
+def test_preview_speed_accelerates_clock() -> None:
+    runtime = AppRuntime.create(autostart_loop=False)
+    runtime.engine.select_preset("P05", reset_clock=True)
+    runtime.apply_preview_speed(60.0)
+    assert runtime.preview_speed == 60.0
+    before = runtime.engine.clock.time()
+    runtime.tick(dt_s=1.0)
+    after = runtime.engine.clock.time()
+    assert after - before == 60.0
+    state = runtime.build_state()
+    assert state.preview_speed == 60.0
+    assert state.simulator.nonzero_channels >= 0
+
+
+def test_accelerated_cycle_covers_full_preset_window() -> None:
+    runtime = AppRuntime.create(autostart_loop=False)
+    runtime.engine.select_preset("P05", reset_clock=True)
+    runtime.apply_preview_speed(60.0)
+    # 180s show / 60x ≈ 3 wall seconds of tick input.
+    for _ in range(3):
+        runtime.tick(dt_s=1.0)
+    snap = runtime.engine.render_at(runtime.engine.clock.time(), dt_s=0.0)
+    assert snap.preset_time_s >= 179.0 or snap.time_s >= 180.0
+    assert runtime.build_state().simulator is not None

@@ -19,6 +19,7 @@ from orng_led.engine.clock import FRAME_DT
 from orng_led.engine.engine import Engine, EngineSnapshot
 from orng_led.output.contract import OutputError
 from orng_led.output.controller import OutputController
+from orng_led.simulator.decode import decode_simulator_view
 
 WsSender = Callable[[dict], Awaitable[None]]
 
@@ -43,6 +44,7 @@ class AppRuntime:
     _last_wall: float | None = None
     autostart_loop: bool = True
     max_idempotency_keys: int = 256
+    preview_speed: float = 1.0
 
     @classmethod
     def create(cls, *, autostart_loop: bool = True, show: ShowConfig | None = None) -> AppRuntime:
@@ -87,7 +89,9 @@ class AppRuntime:
             raise
 
     def tick(self, dt_s: float = FRAME_DT) -> EngineSnapshot:
-        snapshot = self.engine.tick(dt_s=dt_s)
+        # preview_speed advances show time faster for simulator review only.
+        scaled = max(0.0, dt_s) * self.preview_speed
+        snapshot = self.engine.tick(dt_s=scaled)
         frame = snapshot.frame
         if self.output.transport_kind.value == "mock":
             self.output.publish(frame)
@@ -103,6 +107,7 @@ class AppRuntime:
     def build_state(self) -> AppStateResponse:
         snap = self.engine.render_at(self.engine.clock.time(), dt_s=0.0)
         out = self.output.status()
+        frame = list(snap.frame)
         return AppStateResponse(
             engine=EngineState(
                 preset_id=snap.preset_id,
@@ -128,9 +133,25 @@ class AppRuntime:
             ),
             presets=sorted(self.engine.presets.keys()),
             fixture_ids=[fx.id for fx in self.show.patch.fixtures],
-            frame=list(snap.frame),
+            frame=frame,
             sequence=self.sequence,
+            preview_speed=self.preview_speed,
+            simulator=decode_simulator_view(self.show, frame),
         )
+
+    def apply_preview_speed(
+        self,
+        value: float,
+        *,
+        client_command_id: str | None = None,
+    ) -> tuple[AppStateResponse, bool]:
+        cached = self._idempotent(client_command_id)
+        if cached is not None:
+            return cached, True
+        self.preview_speed = max(1.0, min(120.0, float(value)))
+        state = self.build_state()
+        self._remember(client_command_id, state)
+        return state, False
 
     def _remember(self, client_command_id: str | None, state: AppStateResponse) -> None:
         if not client_command_id:

@@ -36,6 +36,53 @@ export interface OutputState {
   universe: number;
 }
 
+export interface ParFixtureView {
+  id: string;
+  label: string;
+  kind: string;
+  side: string;
+  ring: string;
+  face: boolean;
+  order?: number | null;
+  r: number;
+  g: number;
+  b: number;
+  w: number;
+  intensity: number;
+}
+
+export interface BarFixtureView {
+  id: string;
+  label: string;
+  kind: string;
+  side: string;
+  ring: string;
+  order?: number | null;
+  dimmer: number;
+  segments: number[];
+}
+
+export interface BeamFixtureView {
+  id: string;
+  label: string;
+  kind: string;
+  side: string;
+  order?: number | null;
+  pan: number;
+  tilt: number;
+  dimmer: number;
+  shutter_open: boolean;
+}
+
+export interface SimulatorView {
+  pars: ParFixtureView[];
+  bars: BarFixtureView[];
+  beams: BeamFixtureView[];
+  faces: ParFixtureView[];
+  nonzero_channels: number;
+  blackout_visual: boolean;
+}
+
 export interface AppState {
   engine: EngineState;
   output: OutputState;
@@ -43,6 +90,8 @@ export interface AppState {
   fixture_ids: string[];
   frame: number[];
   sequence: number;
+  preview_speed: number;
+  simulator: SimulatorView;
 }
 
 export interface CommandAck {

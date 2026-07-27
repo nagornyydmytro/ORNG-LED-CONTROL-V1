@@ -5,6 +5,7 @@ import OverlayControls from "../components/control/OverlayControls.vue";
 import PresetPad from "../components/control/PresetPad.vue";
 import StatusBar from "../components/control/StatusBar.vue";
 import StrobeButton from "../components/control/StrobeButton.vue";
+import StageSimulator from "../components/simulator/StageSimulator.vue";
 import { APP_STATE_KEY } from "../composables/appStateKey";
 
 const api = inject(APP_STATE_KEY);
@@ -13,6 +14,7 @@ if (!api) {
 }
 
 const {
+  state,
   engine,
   output,
   availableIds,
@@ -25,6 +27,7 @@ const {
   toggleBlackout,
   setFace,
   setMasterBrightness,
+  setPreviewSpeed,
 } = api;
 
 function onFaceBrightness(value: number) {
@@ -91,5 +94,20 @@ function onToggleFace() {
         />
       </div>
     </div>
+
+    <StageSimulator
+      :simulator="state?.simulator ?? null"
+      :frame="state?.frame ?? []"
+      :engine-preset-id="engine?.preset_id ?? '—'"
+      :preset-time-s="engine?.preset_time_s ?? 0"
+      :episode-index="engine?.episode_index ?? 0"
+      :blackout="engine?.blackout ?? false"
+      :strobe-held="engine?.strobe_held ?? false"
+      :white-hit-active="engine?.white_hit_active ?? false"
+      :face-on="engine?.face_on ?? false"
+      :preview-speed="state?.preview_speed ?? 1"
+      :disabled="connection === 'offline'"
+      @update:preview-speed="setPreviewSpeed"
+    />
   </div>
 </template>

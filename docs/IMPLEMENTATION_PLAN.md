@@ -65,8 +65,8 @@
 | L004 | Deterministic engine and layers | DONE | `1c01252` | PASS — см. `L004 — Результаты проверок` |
 | L005 | Mock/Art-Net transports and safety | DONE | `f1cb34a` | PASS — см. `L005 — Результаты проверок` |
 | L006 | Backend API and realtime state | DONE | `ea3fae8` | PASS — см. `L006 — Результаты проверок` |
-| L007 | UI shell and control panel | DONE | hash в отчёте L007, запись в L008 | PASS — см. `L007 — Результаты проверок` |
-| L008 | Stage simulator | PENDING | — | — |
+| L007 | UI shell and control panel | DONE | `7493e01` | PASS — см. `L007 — Результаты проверок` |
+| L008 | Stage simulator | DONE | hash в отчёте L008, запись в L009 | PASS — см. `L008 — Результаты проверок` |
 | L009 | Setup and calibration wizard | PENDING | — | — |
 | L010 | Preset editor | PENDING | — | — |
 | L011 | Ten complete presets | PENDING | — | — |
@@ -443,7 +443,7 @@ Verification:
 #### L007 — Результаты проверок
 
 Статус: `DONE`. Дата: `2026-07-28`. Ветка: `main`.
-Commit hash текущего этапа сообщается в отчёте и записывается следующим запросом.
+Commit: `7493e012e93f1c256e890f80bb66fc45e4f65b95` (`7493e01`).
 
 | Проверка | Результат |
 |---|---|
@@ -489,6 +489,26 @@ Verification:
 - simulator state tests;
 - accelerated-clock tests;
 - visual smoke на desktop/mobile.
+
+#### L008 — Результаты проверок
+
+Статус: `DONE`. Дата: `2026-07-28`. Ветка: `main`.
+Commit hash текущего этапа сообщается в отчёте и записывается следующим запросом.
+
+| Проверка | Результат |
+|---|---|
+| Decode 12 приборов из текущего DMX frame + patch (не parallel sim) | PASS |
+| PAR color/intensity; Bars `4×8` segments; Beam pan/tilt/dimmer; Face | PASS |
+| Overlays + active preset/episode/time в UI | PASS |
+| Channel inspector 512 + blackout → кадр/визуал = 0 | PASS |
+| Preview speed API (`1..120`) ускоряет engine clock | PASS — ×60 покрывает 180s цикл |
+| Simulator state + accelerated-clock tests | PASS — `test_simulator.py` |
+| API state includes `simulator` + `preview-speed` command | PASS |
+| Frontend simulator component tests | PASS — 3 passed |
+| Visual smoke desktop/mobile | PASS — CSS grid 4/2 cols + stage layout; без browser MCP |
+| Frontend typecheck / lint / production build | PASS |
+| Backend regression (`pytest`) | PASS — 60 passed |
+| Setup wizard / preset editor / L009+ не начаты | PASS |
 
 ### L009 — Setup and calibration wizard
 

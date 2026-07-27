@@ -158,6 +158,10 @@ export function useAppState() {
     await runCommand("master-brightness", { value });
   }
 
+  async function setPreviewSpeed(value: number) {
+    await runCommand("preview-speed", { value });
+  }
+
   async function notifyFocusLoss() {
     if (socket && socket.readyState === WebSocket.OPEN) {
       socket.send(JSON.stringify({ type: "focus_loss" }));
@@ -226,6 +230,7 @@ export function useAppState() {
     toggleBlackout,
     setFace,
     setMasterBrightness,
+    setPreviewSpeed,
     refreshRest,
   };
 }

@@ -14,6 +14,7 @@ from orng_led.api.schemas import (
     FailsafeCommand,
     HealthResponse,
     MasterBrightnessCommand,
+    PreviewSpeedCommand,
     ReadyResponse,
     SelectPresetCommand,
     StrobeCommand,
@@ -152,6 +153,17 @@ def build_api_router() -> APIRouter:
     async def master_brightness(body: MasterBrightnessCommand, request: Request) -> CommandAck:
         runtime = get_runtime(request)
         state, replay = runtime.apply_master_brightness(
+            body.value,
+            client_command_id=body.client_command_id,
+        )
+        if not replay:
+            await runtime.broadcast_state()
+        return CommandAck(state=state, idempotent_replay=replay)
+
+    @router.post("/commands/preview-speed", response_model=CommandAck)
+    async def preview_speed(body: PreviewSpeedCommand, request: Request) -> CommandAck:
+        runtime = get_runtime(request)
+        state, replay = runtime.apply_preview_speed(
             body.value,
             client_command_id=body.client_command_id,
         )

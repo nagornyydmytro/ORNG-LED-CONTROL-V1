@@ -45,7 +45,23 @@ def test_initial_state_contains_engine_output_and_frame(client) -> None:
     assert len(state["frame"]) == DMX_UNIVERSE_SIZE
     assert "P05" in state["presets"]
     assert len(state["fixture_ids"]) == 12
+    assert state["preview_speed"] == 1.0
+    assert len(state["simulator"]["pars"]) == 4
+    assert len(state["simulator"]["bars"]) == 4
+    assert len(state["simulator"]["beams"]) == 2
+    assert len(state["simulator"]["faces"]) == 2
     assert runtime.engine is test_client.app.state.runtime.engine
+
+
+def test_preview_speed_command(client) -> None:
+    test_client, runtime = client
+    ack = test_client.post(
+        "/api/commands/preview-speed",
+        json={"value": 30},
+    ).json()
+    assert ack["ok"] is True
+    assert ack["state"]["preview_speed"] == 30.0
+    assert runtime.preview_speed == 30.0
 
 
 def test_config_and_presets_endpoints(client) -> None:

@@ -6,6 +6,8 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from orng_led.simulator.decode import SimulatorView
+
 
 class ApiModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -60,6 +62,13 @@ class AppStateResponse(ApiModel):
     fixture_ids: list[str]
     frame: list[int]
     sequence: int
+    preview_speed: float = 1.0
+    simulator: SimulatorView
+
+
+class PreviewSpeedCommand(ApiModel):
+    value: Annotated[float, Field(ge=1.0, le=120.0)]
+    client_command_id: str | None = None
 
 
 class CommandAck(ApiModel):

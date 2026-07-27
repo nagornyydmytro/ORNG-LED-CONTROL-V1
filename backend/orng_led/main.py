@@ -30,6 +30,7 @@ def health() -> dict[str, object]:
         "version": __version__,
         "transport": "mock",
         "output_armed": False,
+        "artnet_network_enabled": False,
         "frontend_dist_present": FRONTEND_DIST.is_dir(),
     }
 

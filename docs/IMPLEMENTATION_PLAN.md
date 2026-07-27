@@ -62,8 +62,8 @@
 | L001 | Canon bootstrap | DONE | `1807357` | PASS — см. `L001 — Результаты проверок` |
 | L002 | Workspace scaffold | DONE | `df98ab6` | PASS — см. `L002 — Результаты проверок` |
 | L003 | Config, fixtures and patch | DONE | `fbaf08a` | PASS — см. `L003 — Результаты проверок` |
-| L004 | Deterministic engine and layers | DONE | hash в отчёте L004, запись в L005 | PASS — см. `L004 — Результаты проверок` |
-| L005 | Mock/Art-Net transports and safety | PENDING | — | — |
+| L004 | Deterministic engine and layers | DONE | `1c01252` | PASS — см. `L004 — Результаты проверок` |
+| L005 | Mock/Art-Net transports and safety | DONE | hash в отчёте L005, запись в L006 | PASS — см. `L005 — Результаты проверок` |
 | L006 | Backend API and realtime state | PENDING | — | — |
 | L007 | UI shell and control panel | PENDING | — | — |
 | L008 | Stage simulator | PENDING | — | — |
@@ -284,7 +284,7 @@ Verification:
 #### L004 — Результаты проверок
 
 Статус: `DONE`. Дата: `2026-07-28`. Ветка: `main`.
-Commit hash текущего этапа сообщается в отчёте и записывается следующим запросом.
+Commit: `1c01252b806662a518da55b5794fdf38bb600211` (`1c01252`).
 
 | Проверка | Результат |
 |---|---|
@@ -332,6 +332,28 @@ Verification:
 - mock integration tests;
 - safety state-machine tests;
 - тесты не отправляют пакеты в реальную сеть.
+
+#### L005 — Результаты проверок
+
+Статус: `DONE`. Дата: `2026-07-28`. Ветка: `main`.
+Commit hash текущего этапа сообщается в отчёте и записывается следующим запросом.
+
+| Проверка | Результат |
+|---|---|
+| Старт только Mock / `armed=false` / `allow_real_network=false` | PASS |
+| Art-Net нельзя включить без `explicit=True` | PASS |
+| Arm требует explicit + Art-Net transport | PASS |
+| ArtDmx golden layout (ID, opcode, ver, length BE, 512 slots) | PASS |
+| Sequence 1..255 skip 0 | PASS |
+| Mock publish / Blackout zero frame | PASS |
+| UDP через `RecordingSocket` (без реального socket) | PASS |
+| Без `allow_real_network` реальный UDP запрещён | PASS |
+| Disarmed Art-Net отказывает send | PASS |
+| Shutdown: 3 zero frames + disarm + Mock | PASS |
+| Disconnect / focus / visibility / timeout снимают Strobe | PASS |
+| Backend regression (`pytest`) | PASS — 42 passed |
+| Ruff check/format | PASS |
+| Реальные сетевые Art-Net пакеты не отправлялись | PASS |
 
 ### L006 — Backend API and realtime state
 

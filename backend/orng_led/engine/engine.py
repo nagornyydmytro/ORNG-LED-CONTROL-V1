@@ -89,6 +89,16 @@ class Engine:
         self.overlays.strobe_held = False
         self.overlays.strobe_started_at = None
 
+    def on_control_disconnect(self) -> None:
+        """UI/WebSocket disconnect must clear held Strobe (canon §5.3)."""
+        self.strobe_release()
+
+    def on_focus_loss(self) -> None:
+        self.strobe_release()
+
+    def on_visibility_hidden(self) -> None:
+        self.strobe_release()
+
     def set_face(self, enabled: bool, brightness: float | None = None) -> None:
         self.overlays.face_on = enabled
         if brightness is not None:

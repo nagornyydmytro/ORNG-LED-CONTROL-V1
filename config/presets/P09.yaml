@@ -1,0 +1,109 @@
+schema_version: 1
+id: P09
+label: Жорсткий
+hardware_tuned: false
+builtin: true
+episodes:
+- id: ep1
+  duration_s: 18.0
+  groups:
+  - all_rear
+  palette: deep_red
+  effect: pulse
+  speed: 0.7
+  intensity: 0.88
+  transition: soft
+  notes: null
+- id: ep2
+  duration_s: 18.0
+  groups:
+  - par
+  palette: white_warm
+  effect: pulse
+  speed: 0.68
+  intensity: 0.85
+  transition: cut
+  notes: null
+- id: ep3
+  duration_s: 18.0
+  groups:
+  - bar
+  palette: deep_red
+  effect: chase
+  speed: 0.72
+  intensity: 0.9
+  transition: soft
+  notes: null
+- id: ep4
+  duration_s: 18.0
+  groups:
+  - outer
+  palette: white_warm
+  effect: wave
+  speed: 0.65
+  intensity: 0.84
+  transition: soft
+  notes: null
+- id: ep5
+  duration_s: 18.0
+  groups:
+  - beam
+  palette: deep_red
+  effect: mirror_sweep
+  speed: 0.55
+  intensity: 0.82
+  transition: fade
+  notes: null
+- id: ep6
+  duration_s: 18.0
+  groups:
+  - all_rear
+  palette: deep_red
+  effect: pulse
+  speed: 0.74
+  intensity: 0.9
+  transition: soft
+  notes: null
+- id: ep7
+  duration_s: 18.0
+  groups:
+  - inner
+  - bar
+  palette: white_warm
+  effect: chase
+  speed: 0.7
+  intensity: 0.86
+  transition: cut
+  notes: null
+- id: ep8
+  duration_s: 18.0
+  groups:
+  - par
+  - beam
+  palette: deep_red
+  effect: pulse
+  speed: 0.68
+  intensity: 0.88
+  transition: soft
+  notes: null
+- id: ep9
+  duration_s: 18.0
+  groups:
+  - left
+  - right
+  palette: white_warm
+  effect: wave
+  speed: 0.66
+  intensity: 0.85
+  transition: soft
+  notes: null
+- id: ep10
+  duration_s: 18.0
+  groups:
+  - all_rear
+  palette: deep_red
+  effect: pulse
+  speed: 0.7
+  intensity: 0.88
+  transition: soft
+  notes: null

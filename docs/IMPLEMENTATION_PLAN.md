@@ -68,8 +68,8 @@
 | L007 | UI shell and control panel | DONE | `7493e01` | PASS — см. `L007 — Результаты проверок` |
 | L008 | Stage simulator | DONE | `48687b0` | PASS — см. `L008 — Результаты проверок` |
 | L009 | Setup and calibration wizard | DONE | `02f414c` | PASS — см. `L009 — Результаты проверок` |
-| L010 | Preset editor | DONE | hash в отчёте L010, запись в L011 | PASS — см. `L010 — Результаты проверок` |
-| L011 | Ten complete presets | PENDING | — | — |
+| L010 | Preset editor | DONE | `9151dbf` | PASS — см. `L010 — Результаты проверок` |
+| L011 | Ten complete presets | DONE | hash в отчёте L011, запись в L012 | PASS — см. `L011 — Результаты проверок` |
 | L012 | Input adapter and 16-button mapping | PENDING | — | — |
 | L013 | Integration, Windows scripts and HOME acceptance | PENDING | — | — |
 | H001+ | Real hardware acceptance | PENDING HARDWARE | — | — |
@@ -602,7 +602,7 @@ Verification:
 #### L010 — Результаты проверок
 
 Статус: `DONE`. Дата: `2026-07-28`. Ветка: `main`.
-Commit hash текущего этапа сообщается в отчёте и записывается следующим запросом.
+Commit: `9151dbf493971e1823b7d954de47d7f08203b942` (`9151dbf`).
 
 | Проверка | Результат |
 |---|---|
@@ -651,6 +651,25 @@ Verification:
 - accelerated simulator review;
 - content-difference checks;
 - cycle boundary and safety tests.
+
+#### L011 — Результаты проверок
+
+Статус: `DONE`. Дата: `2026-07-28`. Ветка: `main`.
+Commit hash текущего этапа сообщается в отчёте и записывается следующим запросом.
+
+| Проверка | Результат |
+|---|---|
+| Ровно 10 штатных YAML `P01`–`P10` (10×18=180s, `hardware_tuned=false`) | PASS |
+| Schema validation + labels из канона | PASS |
+| Content-difference (composition ≠ speed-only) | PASS |
+| Intra-episode evolution (не static) | PASS |
+| Accelerated full-cycle review per preset | PASS |
+| Cycle-boundary Beam без teleport (speed limits) | PASS |
+| Staff intents не обходят strobe limits (4 Hz / 8 s) | PASS |
+| Parametrized tests (`test_staff_presets.py`) | PASS — 58 passed |
+| Backend regression (`pytest`) | PASS — 130 passed |
+| Frontend vitest / typecheck / lint / build | PASS — 15 passed |
+| Input adapter / L012 не начат | PASS |
 
 ### L012 — Input adapter and 16-button mapping
 

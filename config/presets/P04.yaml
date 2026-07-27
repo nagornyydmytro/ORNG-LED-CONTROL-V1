@@ -1,6 +1,6 @@
 schema_version: 1
-id: P05
-label: Універсальний
+id: P04
+label: Помірний
 hardware_tuned: false
 builtin: true
 episodes:
@@ -8,10 +8,10 @@ episodes:
   duration_s: 18.0
   groups:
   - all_rear
-  palette: warm_orange
+  palette: amber
   effect: pulse
-  speed: 0.45
-  intensity: 0.7
+  speed: 0.4
+  intensity: 0.62
   transition: soft
   notes: null
 - id: ep2
@@ -19,92 +19,91 @@ episodes:
   groups:
   - par
   - bar
-  palette: amber
+  palette: warm_orange
   effect: wave
-  speed: 0.5
-  intensity: 0.68
+  speed: 0.42
+  intensity: 0.6
   transition: soft
   notes: null
 - id: ep3
   duration_s: 18.0
   groups:
-  - all_rear
-  palette: warm_orange
-  effect: breathe
-  speed: 0.4
-  intensity: 0.72
+  - outer
+  palette: deep_red
+  effect: pulse
+  speed: 0.38
+  intensity: 0.58
   transition: fade
   notes: null
 - id: ep4
   duration_s: 18.0
   groups:
-  - outer
+  - inner
   - bar
-  palette: deep_red
-  effect: pulse
-  speed: 0.55
-  intensity: 0.65
+  palette: amber
+  effect: chase
+  speed: 0.4
+  intensity: 0.61
   transition: soft
   notes: null
 - id: ep5
   duration_s: 18.0
   groups:
-  - all_rear
-  palette: amber
-  effect: chase
-  speed: 0.5
-  intensity: 0.7
+  - beam
+  palette: warm_orange
+  effect: mirror_sweep
+  speed: 0.35
+  intensity: 0.57
   transition: soft
   notes: null
 - id: ep6
   duration_s: 18.0
   groups:
-  - par
-  - beam
-  palette: warm_orange
-  effect: mirror_sweep
-  speed: 0.35
-  intensity: 0.66
+  - all_rear
+  palette: white_warm
+  effect: breathe
+  speed: 0.36
+  intensity: 0.6
   transition: fade
   notes: null
 - id: ep7
   duration_s: 18.0
   groups:
-  - all_rear
-  palette: white_warm
+  - par
+  palette: amber
   effect: pulse
-  speed: 0.48
-  intensity: 0.6
+  speed: 0.42
+  intensity: 0.63
   transition: soft
   notes: null
 - id: ep8
   duration_s: 18.0
   groups:
-  - inner
   - bar
-  palette: violet_orange
+  palette: warm_orange
   effect: wave
-  speed: 0.52
-  intensity: 0.7
+  speed: 0.44
+  intensity: 0.62
   transition: soft
   notes: null
 - id: ep9
   duration_s: 18.0
   groups:
-  - all_rear
-  palette: amber
-  effect: breathe
-  speed: 0.42
-  intensity: 0.74
+  - left
+  - right
+  palette: deep_red
+  effect: pulse
+  speed: 0.4
+  intensity: 0.59
   transition: fade
   notes: null
 - id: ep10
   duration_s: 18.0
   groups:
   - all_rear
-  palette: warm_orange
+  palette: amber
   effect: pulse
-  speed: 0.45
-  intensity: 0.7
+  speed: 0.4
+  intensity: 0.62
   transition: soft
   notes: null

@@ -1,6 +1,6 @@
 schema_version: 1
-id: P05
-label: Універсальний
+id: P10
+label: Максимальний
 hardware_tuned: false
 builtin: true
 episodes:
@@ -9,9 +9,9 @@ episodes:
   groups:
   - all_rear
   palette: warm_orange
-  effect: pulse
-  speed: 0.45
-  intensity: 0.7
+  effect: chase
+  speed: 0.8
+  intensity: 0.95
   transition: soft
   notes: null
 - id: ep2
@@ -19,92 +19,91 @@ episodes:
   groups:
   - par
   - bar
-  palette: amber
-  effect: wave
-  speed: 0.5
-  intensity: 0.68
+  palette: deep_red
+  effect: pulse
+  speed: 0.78
+  intensity: 0.94
   transition: soft
   notes: null
 - id: ep3
   duration_s: 18.0
   groups:
-  - all_rear
-  palette: warm_orange
-  effect: breathe
-  speed: 0.4
-  intensity: 0.72
-  transition: fade
+  - outer
+  - inner
+  palette: magenta
+  effect: wave
+  speed: 0.82
+  intensity: 0.95
+  transition: soft
   notes: null
 - id: ep4
   duration_s: 18.0
   groups:
-  - outer
-  - bar
-  palette: deep_red
-  effect: pulse
-  speed: 0.55
-  intensity: 0.65
-  transition: soft
+  - beam
+  palette: amber
+  effect: mirror_sweep
+  speed: 0.7
+  intensity: 0.92
+  transition: fade
   notes: null
 - id: ep5
   duration_s: 18.0
   groups:
   - all_rear
-  palette: amber
+  palette: white_warm
   effect: chase
-  speed: 0.5
-  intensity: 0.7
+  speed: 0.85
+  intensity: 0.95
   transition: soft
   notes: null
 - id: ep6
   duration_s: 18.0
   groups:
-  - par
-  - beam
-  palette: warm_orange
-  effect: mirror_sweep
-  speed: 0.35
-  intensity: 0.66
-  transition: fade
+  - bar
+  palette: violet_orange
+  effect: chase
+  speed: 0.84
+  intensity: 0.93
+  transition: soft
   notes: null
 - id: ep7
   duration_s: 18.0
   groups:
-  - all_rear
-  palette: white_warm
+  - par
+  palette: deep_red
   effect: pulse
-  speed: 0.48
-  intensity: 0.6
+  speed: 0.8
+  intensity: 0.95
   transition: soft
   notes: null
 - id: ep8
   duration_s: 18.0
   groups:
-  - inner
-  - bar
-  palette: violet_orange
+  - left
+  - right
+  palette: warm_orange
   effect: wave
-  speed: 0.52
-  intensity: 0.7
-  transition: soft
+  speed: 0.82
+  intensity: 0.94
+  transition: fade
   notes: null
 - id: ep9
   duration_s: 18.0
   groups:
   - all_rear
-  palette: amber
-  effect: breathe
-  speed: 0.42
-  intensity: 0.74
-  transition: fade
+  palette: magenta
+  effect: chase
+  speed: 0.86
+  intensity: 0.95
+  transition: soft
   notes: null
 - id: ep10
   duration_s: 18.0
   groups:
   - all_rear
   palette: warm_orange
-  effect: pulse
-  speed: 0.45
-  intensity: 0.7
+  effect: chase
+  speed: 0.8
+  intensity: 0.95
   transition: soft
   notes: null

@@ -1,80 +1,81 @@
 schema_version: 1
-id: P05
-label: Універсальний
+id: P03
+label: М'яка динаміка
 hardware_tuned: false
 builtin: true
 episodes:
 - id: ep1
   duration_s: 18.0
   groups:
-  - all_rear
+  - left
+  - right
   palette: warm_orange
-  effect: pulse
-  speed: 0.45
-  intensity: 0.7
+  effect: mirror_sweep
+  speed: 0.3
+  intensity: 0.55
   transition: soft
   notes: null
 - id: ep2
   duration_s: 18.0
   groups:
-  - par
   - bar
   palette: amber
   effect: wave
-  speed: 0.5
-  intensity: 0.68
+  speed: 0.32
+  intensity: 0.58
   transition: soft
   notes: null
 - id: ep3
   duration_s: 18.0
   groups:
-  - all_rear
-  palette: warm_orange
-  effect: breathe
-  speed: 0.4
-  intensity: 0.72
+  - par
+  palette: violet_orange
+  effect: pulse
+  speed: 0.28
+  intensity: 0.54
   transition: fade
   notes: null
 - id: ep4
   duration_s: 18.0
   groups:
-  - outer
+  - left
   - bar
-  palette: deep_red
-  effect: pulse
-  speed: 0.55
-  intensity: 0.65
+  palette: warm_orange
+  effect: wave
+  speed: 0.34
+  intensity: 0.56
   transition: soft
   notes: null
 - id: ep5
   duration_s: 18.0
   groups:
-  - all_rear
+  - right
+  - bar
   palette: amber
-  effect: chase
-  speed: 0.5
-  intensity: 0.7
+  effect: wave
+  speed: 0.34
+  intensity: 0.56
   transition: soft
   notes: null
 - id: ep6
   duration_s: 18.0
   groups:
-  - par
   - beam
-  palette: warm_orange
+  palette: magenta
   effect: mirror_sweep
-  speed: 0.35
-  intensity: 0.66
+  speed: 0.28
+  intensity: 0.52
   transition: fade
   notes: null
 - id: ep7
   duration_s: 18.0
   groups:
-  - all_rear
-  palette: white_warm
+  - outer
+  - par
+  palette: warm_orange
   effect: pulse
-  speed: 0.48
-  intensity: 0.6
+  speed: 0.3
+  intensity: 0.57
   transition: soft
   notes: null
 - id: ep8
@@ -84,8 +85,8 @@ episodes:
   - bar
   palette: violet_orange
   effect: wave
-  speed: 0.52
-  intensity: 0.7
+  speed: 0.33
+  intensity: 0.55
   transition: soft
   notes: null
 - id: ep9
@@ -94,17 +95,18 @@ episodes:
   - all_rear
   palette: amber
   effect: breathe
-  speed: 0.42
-  intensity: 0.74
+  speed: 0.28
+  intensity: 0.58
   transition: fade
   notes: null
 - id: ep10
   duration_s: 18.0
   groups:
-  - all_rear
+  - left
+  - right
   palette: warm_orange
-  effect: pulse
-  speed: 0.45
-  intensity: 0.7
+  effect: mirror_sweep
+  speed: 0.3
+  intensity: 0.55
   transition: soft
   notes: null

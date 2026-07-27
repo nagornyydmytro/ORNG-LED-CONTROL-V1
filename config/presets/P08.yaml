@@ -1,0 +1,110 @@
+schema_version: 1
+id: P08
+label: Енергійний
+hardware_tuned: false
+builtin: true
+episodes:
+- id: ep1
+  duration_s: 18.0
+  groups:
+  - all_rear
+  palette: violet_orange
+  effect: chase
+  speed: 0.72
+  intensity: 0.84
+  transition: soft
+  notes: null
+- id: ep2
+  duration_s: 18.0
+  groups:
+  - par
+  palette: warm_orange
+  effect: pulse
+  speed: 0.7
+  intensity: 0.82
+  transition: soft
+  notes: null
+- id: ep3
+  duration_s: 18.0
+  groups:
+  - bar
+  palette: magenta
+  effect: chase
+  speed: 0.75
+  intensity: 0.86
+  transition: soft
+  notes: null
+- id: ep4
+  duration_s: 18.0
+  groups:
+  - beam
+  palette: amber
+  effect: mirror_sweep
+  speed: 0.6
+  intensity: 0.8
+  transition: fade
+  notes: null
+- id: ep5
+  duration_s: 18.0
+  groups:
+  - outer
+  - inner
+  palette: deep_red
+  effect: wave
+  speed: 0.73
+  intensity: 0.85
+  transition: soft
+  notes: null
+- id: ep6
+  duration_s: 18.0
+  groups:
+  - left
+  - bar
+  palette: violet_orange
+  effect: chase
+  speed: 0.74
+  intensity: 0.83
+  transition: soft
+  notes: null
+- id: ep7
+  duration_s: 18.0
+  groups:
+  - right
+  - par
+  palette: magenta
+  effect: pulse
+  speed: 0.71
+  intensity: 0.84
+  transition: soft
+  notes: null
+- id: ep8
+  duration_s: 18.0
+  groups:
+  - all_rear
+  palette: warm_orange
+  effect: chase
+  speed: 0.76
+  intensity: 0.86
+  transition: fade
+  notes: null
+- id: ep9
+  duration_s: 18.0
+  groups:
+  - bar
+  - beam
+  palette: amber
+  effect: wave
+  speed: 0.72
+  intensity: 0.82
+  transition: soft
+  notes: null
+- id: ep10
+  duration_s: 18.0
+  groups:
+  - all_rear
+  palette: violet_orange
+  effect: chase
+  speed: 0.72
+  intensity: 0.84
+  transition: soft
+  notes: null

@@ -88,9 +88,15 @@ def test_live_effect_lights_fixture_absent_from_episode() -> None:
 
     engine.trigger_white_hit()
     snap = engine.tick(dt_s=0.02, wall_dt_s=0.02)
-    for fixture_id in ("par_1", "bar_1", "beam_left", "beam_right"):
+    for fixture_id in ("par_1", "bar_1"):
         dimmer = _role_value(engine.show, snap.frame, fixture_id, ChannelRole.DIMMER)
         assert dimmer is not None and dimmer > 200, fixture_id
+    # Beams have no Master Dimmer mapping — full bright via FIXED + RGB.
+    for fixture_id in ("beam_left", "beam_right"):
+        fixed = _role_value(engine.show, snap.frame, fixture_id, ChannelRole.FIXED)
+        red = _role_value(engine.show, snap.frame, fixture_id, ChannelRole.RED)
+        assert fixed == 255, fixture_id
+        assert red is not None and red > 200, fixture_id
 
 
 def test_live_effects_apply_to_all_configured_rear_fixtures() -> None:

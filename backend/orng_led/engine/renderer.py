@@ -187,7 +187,8 @@ def missing_roles_for_intent(
     has_dimmer = ChannelRole.DIMMER in roles
     has_any_color = has_rgb or has_white or has_palette
 
-    if not has_dimmer and not has_any_color:
+    # Beams use FIXED-255 dimmer + RGB — do not require a Master Dimmer mapping.
+    if not has_dimmer and not has_any_color and not isinstance(intent, BeamIntent):
         missing.append("Master Dimmer")
     if not has_any_color:
         if isinstance(intent, BeamIntent):
@@ -246,7 +247,7 @@ def missing_roles_for_intent(
     # Completely unmapped footprint: every channel unused.
     if all(ch.role is ChannelRole.UNUSED for ch in profile.channels):
         if isinstance(intent, BeamIntent):
-            missing = ["Color Wheel: White/Open", "Master Dimmer"]
+            missing = ["Color Wheel: White/Open", "RGB"]
         elif isinstance(intent, BarIntent):
             missing = ["Whole Fixture Color / Segment Color: White", "Master Dimmer"]
         else:
@@ -562,7 +563,13 @@ def render_beam(
     *,
     master: float = 1.0,
 ) -> None:
-    """Write axes always; light only when confirmed + intent dimmer > 0."""
+    """Write axes always; light only when confirmed + intent is on.
+
+    Beams never use Master Dimmer / show-master scaling: when lit they are full
+    brightness (RGB at 1.0). Hardware dimmer should be mapped as FIXED 255.
+    Strobe is still driven from the intent.
+    """
+    _ = master  # Beams ignore the show master fader.
     _write_beam_axes(frame, fixture, profile, motion)
     roles = _role_map(profile)
     confirmed = bool(fixture.spatial.beam_calibration_confirmed)
@@ -570,14 +577,16 @@ def render_beam(
         _apply_fixed_and_unused(frame, fixture, profile)
         return
 
+    # dimmer on BeamIntent is on/off only (>0 → full); never an intensity curve.
     look = max(0.0, min(1.0, intent.dimmer))
-    master = max(0.0, min(1.0, master))
     if look <= 0.02:
         _apply_fixed_and_unused(frame, fixture, profile)
         return
 
-    _write_role(frame, fixture, roles, ChannelRole.DIMMER, look * master)
-    _write_rgbw_look(frame, fixture, roles, intent.color, look_level=look)
+    # If an operator still maps DIMMER, park it at full — never scale it.
+    if ChannelRole.DIMMER in roles:
+        _write_role(frame, fixture, roles, ChannelRole.DIMMER, 1.0)
+    _write_rgbw_look(frame, fixture, roles, intent.color, look_level=1.0)
     _write_strobe_speed(frame, fixture, roles, intent.strobe)
     _apply_fixed_and_unused(frame, fixture, profile)
 

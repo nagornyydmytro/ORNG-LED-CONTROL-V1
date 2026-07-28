@@ -5,52 +5,119 @@ kind: beam
 footprint: 13
 hardware_verified: false
 capabilities:
-  - dimmer
-  - rgb
-  - pan_tilt
-  - color_wheel
-  - gobo
-  - strobe
-notes: >
-  Full 13-channel Beam Head profile. Dangerous reset/service channels stay
-  unused until the operator assigns them manually. Do not auto-guess reset.
+- rgb
+- pan_tilt
+- color_wheel
+- gobo
+- strobe
 channels:
-  - local: 1
-    role: unused
-    label: Не призначено
-  - local: 2
-    role: unused
-    label: Не призначено
-  - local: 3
-    role: unused
-    label: Не призначено
-  - local: 4
-    role: unused
-    label: Не призначено
-  - local: 5
-    role: unused
-    label: Не призначено
-  - local: 6
-    role: unused
-    label: Не призначено
-  - local: 7
-    role: unused
-    label: Не призначено
-  - local: 8
-    role: unused
-    label: Не призначено
-  - local: 9
-    role: unused
-    label: Не призначено
-  - local: 10
-    role: unused
-    label: Не призначено
-  - local: 11
-    role: unused
-    label: Не призначено
-  - local: 12
-    role: unused
-    label: Не призначено
-  - local: 13
-    role: unused
-    label: Не призначено
+- local: 1
+  role: pan_coarse
+  label: Не призначено
+  segment_index: null
+  notes: null
+  fixed_value: null
+  palette: null
+  control_values: null
+- local: 2
+  role: unused
+  label: Не призначено
+  segment_index: null
+  notes: null
+  fixed_value: null
+  palette: null
+  control_values: null
+- local: 3
+  role: tilt_coarse
+  label: Не призначено
+  segment_index: null
+  notes: null
+  fixed_value: null
+  palette: null
+  control_values: null
+- local: 4
+  role: unused
+  label: Не призначено
+  segment_index: null
+  notes: null
+  fixed_value: null
+  palette: null
+  control_values: null
+- local: 5
+  role: unused
+  label: Не призначено
+  segment_index: null
+  notes: null
+  fixed_value: null
+  palette: null
+  control_values: null
+- local: 6
+  # Hardware dimmer parked at full — beams are never intensity-modulated.
+  role: fixed
+  label: Dimmer 100% (fixed)
+  segment_index: null
+  notes: Always 255. Show brightness is RGB/strobe only; no Master Dimmer mapping.
+  fixed_value: 255
+  palette: null
+  control_values: null
+- local: 7
+  role: strobe_speed
+  label: Не призначено
+  segment_index: null
+  notes: null
+  fixed_value: null
+  palette: null
+  control_values: null
+- local: 8
+  role: red
+  label: Не призначено
+  segment_index: null
+  notes: null
+  fixed_value: null
+  palette: null
+  control_values: null
+- local: 9
+  role: green
+  label: Не призначено
+  segment_index: null
+  notes: null
+  fixed_value: null
+  palette: null
+  control_values: null
+- local: 10
+  role: blue
+  label: Не призначено
+  segment_index: null
+  notes: null
+  fixed_value: null
+  palette: null
+  control_values: null
+- local: 11
+  role: white
+  label: Не призначено
+  segment_index: null
+  notes: null
+  fixed_value: null
+  palette: null
+  control_values: null
+- local: 12
+  role: unused
+  label: Не призначено
+  segment_index: null
+  notes: null
+  fixed_value: null
+  palette: null
+  control_values: null
+- local: 13
+  role: unused
+  label: Не призначено
+  segment_index: null
+  notes: null
+  fixed_value: null
+  palette: null
+  control_values: null
+segment_count: 0
+notes: >
+  Beam Head 13ch. Master Dimmer is not mapped — local 6 is fixed at 255 so heads
+  stay at full brightness. On/off and colour via RGB; strobe_speed allowed.
+  Dangerous reset/service channels stay unused until assigned manually.

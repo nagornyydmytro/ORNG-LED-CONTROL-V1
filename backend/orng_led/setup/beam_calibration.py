@@ -152,6 +152,7 @@ def _apply_min_visible_beam(
     level = VISIBLE_BEAM_DIMMER
     for channel in roles.get(ChannelRole.DIMMER, []):
         frame[global_channel(fixture.start_address, channel.local) - 1] = int(round(level * 255))
+    # Profiles that park dimmer as FIXED 255 still need a visible RGB look below.
     for channel in roles.get(ChannelRole.SHUTTER, []):
         frame[global_channel(fixture.start_address, channel.local) - 1] = _control_byte(
             channel, "open", 255

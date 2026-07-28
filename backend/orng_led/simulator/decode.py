@@ -274,6 +274,9 @@ def decode_simulator_view(show: ShowConfig, frame: list[int]) -> SimulatorView:
             color_wheel = _role_locals(channels, ChannelRole.COLOR) or _role_locals(
                 channels, ChannelRole.WHOLE_COLOR
             )
+            # Beams with FIXED full dimmer and no DIMMER role: infer "on" from RGB.
+            if dimmer < 0.02 and (r + g + b) > 0.05:
+                dimmer = 1.0
             if dimmer > 0.02 and r + g + b < 0.05 and color_wheel:
                 r = g = b = dimmer
             if not shutter and dimmer > 0.02:

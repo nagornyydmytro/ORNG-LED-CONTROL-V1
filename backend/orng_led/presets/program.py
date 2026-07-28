@@ -267,10 +267,12 @@ def _blend_intent(
             whole=b.whole,
         )
     if isinstance(a, BeamIntent) and isinstance(b, BeamIntent):
+        # Beams stay full-bright when either side is on — never fade via dimmer.
+        beam_on = (a.dimmer > 0.02) or (b.dimmer > 0.02)
         return BeamIntent(
             pan=_blend_axis(a.pan, b.pan, t),
             tilt=_blend_axis(a.tilt, b.tilt, t),
-            dimmer=_lerp(a.dimmer, b.dimmer, t),
+            dimmer=1.0 if beam_on else 0.0,
             color=_blend_rgbw(a.color, b.color, t),
             wheel=0.0,
             shutter_open=b.shutter_open if t >= 0.5 else a.shutter_open,
@@ -375,15 +377,23 @@ def _evaluate_episode(
                 whole=whole,
             )
         elif fixture.kind is FixtureKind.BEAM:
+            # Beams are binary full-bright when the effect is "on" — no master dimmer.
+            if intensity <= 0.02:
+                continue
             sweep = 0.5 + 0.42 * math.sin(2.0 * math.pi * clock.movement_turns)
             pan = 1.0 - sweep if fixture.spatial.side.value == "left" else sweep
             tilt = 0.44 + 0.20 * math.sin(2.0 * math.pi * clock.movement_turns * 0.63 + 0.7)
+            if episode.effect == "pulse":
+                strobe = max(0.45, min(1.0, 0.40 + 0.60 * episode.speed))
+            else:
+                strobe = 0.0
             intent.fixtures[fixture.id] = BeamIntent(
                 pan=max(0.0, min(1.0, pan)),
                 tilt=max(0.0, min(1.0, tilt)),
-                dimmer=intensity * 0.9,
+                dimmer=1.0,
                 color=color,
                 shutter_open=True,
+                strobe=strobe,
             )
     return intent
 

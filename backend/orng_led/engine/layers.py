@@ -144,12 +144,14 @@ def _force_rear_look(
             whole=False,
         )
     elif fixture.kind is FixtureKind.BEAM:
+        # Beams stay at full brightness when lit; level is on/off only (strobe gate).
+        on = level > 0.02
         stage.fixtures[fixture.id] = BeamIntent(
             pan=None,
             tilt=None,
-            dimmer=level,
+            dimmer=1.0 if on else 0.0,
             color=color,
-            shutter_open=level > 0.02,
+            shutter_open=on,
             strobe=strobe,
         )
 

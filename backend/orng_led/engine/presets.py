@@ -100,7 +100,7 @@ class BasePulsePreset:
                 intent.fixtures[fixture.id] = BeamIntent(
                     pan=pan,
                     tilt=tilt,
-                    dimmer=0.45 + 0.25 * pulse,
+                    dimmer=1.0,
                     color=Rgbw(r=0.3, g=0.55, b=1.0),
                     wheel=0.2 + 0.1 * pos.episode_index / 9.0,
                     shutter_open=True,

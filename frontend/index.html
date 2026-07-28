@@ -7,6 +7,7 @@
     <title>ORNG LED CONTROL</title>
     <script>
       (function () {
+        window.__ORNG_SPLASH_T0 = performance.now();
         try {
           var t = sessionStorage.getItem("orng-ui-theme");
           if (t === "light" || t === "dark") {
@@ -16,8 +17,17 @@
         } catch (e) {}
       })();
     </script>
+    <style>
+      #boot-splash {
+        position: fixed;
+        inset: 0;
+        z-index: 100000;
+        background: #000;
+      }
+    </style>
   </head>
   <body>
+    <div id="boot-splash" aria-hidden="true"></div>
     <div id="app"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>

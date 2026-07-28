@@ -5,8 +5,8 @@ import { APP_STATE_KEY } from "./composables/appStateKey";
 import { useAppState } from "./composables/useAppState";
 import { provideToasts } from "./composables/useToasts";
 
-provideToasts();
-const appState = useAppState();
+const toasts = provideToasts();
+const appState = useAppState(toasts);
 provide(APP_STATE_KEY, appState);
 
 const connection = computed(() => appState.connection.value);

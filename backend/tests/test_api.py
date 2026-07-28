@@ -40,6 +40,8 @@ def test_initial_state_contains_engine_output_and_frame(client) -> None:
     test_client, runtime = client
     state = test_client.get("/api/state").json()
     assert state["engine"]["preset_id"] == "P05"
+    assert state["engine"]["blackout"] is True
+    assert state["frame"] == [0] * DMX_UNIVERSE_SIZE
     assert state["output"]["transport"] == "mock"
     assert state["output"]["armed"] is False
     assert len(state["frame"]) == DMX_UNIVERSE_SIZE
@@ -51,6 +53,7 @@ def test_initial_state_contains_engine_output_and_frame(client) -> None:
     assert len(state["simulator"]["beams"]) == 2
     assert len(state["simulator"]["faces"]) == 2
     assert runtime.engine is test_client.app.state.runtime.engine
+    assert runtime.engine.overlays.blackout is True
 
 
 def test_preview_speed_command(client) -> None:

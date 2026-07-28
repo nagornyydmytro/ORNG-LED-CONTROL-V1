@@ -31,6 +31,7 @@ def client(isolated_config: Path):
 
 def test_raw_tester_starts_and_exits_at_zero(client) -> None:
     test_client, runtime, _cfg = client
+    runtime.engine.set_blackout(False)
     entered = test_client.post("/api/setup/raw-tester/enter", json={}).json()
     assert entered["state"]["raw_tester"]["active"] is True
     assert entered["state"]["raw_tester"]["nonzero_channels"] == 0
@@ -44,6 +45,11 @@ def test_raw_tester_starts_and_exits_at_zero(client) -> None:
     assert set_ack["state"]["raw_tester"]["nonzero_channels"] == 1
     assert runtime.output.transport_kind.value == "mock"
     assert runtime.output.armed is False
+
+    # Blackout must still force published zeros over raw tester.
+    bo = test_client.post("/api/commands/blackout", json={"enabled": True}).json()
+    assert bo["state"]["frame"] == [0] * 512
+    test_client.post("/api/commands/blackout", json={"enabled": False})
 
     exited = test_client.post("/api/setup/raw-tester/exit", json={}).json()
     assert exited["state"]["raw_tester"]["active"] is False
@@ -112,12 +118,14 @@ def test_profile_save_keeps_hardware_unverified(client) -> None:
 
 def test_identify_fixture_and_readiness(client) -> None:
     test_client, runtime, _cfg = client
+    runtime.engine.set_blackout(False)
     ack = test_client.post(
         "/api/setup/identify-fixture",
         json={"fixture_id": "par_1", "level": 210},
     ).json()
     assert ack["state"]["raw_tester"]["active"] is True
     assert ack["state"]["frame"][0] == 210
+    assert ack["state"]["simulator"]["nonzero_channels"] > 1
 
     ready = test_client.get("/api/setup/readiness").json()
     assert ready["artnet_badge"] == "Не перевірено на обладнанні"

@@ -137,4 +137,26 @@ describe("StageSimulator", () => {
     await wrapper.find("select").setValue("60");
     expect(wrapper.emitted("update:previewSpeed")?.[0]).toEqual([60]);
   });
+
+  it("renders Beam Left before Beam Right visually", () => {
+    const wrapper = mount(StageSimulator, {
+      props: {
+        simulator: emptySim,
+        frame: Array(512).fill(0),
+        enginePresetId: "P05",
+        presetTimeS: 0,
+        episodeIndex: 0,
+        episodeCount: 10,
+        cycleDurationS: 180,
+        blackout: false,
+        strobeHeld: false,
+        whiteHitActive: false,
+        faceOn: true,
+        previewSpeed: 1,
+      },
+    });
+    const beams = wrapper.findAll(".row.beams .fixture.beam");
+    expect(beams[0].attributes("data-id")).toBe("beam_left");
+    expect(beams[1].attributes("data-id")).toBe("beam_right");
+  });
 });

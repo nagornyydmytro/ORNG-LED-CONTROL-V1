@@ -25,6 +25,7 @@ from orng_led.config.models import (
     AppConfig,
     ChannelRole,
     ConfigError,
+    FixtureKind,
     FixtureProfile,
     PatchDocument,
     ShowConfig,
@@ -83,6 +84,8 @@ class AppRuntime:
         loaded = show or load_show_config(root)
         store = PresetStore.load(root / "presets")
         engine = Engine(show=loaded, presets=store.programs())
+        # Canon §5.4: start Mock + blackout / zero safe frame.
+        engine.set_blackout(True)
         output = OutputController(engine=engine)
         runtime = cls(
             show=loaded,
@@ -132,13 +135,25 @@ class AppRuntime:
             raise
 
     def tick(self, dt_s: float = FRAME_DT) -> EngineSnapshot:
-        # preview_speed advances show time faster for simulator review only.
-        scaled = max(0.0, dt_s) * self.preview_speed
-        snapshot = self.engine.tick(dt_s=scaled)
-        frame = list(self.raw_tester.frame) if self.raw_tester.active else snapshot.frame
-        self._publish_frame(frame)
+        # preview_speed advances show time only; wall clock drives safety timers.
+        wall = max(0.0, dt_s)
+        scaled = wall * self.preview_speed
+        snapshot = self.engine.tick(dt_s=scaled, wall_dt_s=wall)
+        self._publish_frame(self._published_frame(snapshot))
         self.sequence += 1
         return snapshot
+
+    def _published_frame(self, snap: EngineSnapshot | None = None) -> list[int]:
+        """Blackout always wins over raw tester / identify / show layers."""
+        from orng_led.engine.frame import empty_frame
+
+        if self.engine.overlays.blackout:
+            return empty_frame()
+        if self.raw_tester.active:
+            return list(self.raw_tester.frame)
+        if snap is not None:
+            return list(snap.frame)
+        return list(self.engine.render_at(self.engine.clock.time(), dt_s=0.0).frame)
 
     def _publish_frame(self, frame: list[int]) -> None:
         if self.output.transport_kind.value == "mock":
@@ -153,13 +168,15 @@ class AppRuntime:
     def build_state(self) -> AppStateResponse:
         snap = self.engine.render_at(self.engine.clock.time(), dt_s=0.0)
         out = self.output.status()
-        frame = list(self.raw_tester.frame) if self.raw_tester.active else list(snap.frame)
+        frame = self._published_frame(snap)
         return AppStateResponse(
             engine=EngineState(
                 preset_id=snap.preset_id,
                 preset_time_s=snap.preset_time_s,
                 episode_index=snap.episode_index,
                 episode_time_s=snap.episode_time_s,
+                episode_count=snap.episode_count,
+                cycle_duration_s=snap.cycle_duration_s,
                 blackout=snap.blackout,
                 face_on=snap.face_on,
                 face_brightness=self.engine.overlays.face_brightness,
@@ -204,13 +221,14 @@ class AppRuntime:
         # Raw tester is Mock-only and never arms Art-Net.
         self.output.use_mock()
         self.raw_tester.enter()
-        self._publish_frame(self.raw_tester.frame)
+        self._publish_frame(self._published_frame())
         self.sequence += 1
         return self.build_state()
 
     def exit_raw_tester(self) -> AppStateResponse:
         zeros = self.raw_tester.exit()
-        self._publish_frame(zeros)
+        # Always emit zeros on exit; blackout may still keep zeros after.
+        self._publish_frame(zeros if not self.engine.overlays.blackout else self._published_frame())
         self.sequence += 1
         return self.build_state()
 
@@ -218,7 +236,7 @@ class AppRuntime:
         if not self.raw_tester.active:
             self.enter_raw_tester()
         zeros = self.raw_tester.blackout()
-        self._publish_frame(zeros)
+        self._publish_frame(zeros if not self.engine.overlays.blackout else self._published_frame())
         self.sequence += 1
         return self.build_state()
 
@@ -237,9 +255,37 @@ class AppRuntime:
             self.raw_tester.set_channel(channel, value)
         else:
             raise ValueError("Provide channel+value or channels map")
-        self._publish_frame(self.raw_tester.frame)
+        self._publish_frame(self._published_frame())
         self.sequence += 1
         return self.build_state()
+
+    def _identify_channels(self, fixture, profile, level: int) -> dict[int, int]:
+        """Provisional Mock-visible identify values (never hardware_verified)."""
+        channels: dict[int, int] = {}
+        level = max(0, min(255, level))
+
+        def set_role(role: ChannelRole, value: int) -> None:
+            for ch in profile.channels:
+                if ch.role is role:
+                    channels[global_channel(fixture.start_address, ch.local)] = value
+
+        set_role(ChannelRole.DIMMER, level)
+        if fixture.kind in (FixtureKind.PAR, FixtureKind.FACE_PAR):
+            set_role(ChannelRole.RED, level)
+            set_role(ChannelRole.GREEN, max(0, level // 3))
+            set_role(ChannelRole.BLUE, 0)
+            set_role(ChannelRole.WHITE, max(0, level // 4))
+        elif fixture.kind is FixtureKind.BAR:
+            for ch in profile.channels:
+                if ch.role is ChannelRole.SEGMENT:
+                    channels[global_channel(fixture.start_address, ch.local)] = level
+        elif fixture.kind is FixtureKind.BEAM:
+            set_role(ChannelRole.SHUTTER, 255)
+            set_role(ChannelRole.COLOR, max(0, level // 2))
+            # Controlled provisional home pose for Mock visibility.
+            set_role(ChannelRole.PAN_COARSE, 128)
+            set_role(ChannelRole.TILT_COARSE, 96)
+        return channels
 
     def identify_fixture(self, fixture_id: str, level: int = 200) -> AppStateResponse:
         fixture = next((fx for fx in self.show.patch.fixtures if fx.id == fixture_id), None)
@@ -250,12 +296,11 @@ class AppRuntime:
             self.enter_raw_tester()
         else:
             self.raw_tester.blackout()
-        dimmer = next((ch for ch in profile.channels if ch.role is ChannelRole.DIMMER), None)
-        if dimmer is None:
-            raise ConfigError(f"Fixture {fixture_id!r} has no dimmer channel for identify")
-        channel = global_channel(fixture.start_address, dimmer.local)
-        self.raw_tester.set_channel(channel, level)
-        self._publish_frame(self.raw_tester.frame)
+        values = self._identify_channels(fixture, profile, level)
+        if not values:
+            raise ConfigError(f"Fixture {fixture_id!r} has no channels for identify")
+        self.raw_tester.set_channels(values)
+        self._publish_frame(self._published_frame())
         self.sequence += 1
         return self.build_state()
 
@@ -267,14 +312,12 @@ class AppRuntime:
             self.enter_raw_tester()
         else:
             self.raw_tester.blackout()
+        values: dict[int, int] = {}
         for fixture in matches:
             profile = self.show.profile_for(fixture)
-            dimmer = next((ch for ch in profile.channels if ch.role is ChannelRole.DIMMER), None)
-            if dimmer is None:
-                continue
-            channel = global_channel(fixture.start_address, dimmer.local)
-            self.raw_tester.set_channel(channel, level)
-        self._publish_frame(self.raw_tester.frame)
+            values.update(self._identify_channels(fixture, profile, level))
+        self.raw_tester.set_channels(values)
+        self._publish_frame(self._published_frame())
         self.sequence += 1
         return self.build_state()
 
@@ -478,6 +521,9 @@ class AppRuntime:
             self.engine.toggle_blackout()
         else:
             self.engine.set_blackout(enabled)
+        # Republish immediately so Blackout zeros override raw tester.
+        self._publish_frame(self._published_frame())
+        self.sequence += 1
         state = self.build_state()
         self._remember(client_command_id, state)
         return state, False
@@ -582,7 +628,11 @@ class AppRuntime:
         if self.raw_tester.active:
             self.exit_raw_tester()
         self.engine.select_preset(preset_id, reset_clock=True)
+        # Preview is an explicit operator action: clear startup blackout so Mock is visible.
+        self.engine.set_blackout(False)
         self.preview_speed = max(1.0, min(120.0, float(speed)))
+        self._publish_frame(self._published_frame())
+        self.sequence += 1
         return self.build_state()
 
     def on_ws_disconnect(self) -> None:

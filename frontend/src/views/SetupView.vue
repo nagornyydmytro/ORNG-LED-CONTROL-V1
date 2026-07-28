@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
+import { computed, inject, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import {
   fetchAppConfig,
   fetchLayout,
@@ -15,6 +15,10 @@ import {
 } from "../api/setup";
 import { postCommand } from "../api/client";
 import HardwareBadge from "../components/setup/HardwareBadge.vue";
+import StageSimulator from "../components/simulator/StageSimulator.vue";
+import { APP_STATE_KEY } from "../composables/appStateKey";
+
+const appState = inject(APP_STATE_KEY, null);
 
 const STEPS = [
   "Mock / Art-Net",
@@ -213,7 +217,7 @@ async function identifyGroup(group: string) {
 
 async function toggleBlackout(enabled: boolean) {
   await postCommand("blackout", { enabled });
-  setStatus(enabled ? "Blackout ON" : "Blackout OFF");
+  setStatus(enabled ? "Blackout увімкнено" : "Blackout вимкнено");
 }
 
 function updateFixtureAddress(index: number, value: string) {
@@ -703,14 +707,14 @@ onUnmounted(() => {
             class="blackout-btn"
             @click="toggleBlackout(true)"
           >
-            Blackout ON
+            Blackout увімк.
           </button>
           <button
             type="button"
             class="action-btn"
             @click="toggleBlackout(false)"
           >
-            Blackout OFF
+            Blackout вимк.
           </button>
           <button
             type="button"
@@ -730,12 +734,12 @@ onUnmounted(() => {
           v-if="readiness"
           class="ready-list"
         >
-          <li>Preferred transport: {{ readiness.transport_preferred }}</li>
-          <li>Runtime transport: {{ readiness.runtime_transport }}</li>
-          <li>Output armed: {{ readiness.output_armed }}</li>
-          <li>Art-Net network: {{ readiness.artnet_network_enabled }}</li>
+          <li>Бажаний транспорт: {{ readiness.transport_preferred }}</li>
+          <li>Робочий транспорт: {{ readiness.runtime_transport }}</li>
+          <li>Вивід увімкнено: {{ readiness.output_armed }}</li>
+          <li>Мережа Art-Net: {{ readiness.artnet_network_enabled }}</li>
           <li>Patch OK: {{ readiness.patch_ok }}</li>
-          <li>Fixtures: {{ readiness.fixture_count }}</li>
+          <li>Приладів: {{ readiness.fixture_count }}</li>
           <li>
             Art-Net:
             <HardwareBadge :label="String(readiness.artnet_badge)" />
@@ -746,6 +750,25 @@ onUnmounted(() => {
         </p>
       </div>
     </div>
+
+    <StageSimulator
+      v-if="appState"
+      :simulator="appState.state.value?.simulator ?? null"
+      :frame="appState.state.value?.frame ?? []"
+      :engine-preset-id="appState.engine.value?.preset_id ?? '—'"
+      :preset-time-s="appState.engine.value?.preset_time_s ?? 0"
+      :episode-index="appState.engine.value?.episode_index ?? 0"
+      :episode-count="appState.engine.value?.episode_count ?? 10"
+      :cycle-duration-s="appState.engine.value?.cycle_duration_s ?? 180"
+      :blackout="appState.engine.value?.blackout ?? false"
+      :strobe-held="appState.engine.value?.strobe_held ?? false"
+      :white-hit-active="appState.engine.value?.white_hit_active ?? false"
+      :face-on="appState.engine.value?.face_on ?? false"
+      :preview-speed="appState.state.value?.preview_speed ?? 1"
+      :disabled="appState.connection.value === 'offline'"
+      compact
+      @update:preview-speed="appState.setPreviewSpeed"
+    />
 
     <footer class="wizard-nav">
       <button

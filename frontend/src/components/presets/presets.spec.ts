@@ -99,7 +99,30 @@ describe("PresetsView editor", () => {
           [APP_STATE_KEY as symbol]: {
             selectPreset: vi.fn(),
             connection: ref("online"),
-            engine: computed(() => ({ preset_id: "P05" })),
+            engine: computed(() => ({
+              preset_id: "P05",
+              episode_index: 0,
+              episode_count: 10,
+              cycle_duration_s: 180,
+              preset_time_s: 0,
+              blackout: true,
+              strobe_held: false,
+              white_hit_active: false,
+              face_on: false,
+            })),
+            state: computed(() => ({
+              frame: [],
+              preview_speed: 1,
+              simulator: {
+                pars: [],
+                bars: [],
+                beams: [],
+                faces: [],
+                nonzero_channels: 0,
+                blackout_visual: true,
+              },
+            })),
+            setPreviewSpeed: vi.fn(),
             refreshRest: vi.fn(async () => undefined),
           },
         },
@@ -112,7 +135,7 @@ describe("PresetsView editor", () => {
     await flushPromises();
     expect(wrapper.text()).toContain("Пресети");
     expect(wrapper.text()).toContain("P05");
-    const editBtn = wrapper.findAll("button").find((b) => b.text() === "Edit");
+    const editBtn = wrapper.findAll("button").find((b) => b.text() === "Редагувати");
     expect(editBtn).toBeTruthy();
     await editBtn!.trigger("click");
     await flushPromises();
@@ -123,7 +146,7 @@ describe("PresetsView editor", () => {
   it("can reorder episodes with buttons", async () => {
     const wrapper = mountView();
     await flushPromises();
-    await wrapper.findAll("button").find((b) => b.text() === "Edit")!.trigger("click");
+    await wrapper.findAll("button").find((b) => b.text() === "Редагувати")!.trigger("click");
     await flushPromises();
     const firstId = wrapper.find(".episode-card strong").text();
     await wrapper.findAll("button").find((b) => b.text() === "↓")!.trigger("click");

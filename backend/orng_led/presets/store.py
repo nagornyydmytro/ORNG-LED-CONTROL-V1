@@ -91,6 +91,16 @@ class PresetStore:
 
             document = PresetDocument.model_validate({**data, "id": preset_id})
             document = document.model_copy(update={"hardware_tuned": False})
+            if previous is not None and previous.builtin:
+                document = document.model_copy(update={"builtin": True})
+                if len(document.episodes) != 10:
+                    raise ConfigError(f"Builtin preset {preset_id!r} must keep exactly 10 episodes")
+                if any(abs(ep.duration_s - 18.0) > 1e-6 for ep in document.episodes):
+                    raise ConfigError(
+                        f"Builtin preset {preset_id!r} episodes must remain 18 seconds"
+                    )
+                if abs(document.total_duration_s - 180.0) > 1e-6:
+                    raise ConfigError(f"Builtin preset {preset_id!r} must remain 180 seconds total")
             save_preset(preset_path(self.directory, preset_id), document)
             self.documents[preset_id] = document
             self._last_valid[preset_id] = copy.deepcopy(document)

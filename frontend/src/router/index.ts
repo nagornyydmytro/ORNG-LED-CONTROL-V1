@@ -9,6 +9,7 @@ export const router = createRouter({
     { path: "/", name: "control", component: ControlView, meta: { title: "Пульт" } },
     { path: "/presets", name: "presets", component: PresetsView, meta: { title: "Пресети" } },
     { path: "/setup", name: "setup", component: SetupView, meta: { title: "Налаштування" } },
+    { path: "/settings", redirect: "/setup" },
     { path: "/:pathMatch(.*)*", redirect: "/" },
   ],
 });

@@ -53,11 +53,11 @@ function connectionLabel(status: ConnectionStatus): string {
         <span
           v-if="armed"
           class="armed"
-        >ARMED</span>
+        >УВІМКНЕНО</span>
         <span
           v-else
           class="disarmed"
-        >output off</span>
+        >вимкнено</span>
       </div>
     </header>
 
@@ -66,7 +66,7 @@ function connectionLabel(status: ConnectionStatus): string {
       class="output-error"
       role="alert"
     >
-      Output error: {{ outputError }}
+      Помилка виводу: {{ outputError }}
     </p>
 
     <nav

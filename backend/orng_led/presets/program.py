@@ -6,7 +6,14 @@ import math
 from dataclasses import dataclass
 
 from orng_led.config.models import FixtureKind, ShowConfig
-from orng_led.engine.intents import BarIntent, BeamIntent, ParIntent, Rgbw, StageIntent
+from orng_led.engine.intents import (
+    BarIntent,
+    BeamIntent,
+    FixtureIntent,
+    ParIntent,
+    Rgbw,
+    StageIntent,
+)
 from orng_led.engine.presets import CyclePosition
 from orng_led.presets.models import EpisodeCard, PresetDocument
 
@@ -21,18 +28,51 @@ PALETTE_RGBW: dict[str, Rgbw] = {
     "magenta": Rgbw(r=1.0, g=0.1, b=0.55),
 }
 
+# Transition window into the current episode (seconds of show time).
+FADE_DURATION_S = 2.0
+SOFT_DURATION_S = 3.0
+
+
+TYPE_TAGS = frozenset({"par", "bar", "beam", "face"})
+SIDE_TAGS = frozenset({"left", "right"})
+RING_TAGS = frozenset({"inner", "outer"})
+
 
 def _matches_groups(fixture_groups: list[str], episode_groups: list[str]) -> bool:
+    """Match episode group selectors with dimensional AND / within-dimension OR.
+
+    ``["outer", "par"]`` → only outer PARs (not all PARs, not outer Bars).
+    ``["par", "beam"]`` → PARs or Beams.
+    ``["left", "right"]`` → left or right fixtures.
+    ``all_rear`` → any non-face rear fixture.
+    """
+    if not episode_groups:
+        return False
     fx = set(fixture_groups)
-    for group in episode_groups:
-        if group == "all_rear":
-            if "all_rear" in fx or "rear" in fx or "par" in fx or "bar" in fx or "beam" in fx:
-                if "face" not in fx:
-                    return True
-            continue
-        if group in fx:
-            return True
-    return False
+
+    if "all_rear" in episode_groups and len(episode_groups) == 1:
+        is_rear = bool(fx & {"all_rear", "rear", "par", "bar", "beam"})
+        return is_rear and "face" not in fx
+
+    wanted_types = set(episode_groups) & TYPE_TAGS
+    wanted_sides = set(episode_groups) & SIDE_TAGS
+    wanted_rings = set(episode_groups) & RING_TAGS
+    # Ignore all_rear when combined with more specific tags.
+    if not wanted_types and not wanted_sides and not wanted_rings:
+        if "all_rear" in episode_groups:
+            is_rear = bool(fx & {"all_rear", "rear", "par", "bar", "beam"})
+            return is_rear and "face" not in fx
+        return False
+
+    if "face" in fx and "face" not in wanted_types:
+        return False
+    if wanted_types and not (fx & wanted_types):
+        return False
+    if wanted_sides and not (fx & wanted_sides):
+        return False
+    if wanted_rings and not (fx & wanted_rings):
+        return False
+    return True
 
 
 @dataclass
@@ -53,6 +93,10 @@ class YamlPresetProgram:
     def total_duration_s(self) -> float:
         return self.document.total_duration_s
 
+    @property
+    def episode_count(self) -> int:
+        return len(self.document.episodes)
+
     def cycle_position(self, time_s: float) -> CyclePosition:
         total = self.total_duration_s
         cycle_time = time_s % total if total > 0 else 0.0
@@ -69,7 +113,102 @@ class YamlPresetProgram:
     def evaluate(self, cycle_time_s: float, show: ShowConfig) -> StageIntent:
         pos = self.cycle_position(cycle_time_s)
         episode = self.document.episodes[pos.episode_index]
-        return _evaluate_episode(episode, pos, show)
+        current = _evaluate_episode(episode, pos, show)
+
+        blend = _transition_blend(episode.transition, pos.episode_time_s)
+        if blend <= 0.0:
+            return current
+
+        prev_index = (pos.episode_index - 1) % len(self.document.episodes)
+        prev_episode = self.document.episodes[prev_index]
+        # Sample previous episode at its end so the look continues into the blend.
+        prev_pos = CyclePosition(
+            cycle_time_s=pos.cycle_time_s,
+            episode_index=prev_index,
+            episode_time_s=max(0.0, prev_episode.duration_s - 1e-6),
+            episode_progress=1.0,
+        )
+        previous = _evaluate_episode(prev_episode, prev_pos, show)
+        return _blend_stage(previous, current, 1.0 - blend)
+
+
+def _transition_blend(transition: str, episode_time_s: float) -> float:
+    """Return blend weight of *previous* episode (1 → fully previous, 0 → current)."""
+    if transition == "cut":
+        return 0.0
+    if transition == "fade":
+        duration = FADE_DURATION_S
+        if episode_time_s >= duration:
+            return 0.0
+        return 1.0 - (episode_time_s / duration)
+    if transition == "soft":
+        duration = SOFT_DURATION_S
+        if episode_time_s >= duration:
+            return 0.0
+        # Smoothstep ease for a softer ramp than linear fade.
+        t = episode_time_s / duration
+        eased = t * t * (3.0 - 2.0 * t)
+        return 1.0 - eased
+    return 0.0
+
+
+def _lerp(a: float, b: float, t: float) -> float:
+    return a + (b - a) * t
+
+
+def _blend_rgbw(a: Rgbw, b: Rgbw, t: float) -> Rgbw:
+    return Rgbw(
+        r=_lerp(a.r, b.r, t),
+        g=_lerp(a.g, b.g, t),
+        b=_lerp(a.b, b.b, t),
+        w=_lerp(a.w, b.w, t),
+    )
+
+
+def _blend_intent(
+    a: FixtureIntent | None, b: FixtureIntent | None, t: float
+) -> FixtureIntent | None:
+    if a is None:
+        return b
+    if b is None:
+        return a
+    if isinstance(a, ParIntent) and isinstance(b, ParIntent):
+        return ParIntent(
+            color=_blend_rgbw(a.color, b.color, t),
+            intensity=_lerp(a.intensity, b.intensity, t),
+            strobe=_lerp(a.strobe, b.strobe, t),
+        )
+    if isinstance(a, BarIntent) and isinstance(b, BarIntent):
+        segs = tuple(_lerp(x, y, t) for x, y in zip(a.segments, b.segments, strict=False))
+        # Pad if segment counts differ (should not for staff profiles).
+        if len(segs) < 8:
+            segs = segs + (0.0,) * (8 - len(segs))
+        return BarIntent(
+            segments=segs[:8],
+            dimmer=_lerp(a.dimmer, b.dimmer, t),
+            strobe=_lerp(a.strobe, b.strobe, t),
+        )
+    if isinstance(a, BeamIntent) and isinstance(b, BeamIntent):
+        return BeamIntent(
+            pan=_lerp(a.pan, b.pan, t),
+            tilt=_lerp(a.tilt, b.tilt, t),
+            dimmer=_lerp(a.dimmer, b.dimmer, t),
+            color=_lerp(a.color, b.color, t),
+            shutter_open=b.shutter_open if t >= 0.5 else a.shutter_open,
+            strobe=_lerp(a.strobe, b.strobe, t),
+        )
+    return b
+
+
+def _blend_stage(previous: StageIntent, current: StageIntent, t: float) -> StageIntent:
+    """t=0 → previous, t=1 → current."""
+    keys = set(previous.fixtures) | set(current.fixtures)
+    out = StageIntent()
+    for key in keys:
+        blended = _blend_intent(previous.fixtures.get(key), current.fixtures.get(key), t)
+        if blended is not None:
+            out.fixtures[key] = blended
+    return out
 
 
 def _modulate(progress: float, speed: float, effect: str) -> float:

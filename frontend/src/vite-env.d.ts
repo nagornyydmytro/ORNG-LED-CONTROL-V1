@@ -17,6 +17,8 @@ export interface EngineState {
   preset_time_s: number;
   episode_index: number;
   episode_time_s: number;
+  episode_count: number;
+  cycle_duration_s: number;
   blackout: boolean;
   face_on: boolean;
   face_brightness: number;

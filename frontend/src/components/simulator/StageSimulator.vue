@@ -7,12 +7,15 @@ defineProps<{
   enginePresetId: string;
   presetTimeS: number;
   episodeIndex: number;
+  episodeCount?: number;
+  cycleDurationS?: number;
   blackout: boolean;
   strobeHeld: boolean;
   whiteHitActive: boolean;
   faceOn: boolean;
   previewSpeed: number;
   disabled?: boolean;
+  compact?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -66,6 +69,27 @@ function sortedByOrder<T extends { order?: number | null; side: string; id: stri
   });
 }
 
+function sortedBeams<T extends { order?: number | null; side: string; id: string }>(
+  items: T[],
+): T[] {
+  // Audience left/right: Beam Left must render in the left column.
+  const sideRank = (side: string) => (side === "left" ? 0 : side === "right" ? 1 : 2);
+  return [...items].sort((a, b) => {
+    const sideDiff = sideRank(a.side) - sideRank(b.side);
+    if (sideDiff !== 0) return sideDiff;
+    return a.id.localeCompare(b.id);
+  });
+}
+
+function formatCycle(seconds: number): string {
+  const total = Math.max(0, Math.floor(seconds));
+  const m = Math.floor(total / 60)
+    .toString()
+    .padStart(2, "0");
+  const s = (total % 60).toString().padStart(2, "0");
+  return `${m}:${s}`;
+}
+
 function onSpeed(value: string) {
   emit("update:previewSpeed", Number(value));
 }
@@ -80,8 +104,8 @@ function onSpeed(value: string) {
       <div>
         <h2>Симулятор</h2>
         <p class="sim-meta">
-          {{ enginePresetId }} · епізод {{ episodeIndex + 1 }}/10 ·
-          {{ presetTimeS.toFixed(1) }} с · ×{{ previewSpeed }}
+          {{ enginePresetId }} · епізод {{ episodeIndex + 1 }}/{{ episodeCount ?? 10 }} ·
+          {{ presetTimeS.toFixed(1) }} с / {{ formatCycle(cycleDurationS ?? 180) }} · ×{{ previewSpeed }}
         </p>
       </div>
       <label class="speed">
@@ -188,7 +212,7 @@ function onSpeed(value: string) {
 
       <div class="row beams">
         <div
-          v-for="beam in sortedByOrder(simulator?.beams ?? [])"
+          v-for="beam in sortedBeams(simulator?.beams ?? [])"
           :key="beam.id"
           class="fixture beam"
           :data-id="beam.id"
@@ -211,7 +235,7 @@ function onSpeed(value: string) {
 
     <details class="inspector">
       <summary>
-        Channel inspector (512) · nonzero {{ simulator?.nonzero_channels ?? 0 }}
+        Інспектор каналів (512) · ненульових {{ simulator?.nonzero_channels ?? 0 }}
       </summary>
       <div
         class="channels"

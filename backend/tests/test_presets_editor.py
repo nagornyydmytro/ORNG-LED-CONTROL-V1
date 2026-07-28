@@ -10,7 +10,8 @@ import yaml
 from fastapi.testclient import TestClient
 
 from orng_led.api.runtime import AppRuntime
-from orng_led.config import default_config_dir, load_show_config
+from orng_led.config import default_config_dir
+from orng_led.config.models import ConfigError
 from orng_led.main import create_app
 from orng_led.presets.io import load_preset
 from orng_led.presets.store import PresetStore
@@ -123,5 +124,5 @@ def test_store_rejects_invalid_yaml_file(tmp_path: Path) -> None:
         "episodes": [],
     }
     (presets / "BAD.yaml").write_text(yaml.safe_dump(bad), encoding="utf-8")
-    with pytest.raises(Exception):
+    with pytest.raises(ConfigError):
         PresetStore.load(presets)

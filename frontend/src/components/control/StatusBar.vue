@@ -10,19 +10,21 @@ const props = defineProps<{
 
 const episodeLabel = computed(() => {
   if (!props.engine) return "—";
-  return `Епізод ${props.engine.episode_index + 1}/10 · ${formatClock(props.engine.episode_time_s)}`;
+  const count = props.engine.episode_count ?? 10;
+  return `Епізод ${props.engine.episode_index + 1}/${count} · ${formatClock(props.engine.episode_time_s)}`;
 });
 
 const cycleLabel = computed(() => {
   if (!props.engine) return "—";
-  return `Цикл ${formatClock(props.engine.preset_time_s)} / 03:00`;
+  const total = props.engine.cycle_duration_s ?? 180;
+  return `Цикл ${formatClock(props.engine.preset_time_s)} / ${formatClock(total)}`;
 });
 
 const outputLabel = computed(() => {
   if (!props.output) return "невідомо";
   const mode = props.output.transport.toUpperCase();
-  if (props.output.armed) return `${mode} · armed`;
-  return `${mode} · не активний`;
+  if (props.output.armed) return `${mode} · увімкнено`;
+  return `${mode} · вимкнено`;
 });
 </script>
 
@@ -44,7 +46,7 @@ const outputLabel = computed(() => {
       <strong>{{ episodeLabel }}</strong>
     </div>
     <div>
-      <span class="k">Output</span>
+      <span class="k">Вивід</span>
       <strong>{{ outputLabel }}</strong>
     </div>
   </section>

@@ -74,6 +74,9 @@ def _register_frontend(application: FastAPI) -> None:
     async def spa_fallback(full_path: str) -> FileResponse:
         if full_path == "api" or full_path.startswith("api/"):
             raise HTTPException(status_code=404, detail="Not found")
+        # Never SPA-fallback asset paths: HTML-as-JS causes a blank dark page.
+        if full_path.startswith("assets/") or full_path == "assets":
+            raise HTTPException(status_code=404, detail="Asset not found")
 
         candidate = FRONTEND_DIST / full_path
         if candidate.is_file():

@@ -90,8 +90,8 @@ describe("connection honesty", () => {
     // sanity helper for status copy used by shell
     const transport = "mock";
     const armed = false;
-    const label = armed ? `${transport} armed` : `${transport} output off`;
-    expect(label).toBe("mock output off");
+    const label = armed ? `${transport} увімкнено` : `${transport} вимкнено`;
+    expect(label).toBe("mock вимкнено");
     await nextTick();
   });
 });

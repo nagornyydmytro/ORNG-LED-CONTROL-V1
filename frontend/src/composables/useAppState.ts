@@ -14,8 +14,8 @@ import {
   postInputButton,
 } from "../api/input";
 import type { AppState, PresetInfo } from "../vite-env";
-import { useToasts } from "./useToasts";
 import { useKeyboardPad } from "./useKeyboardPad";
+import type { ToastApi } from "./useToasts";
 
 export type ConnectionStatus = "connecting" | "online" | "offline" | "reconnecting";
 
@@ -24,8 +24,7 @@ function wsUrl(): string {
   return `${protocol}//${window.location.host}/api/ws`;
 }
 
-export function useAppState() {
-  const toasts = useToasts();
+export function useAppState(toasts: ToastApi) {
   const state = shallowRef<AppState | null>(null);
   const availablePresets = ref<PresetInfo[]>([]);
   const connection = ref<ConnectionStatus>("connecting");

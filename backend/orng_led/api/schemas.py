@@ -46,6 +46,8 @@ class EngineState(ApiModel):
     preset_time_s: float
     episode_index: int
     episode_time_s: float
+    episode_count: int = 10
+    cycle_duration_s: float = 180.0
     blackout: bool
     face_on: bool
     face_brightness: float

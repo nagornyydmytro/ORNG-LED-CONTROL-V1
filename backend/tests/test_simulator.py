@@ -70,13 +70,16 @@ def test_beam_sides_are_spatially_distinct() -> None:
 
 def test_preview_speed_accelerates_clock() -> None:
     runtime = AppRuntime.create(autostart_loop=False)
+    runtime.engine.set_blackout(False)
     runtime.engine.select_preset("P05", reset_clock=True)
     runtime.apply_preview_speed(60.0)
     assert runtime.preview_speed == 60.0
-    before = runtime.engine.clock.time()
+    before_wall = runtime.engine.clock.time()
+    before_preset = runtime.engine.preset_elapsed_s
     runtime.tick(dt_s=1.0)
-    after = runtime.engine.clock.time()
-    assert after - before == 60.0
+    # Safety/wall clock stays real-time; show clock is scaled.
+    assert runtime.engine.clock.time() - before_wall == 1.0
+    assert runtime.engine.preset_elapsed_s - before_preset == 60.0
     state = runtime.build_state()
     assert state.preview_speed == 60.0
     assert state.simulator.nonzero_channels >= 0
@@ -84,11 +87,14 @@ def test_preview_speed_accelerates_clock() -> None:
 
 def test_accelerated_cycle_covers_full_preset_window() -> None:
     runtime = AppRuntime.create(autostart_loop=False)
+    runtime.engine.set_blackout(False)
     runtime.engine.select_preset("P05", reset_clock=True)
     runtime.apply_preview_speed(60.0)
     # 180s show / 60x ≈ 3 wall seconds of tick input.
     for _ in range(3):
         runtime.tick(dt_s=1.0)
+    assert runtime.engine.preset_elapsed_s >= 179.0
     snap = runtime.engine.render_at(runtime.engine.clock.time(), dt_s=0.0)
-    assert snap.preset_time_s >= 179.0 or snap.time_s >= 180.0
+    assert snap.preset_time_s >= 0.0  # wrapped into cycle
+    assert runtime.engine.preset_elapsed_s >= 180.0 or snap.preset_time_s >= 179.0
     assert runtime.build_state().simulator is not None

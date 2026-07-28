@@ -6,7 +6,7 @@ export interface ToastItem {
   tone: "info" | "error" | "success";
 }
 
-interface ToastApi {
+export interface ToastApi {
   toasts: ComputedRef<ToastItem[]>;
   push: (message: string, tone?: ToastItem["tone"]) => void;
   dismiss: (id: number) => void;

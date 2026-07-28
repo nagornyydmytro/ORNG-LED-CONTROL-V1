@@ -17,6 +17,7 @@ import {
   type EpisodeCard,
   type PresetDocument,
 } from "../api/presets";
+import StageSimulator from "../components/simulator/StageSimulator.vue";
 import { APP_STATE_KEY } from "../composables/appStateKey";
 import type { PresetInfo } from "../vite-env";
 import { PRESET_CATALOG } from "../lib/presets";
@@ -26,7 +27,14 @@ if (!api) {
   throw new Error("App state is not provided");
 }
 
-const { selectPreset, connection, engine, refreshRest } = api;
+const {
+  selectPreset,
+  connection,
+  engine,
+  state,
+  refreshRest,
+  setPreviewSpeed,
+} = api;
 
 const summaries = ref<PresetInfo[]>([]);
 const editing = ref<PresetDocument | null>(null);
@@ -42,6 +50,8 @@ const dragIndex = ref<number | null>(null);
 const totalDuration = computed(() =>
   editing.value ? editing.value.episodes.reduce((sum, ep) => sum + Number(ep.duration_s), 0) : 0,
 );
+
+const isBuiltinEditing = computed(() => editing.value?.builtin === true);
 
 async function reloadList() {
   summaries.value = await listPresets();
@@ -82,7 +92,6 @@ async function onSave() {
     setStatus("Пресет збережено (atomic YAML)");
   } catch (err) {
     setStatus(null, err instanceof Error ? err.message : "Помилка збереження");
-    // Keep editor draft; last valid remains on server.
   } finally {
     saving.value = false;
   }
@@ -97,7 +106,7 @@ async function onRename() {
     await reloadList();
     setStatus("Назву оновлено");
   } catch (err) {
-    setStatus(null, err instanceof Error ? err.message : "Помилка rename");
+    setStatus(null, err instanceof Error ? err.message : "Помилка перейменування");
   } finally {
     saving.value = false;
   }
@@ -112,7 +121,7 @@ async function onDuplicate(id: string) {
     await openEditor(nextId);
     setStatus(`Дубльовано як ${nextId}`);
   } catch (err) {
-    setStatus(null, err instanceof Error ? err.message : "Помилка duplicate");
+    setStatus(null, err instanceof Error ? err.message : "Помилка дублювання");
   } finally {
     saving.value = false;
   }
@@ -120,7 +129,7 @@ async function onDuplicate(id: string) {
 
 async function onDelete(id: string, builtin?: boolean) {
   if (builtin) {
-    setStatus(null, "Builtin пресет не можна видалити");
+    setStatus(null, "Вбудований пресет не можна видалити");
     return;
   }
   saving.value = true;
@@ -130,7 +139,7 @@ async function onDelete(id: string, builtin?: boolean) {
     await reloadList();
     setStatus(`Видалено ${id}`);
   } catch (err) {
-    setStatus(null, err instanceof Error ? err.message : "Помилка delete");
+    setStatus(null, err instanceof Error ? err.message : "Помилка видалення");
   } finally {
     saving.value = false;
   }
@@ -139,14 +148,14 @@ async function onDelete(id: string, builtin?: boolean) {
 async function onPreview(id: string) {
   try {
     await previewPreset(id, 10);
-    setStatus(`Preview ${id} ×10 на Mock (Art-Net не вмикається)`);
+    setStatus(`Перегляд ${id} ×10 на Mock (Art-Net не вмикається)`);
   } catch (err) {
-    setStatus(null, err instanceof Error ? err.message : "Помилка preview");
+    setStatus(null, err instanceof Error ? err.message : "Помилка перегляду");
   }
 }
 
 function addEpisode() {
-  if (!editing.value) return;
+  if (!editing.value || isBuiltinEditing.value) return;
   editing.value = {
     ...editing.value,
     episodes: [...editing.value.episodes, newEpisode(editing.value.episodes.length + 1)],
@@ -154,7 +163,7 @@ function addEpisode() {
 }
 
 function removeEpisode(index: number) {
-  if (!editing.value || editing.value.episodes.length <= 1) return;
+  if (!editing.value || isBuiltinEditing.value || editing.value.episodes.length <= 1) return;
   const episodes = editing.value.episodes.filter((_, i) => i !== index);
   editing.value = { ...editing.value, episodes };
 }
@@ -180,6 +189,9 @@ function onDrop(index: number) {
 
 function updateEpisode(index: number, patch: Partial<EpisodeCard>) {
   if (!editing.value) return;
+  if (isBuiltinEditing.value && patch.duration_s !== undefined) {
+    return;
+  }
   const episodes = editing.value.episodes.map((ep, i) =>
     i === index ? { ...ep, ...patch } : ep,
   );
@@ -189,9 +201,11 @@ function updateEpisode(index: number, patch: Partial<EpisodeCard>) {
 function toggleGroup(index: number, group: string) {
   if (!editing.value) return;
   const ep = editing.value.episodes[index];
-  const has = ep.groups.includes(group);
-  const groups = has ? ep.groups.filter((g) => g !== group) : [...ep.groups, group];
-  updateEpisode(index, { groups: groups.length ? groups : ["all_rear"] });
+  const groups = ep.groups.includes(group)
+    ? ep.groups.filter((g) => g !== group)
+    : [...ep.groups, group];
+  if (groups.length === 0) return;
+  updateEpisode(index, { groups });
 }
 
 onMounted(async () => {
@@ -213,7 +227,7 @@ onMounted(async () => {
     <header class="page-head">
       <h1>Пресети</h1>
       <p>
-        Картки, запуск, rename/duplicate/edit, episode editor і Mock preview.
+        Картки, запуск, перейменування, дублювання, редактор епізодів і Mock-перегляд.
         Без raw DMX і без увімкнення Art-Net.
       </p>
     </header>
@@ -276,7 +290,7 @@ onMounted(async () => {
         <p>
           {{ preset.episode_count ?? "—" }} епізодів ·
           {{ (preset.total_duration_s ?? 0).toFixed(0) }} с ·
-          {{ preset.builtin ? "builtin" : "custom" }}
+          {{ preset.builtin ? "вбудований" : "власний" }}
         </p>
         <div class="card-actions">
           <button
@@ -293,14 +307,14 @@ onMounted(async () => {
             :disabled="connection === 'offline'"
             @click="onPreview(preset.id)"
           >
-            Preview ×10
+            Перегляд ×10
           </button>
           <button
             type="button"
             class="action-btn"
             @click="openEditor(preset.id)"
           >
-            Edit
+            Редагувати
           </button>
           <button
             type="button"
@@ -308,7 +322,7 @@ onMounted(async () => {
             :disabled="saving"
             @click="onDuplicate(preset.id)"
           >
-            Duplicate
+            Дублювати
           </button>
           <button
             type="button"
@@ -316,7 +330,7 @@ onMounted(async () => {
             :disabled="saving || preset.builtin"
             @click="onDelete(preset.id, preset.builtin)"
           >
-            Delete
+            Видалити
           </button>
         </div>
       </article>
@@ -327,14 +341,31 @@ onMounted(async () => {
         class="preset-card locked"
       >
         <h2>{{ slot.id }} · {{ slot.label }}</h2>
-        <p>Ще не завантажено (очікує L011).</p>
+        <p>Ще не завантажено.</p>
       </article>
     </div>
+
+    <StageSimulator
+      :simulator="state?.simulator ?? null"
+      :frame="state?.frame ?? []"
+      :engine-preset-id="engine?.preset_id ?? '—'"
+      :preset-time-s="engine?.preset_time_s ?? 0"
+      :episode-index="engine?.episode_index ?? 0"
+      :episode-count="engine?.episode_count ?? 10"
+      :cycle-duration-s="engine?.cycle_duration_s ?? 180"
+      :blackout="engine?.blackout ?? false"
+      :strobe-held="engine?.strobe_held ?? false"
+      :white-hit-active="engine?.white_hit_active ?? false"
+      :face-on="engine?.face_on ?? false"
+      :preview-speed="state?.preview_speed ?? 1"
+      :disabled="connection === 'offline'"
+      @update:preview-speed="setPreviewSpeed"
+    />
 
     <section
       v-if="editing"
       class="editor"
-      aria-label="Episode editor"
+      aria-label="Редактор епізодів"
     >
       <header class="editor-head">
         <div>
@@ -342,11 +373,12 @@ onMounted(async () => {
           <p>
             Σ {{ totalDuration.toFixed(1) }} с · hardware_tuned=false ·
             {{ editing.episodes.length }} епізодів
+            <span v-if="isBuiltinEditing"> · структура 10×18 с зафіксована</span>
           </p>
         </div>
         <div class="row-actions">
           <label class="field inline">
-            Rename
+            Нова назва
             <input v-model="renameLabel">
           </label>
           <button
@@ -368,6 +400,7 @@ onMounted(async () => {
           <button
             type="button"
             class="action-btn"
+            :disabled="isBuiltinEditing"
             @click="addEpisode"
           >
             + Епізод
@@ -406,7 +439,7 @@ onMounted(async () => {
             <button
               type="button"
               class="action-btn"
-              :disabled="editing.episodes.length <= 1"
+              :disabled="isBuiltinEditing || editing.episodes.length <= 1"
               @click="removeEpisode(index)"
             >
               Видалити
@@ -423,6 +456,7 @@ onMounted(async () => {
               max="180"
               step="0.1"
               :value="ep.duration_s"
+              :disabled="isBuiltinEditing"
               @input="updateEpisode(index, { duration_s: Number(($event.target as HTMLInputElement).value) })"
             >
           </label>

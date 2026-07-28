@@ -101,6 +101,8 @@ function onToggleFace() {
       :engine-preset-id="engine?.preset_id ?? '—'"
       :preset-time-s="engine?.preset_time_s ?? 0"
       :episode-index="engine?.episode_index ?? 0"
+      :episode-count="engine?.episode_count ?? 10"
+      :cycle-duration-s="engine?.cycle_duration_s ?? 180"
       :blackout="engine?.blackout ?? false"
       :strobe-held="engine?.strobe_held ?? false"
       :white-hit-active="engine?.white_hit_active ?? false"

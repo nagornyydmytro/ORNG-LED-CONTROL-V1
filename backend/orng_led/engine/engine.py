@@ -33,6 +33,8 @@ class EngineSnapshot:
     preset_time_s: float
     episode_index: int
     episode_time_s: float
+    episode_count: int
+    cycle_duration_s: float
     blackout: bool
     face_on: bool
     strobe_held: bool
@@ -148,11 +150,21 @@ class Engine:
         position_fn = getattr(preset, "cycle_position", None)
         if callable(position_fn):
             pos = position_fn(self.preset_elapsed_s)
-            cycle_len = getattr(preset, "total_duration_s", CYCLE_DURATION_S) or CYCLE_DURATION_S
+            cycle_len = float(
+                getattr(preset, "total_duration_s", CYCLE_DURATION_S) or CYCLE_DURATION_S
+            )
             preset_time = self.preset_elapsed_s % cycle_len
+            if hasattr(preset, "episode_count"):
+                episode_count = int(preset.episode_count)
+            elif hasattr(preset, "document"):
+                episode_count = len(preset.document.episodes)
+            else:
+                episode_count = 10
         else:
             pos = cycle_position(self.preset_elapsed_s)
+            cycle_len = CYCLE_DURATION_S
             preset_time = self.preset_elapsed_s % CYCLE_DURATION_S
+            episode_count = 10
         white_hit_active = (
             self.overlays.white_hit_until is not None and time_s < self.overlays.white_hit_until
         )
@@ -162,6 +174,8 @@ class Engine:
             preset_time_s=preset_time,
             episode_index=pos.episode_index,
             episode_time_s=pos.episode_time_s,
+            episode_count=episode_count,
+            cycle_duration_s=cycle_len,
             blackout=self.overlays.blackout,
             face_on=self.overlays.face_on,
             strobe_held=self.overlays.strobe_held,
@@ -170,11 +184,24 @@ class Engine:
             frame=frame,
         )
 
-    def tick(self, dt_s: float = FRAME_DT) -> EngineSnapshot:
-        """Advance virtual clock by one frame (default 1/30 s) and render."""
+    def tick(
+        self,
+        dt_s: float = FRAME_DT,
+        *,
+        wall_dt_s: float | None = None,
+    ) -> EngineSnapshot:
+        """Advance clocks and render.
+
+        ``dt_s`` advances show/preset time (may be scaled by preview_speed).
+        ``wall_dt_s`` advances the real safety clock used by White Hit / Strobe
+        timeouts. When omitted, both clocks use ``dt_s``.
+        """
         if dt_s < 0:
             raise ValueError("dt_s must be >= 0")
-        now = self.clock.advance(dt_s)
+        wall = dt_s if wall_dt_s is None else wall_dt_s
+        if wall < 0:
+            raise ValueError("wall_dt_s must be >= 0")
+        now = self.clock.advance(wall)
         # Preset clock always advances, including during blackout.
         self.preset_elapsed_s += dt_s
         return self.render_at(now, dt_s=dt_s)

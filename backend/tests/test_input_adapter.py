@@ -92,6 +92,8 @@ def test_face_white_hit_blackout_via_contract(client) -> None:
     assert face["state"]["engine"]["face_on"] is (not before_face)
     hit = test_client.post("/api/input/button", json={"button_id": 12}).json()
     assert hit["accepted"] is True
+    # Startup blackout is on; clear then re-engage via pad.
+    runtime.engine.set_blackout(False)
     bo = test_client.post("/api/input/button", json={"button_id": 14}).json()
     assert bo["state"]["engine"]["blackout"] is True
 

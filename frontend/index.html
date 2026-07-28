@@ -43,21 +43,154 @@
         pointer-events: none;
         transition: opacity 0.12s linear;
       }
-      #boot-splash img {
+      #boot-splash canvas {
         display: block;
         width: 100%;
         height: 100%;
-        object-fit: cover;
         background: #000;
       }
     </style>
-    <link rel="preload" as="image" href="/splash-frames/000.jpg" />
   </head>
   <body>
     <div id="boot-splash" aria-hidden="true">
-      <img src="/splash-frames/000.jpg" alt="" />
+      <canvas id="boot-splash-canvas"></canvas>
     </div>
     <div id="app"></div>
+    <script>
+      (function () {
+        var canvas = document.getElementById("boot-splash-canvas");
+        if (!canvas) return;
+        var ctx = canvas.getContext("2d", { alpha: false });
+        if (!ctx) return;
+        var t0 = window.__ORNG_SPLASH_T0 || performance.now();
+        var raf = 0;
+        var R = 255, G = 77, B = 0;
+
+        function smoothstep(a, b, x) {
+          var t = Math.max(0, Math.min(1, (x - a) / (b - a)));
+          return t * t * (3 - 2 * t);
+        }
+        function edgeFade(t, soft) {
+          t = Math.max(0, Math.min(1, t));
+          return Math.min(smoothstep(0, soft, t), smoothstep(0, soft, 1 - t));
+        }
+        function capsule(x, y, ww, hh) {
+          var rad = Math.min(ww / 2, hh / 2);
+          ctx.beginPath();
+          if (hh <= ww) {
+            ctx.arc(x + ww / 2, y + hh / 2, rad, 0, Math.PI * 2);
+          } else {
+            ctx.moveTo(x, y + rad);
+            ctx.arc(x + ww / 2, y + rad, rad, Math.PI, 0);
+            ctx.lineTo(x + ww, y + hh - rad);
+            ctx.arc(x + ww / 2, y + hh - rad, rad, 0, Math.PI);
+            ctx.closePath();
+          }
+          ctx.fill();
+        }
+
+        function paint(now) {
+          if (!document.getElementById("boot-splash")) return;
+          var w = Math.max(1, window.innerWidth | 0);
+          var h = Math.max(1, window.innerHeight | 0);
+          canvas.width = w;
+          canvas.height = h;
+          var timeSec = (now - t0) / 1000;
+          ctx.fillStyle = "#000";
+          ctx.fillRect(0, 0, w, h);
+
+          var off = document.createElement("canvas");
+          off.width = w;
+          off.height = h;
+          var o = off.getContext("2d", { willReadFrequently: true });
+          if (!o) {
+            raf = requestAnimationFrame(paint);
+            return;
+          }
+          o.fillStyle = "#000";
+          o.fillRect(0, 0, w, h);
+          var drift = Math.sin(timeSec * Math.PI) * w * 0.09;
+          var scale = 1 + Math.sin(timeSec * 2.15) * 0.07;
+          var shear = Math.sin(timeSec * 1.55) * 0.14;
+          o.save();
+          o.translate(w * 0.5 + drift, h * 0.36);
+          o.transform(scale, 0, shear * scale, scale, 0, 0);
+          o.fillStyle = "#fff";
+          o.strokeStyle = "#fff";
+          o.textAlign = "center";
+          o.textBaseline = "middle";
+          o.lineJoin = "round";
+          var fontPx = Math.min(w * 0.34, h * 0.145);
+          function font(sz) {
+            return "900 " + sz + 'px "Arial Black",Impact,Arial,sans-serif';
+          }
+          o.font = font(fontPx);
+          while (fontPx > 28 && o.measureText("HOTBOX").width > w * 0.88) {
+            fontPx -= 2;
+            o.font = font(fontPx);
+          }
+          o.lineWidth = Math.max(4, fontPx * 0.11);
+          var gap = fontPx * 0.08;
+          o.strokeText("ORNG", 0, -fontPx * 0.55 - gap * 0.5);
+          o.fillText("ORNG", 0, -fontPx * 0.55 - gap * 0.5);
+          o.strokeText("HOTBOX", 0, fontPx * 0.55 + gap * 0.5);
+          o.fillText("HOTBOX", 0, fontPx * 0.55 + gap * 0.5);
+          o.restore();
+
+          var data = o.getImageData(0, 0, w, h).data;
+          var pitch = Math.max(5, Math.min(14, Math.round(w / 70)));
+          var thin = Math.max(1, Math.round(pitch * 0.16));
+          var thick = Math.max(thin + 3, Math.round(pitch * 0.78));
+          var invW = 1 / Math.max(1, w - 1);
+          var invH = 1 / Math.max(1, h - 1);
+          var band = Math.max(4, (h / 45) | 0);
+          ctx.fillStyle = "rgb(" + R + "," + G + "," + B + ")";
+
+          for (var si = 0; si < Math.ceil(w / pitch) + 1; si++) {
+            var x = (si * pitch + pitch * 0.5) | 0;
+            if (x < 0 || x >= w) continue;
+            var fadeX = edgeFade(x * invW, 0.09);
+            if (fadeX < 0.04) continue;
+            for (var y0 = 0; y0 < h; y0 += band) {
+              var fadeY = edgeFade((y0 + band * 0.5) * invH, 0.11);
+              var a = fadeX * fadeY;
+              if (a < 0.05) continue;
+              ctx.globalAlpha = a;
+              ctx.fillRect(x - ((thin / 2) | 0), y0, thin, Math.min(band + 1, h - y0));
+            }
+            var run = -1;
+            function flush(yEnd) {
+              if (run < 0) return;
+              var yy = run;
+              var hh = yEnd - yy;
+              run = -1;
+              if (hh < 2) return;
+              var fy = edgeFade((yy + yEnd) * 0.5 * invH, 0.11);
+              var aa = fadeX * fy;
+              if (aa < 0.05) return;
+              ctx.globalAlpha = aa;
+              capsule(x - ((thick / 2) | 0), yy, thick, hh);
+            }
+            for (var y = 0; y < h; y++) {
+              if (data[(y * w + x) * 4] > 40) {
+                if (run < 0) run = y;
+              } else flush(y);
+            }
+            flush(h);
+          }
+          ctx.globalAlpha = 1;
+          raf = requestAnimationFrame(paint);
+        }
+        raf = requestAnimationFrame(paint);
+        var obs = new MutationObserver(function () {
+          if (!document.getElementById("boot-splash")) {
+            cancelAnimationFrame(raf);
+            obs.disconnect();
+          }
+        });
+        obs.observe(document.body, { childList: true });
+      })();
+    </script>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

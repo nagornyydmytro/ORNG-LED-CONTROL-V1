@@ -91,9 +91,39 @@ export async function deactivateArtNet(): Promise<CommandAck> {
   return parseJson(response);
 }
 
+export async function armOutput(confirmed: boolean): Promise<CommandAck> {
+  const response = await fetch("/api/output/arm", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      confirmed,
+      client_command_id: createCommandId("arm"),
+    }),
+  });
+  return parseJson(response);
+}
+
+export async function disarmOutput(): Promise<CommandAck> {
+  const response = await fetch("/api/output/disarm", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      client_command_id: createCommandId("disarm"),
+    }),
+  });
+  return parseJson(response);
+}
+
 export async function fetchActivationBlockers(): Promise<{
   ok: boolean;
   blockers: string[];
 }> {
   return parseJson(await fetch("/api/output/activation-blockers"));
+}
+
+export async function fetchArmBlockers(): Promise<{
+  ok: boolean;
+  blockers: string[];
+}> {
+  return parseJson(await fetch("/api/output/arm-blockers"));
 }

@@ -41,8 +41,13 @@ export interface OutputState {
   udp_active?: boolean;
   target_ip: string | null;
   universe: number;
+  /** Wire (outbound) frame counters — same as wire_frame_sum. */
   frame_sum?: number;
   nonzero_channels?: number;
+  source_frame_sum?: number;
+  source_nonzero_channels?: number;
+  wire_frame_sum?: number;
+  wire_nonzero_channels?: number;
 }
 
 export interface ParFixtureView {

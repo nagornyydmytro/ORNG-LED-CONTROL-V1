@@ -106,8 +106,8 @@ function connectionLabel(status: ConnectionStatus): string {
           >BLACKOUT</span>
           <span
             class="badge badge--muted"
-            :title="'frame_sum / nonzero'"
-          >Σ{{ frameSum ?? 0 }}/{{ nonzeroChannels ?? 0 }}</span>
+            :title="'Фактичний wire-кадр: frame_sum / nonzero'"
+          >wire Σ{{ frameSum ?? 0 }}/{{ nonzeroChannels ?? 0 }}</span>
         </div>
       </header>
 

@@ -41,8 +41,13 @@ class OutputState(ApiModel):
     udp_active: bool = False
     target_ip: str | None = None
     universe: int = 0
+    # Compat: frame_sum / nonzero_channels always mirror the wire (outbound) frame.
     frame_sum: int = 0
     nonzero_channels: int = 0
+    source_frame_sum: int = 0
+    source_nonzero_channels: int = 0
+    wire_frame_sum: int = 0
+    wire_nonzero_channels: int = 0
 
 
 class ActivateArtNetCommand(ApiModel):
@@ -53,6 +58,17 @@ class ActivateArtNetCommand(ApiModel):
 
 
 class DeactivateArtNetCommand(ApiModel):
+    client_command_id: str | None = None
+
+
+class ArmOutputCommand(ApiModel):
+    """Confirmed operator action to arm Art-Net while Blackout stays on."""
+
+    confirmed: bool = False
+    client_command_id: str | None = None
+
+
+class DisarmOutputCommand(ApiModel):
     client_command_id: str | None = None
 
 

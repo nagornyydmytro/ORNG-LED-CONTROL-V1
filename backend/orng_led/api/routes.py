@@ -10,10 +10,12 @@ from orng_led.api.runtime import AppRuntime
 from orng_led.api.schemas import (
     ActivateArtNetCommand,
     AppStateResponse,
+    ArmOutputCommand,
     BlackoutCommand,
     ColorHitCommand,
     CommandAck,
     DeactivateArtNetCommand,
+    DisarmOutputCommand,
     DropCommand,
     FaceCommand,
     FailsafeCommand,
@@ -327,6 +329,44 @@ def build_api_router() -> APIRouter:
     def activation_blockers(request: Request) -> dict:
         runtime = get_runtime(request)
         blockers = runtime.artnet_activation_blockers()
+        return {"ok": len(blockers) == 0, "blockers": blockers}
+
+    @router.post("/output/arm", response_model=CommandAck)
+    async def arm_output(body: ArmOutputCommand, request: Request) -> CommandAck:
+        """Arm Art-Net while Blackout stays on. Requires confirmed=true."""
+        runtime = get_runtime(request)
+        try:
+            state, replay = runtime.arm_output(
+                confirmed=body.confirmed,
+                client_command_id=body.client_command_id,
+            )
+        except OutputError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        if not replay:
+            await runtime.broadcast_state()
+        return CommandAck(state=state, idempotent_replay=replay)
+
+    @router.post("/output/disarm", response_model=CommandAck)
+    async def disarm_output(
+        body: DisarmOutputCommand,
+        request: Request,
+    ) -> CommandAck:
+        """Disarm: force Blackout + zeros; keep Art-Net UDP open if active."""
+        runtime = get_runtime(request)
+        try:
+            state, replay = runtime.disarm_output(
+                client_command_id=body.client_command_id,
+            )
+        except OutputError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        if not replay:
+            await runtime.broadcast_state()
+        return CommandAck(state=state, idempotent_replay=replay)
+
+    @router.get("/output/arm-blockers")
+    def arm_blockers(request: Request) -> dict:
+        runtime = get_runtime(request)
+        blockers = runtime.artnet_arm_blockers()
         return {"ok": len(blockers) == 0, "blockers": blockers}
 
     @router.post("/commands/face", response_model=CommandAck)

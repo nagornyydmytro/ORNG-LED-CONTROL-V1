@@ -135,19 +135,26 @@ def test_nonzero_impossible_without_arm_and_blackout_off() -> None:
     runtime = _runtime()
     sock = RecordingSocket()
     runtime.output.configure_artnet(target_ip=SAFE_TEST_IP, injected_socket=sock)
-    runtime.activate_artnet_network(confirmed=True, allow_real_udp=False)
+    # allow_real_udp=True marks artnet_network_enabled while still using the
+    # injected RecordingSocket (never opens a venue socket).
+    runtime.activate_artnet_network(confirmed=True, allow_real_udp=True)
     baseline = len(sock.sent)
 
     runtime.engine.set_blackout(False)
     runtime.tick(dt_s=0.05)
     assert sock.sent[-1][0][-512:] == bytes(512)
 
+    # Arm is refused while Blackout is off.
+    with pytest.raises(OutputError, match="Blackout|заблоковано"):
+        runtime.arm_output(confirmed=True)
+
     runtime.engine.set_blackout(True)
-    with pytest.raises(OutputError, match="Blackout"):
-        runtime.output.arm(explicit=True)
+    runtime.arm_output(confirmed=True)
+    assert runtime.output.armed is True
+    runtime.tick(dt_s=0.05)
+    assert sock.sent[-1][0][-512:] == bytes(512)
 
     runtime.engine.set_blackout(False)
-    runtime.output.arm(explicit=True)
     bright_ticks = 0
     for _ in range(8):
         runtime.tick(dt_s=0.05)

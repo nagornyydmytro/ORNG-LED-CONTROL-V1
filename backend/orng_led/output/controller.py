@@ -183,23 +183,59 @@ class OutputController:
         self.use_mock()
         return emitted
 
-    def arm(self, *, explicit: bool = False) -> None:
+    def arm_blockers(self, *, wire_frame: list[int]) -> list[str]:
+        """Human-readable reasons why Arm must not be enabled yet."""
+        blockers: list[str] = []
+        if self.transport.kind is not TransportKind.ARTNET:
+            blockers.append("Runtime має бути Art-Net (у Mock Arm неможливий)")
+        if not self.udp_active:
+            blockers.append("UDP / Art-Net неактивний")
+        if not self.allow_real_network:
+            blockers.append("artnet_network_enabled=false — спочатку безпечно активуйте Art-Net")
+        if not self.engine.overlays.blackout:
+            blockers.append("Blackout має бути увімкнений перед Arm")
+        if any(int(value) for value in wire_frame):
+            blockers.append("Фактичний wire-кадр не нульовий")
+        if not self.target_ip:
+            blockers.append("Не задано Art-Net target_ip")
+        if self.armed:
+            blockers.append("Вивід уже armed")
+        return blockers
+
+    def arm(
+        self,
+        *,
+        explicit: bool = False,
+        confirmed: bool = False,
+        wire_frame: list[int] | None = None,
+    ) -> None:
+        """Arm Art-Net output. Requires Blackout and a fully zero wire frame.
+
+        Does not activate Art-Net, clear Blackout, or alter the prepared source.
+        """
         if not explicit:
             raise OutputError("Output arm requires an explicit action")
-        if self.transport.kind is not TransportKind.ARTNET:
-            raise OutputError("Only Art-Net transport can be armed for real output")
-        if not self.target_ip:
-            raise OutputError("Cannot arm Art-Net without target_ip")
-        if self.engine.overlays.blackout:
-            raise OutputError("Cannot arm while Blackout is active")
+        if not confirmed:
+            raise OutputError("Arm requires confirmed=true")
+        outbound = wire_frame if wire_frame is not None else empty_frame()
+        blockers = self.arm_blockers(wire_frame=outbound)
+        if blockers:
+            raise OutputError("Arm заблоковано: " + "; ".join(blockers))
         self.armed = True
         self.last_error = None
 
     def disarm(self) -> list[list[int]]:
-        """Disarm and, if Art-Net was active, zero the wire then return to Mock."""
-        if self.transport.kind is TransportKind.ARTNET:
-            return self.deactivate_to_mock()
+        """Disarm while keeping Art-Net UDP open; force Blackout and zero frames.
+
+        Unlike :meth:`deactivate_to_mock`, this does not close UDP or switch to Mock.
+        """
+        self.engine.set_blackout(True)
         self.armed = False
+        if self.transport.kind is TransportKind.ARTNET and self.udp_active:
+            return self._emit_zero_frames(
+                count=ZERO_FRAME_SHUTDOWN_COUNT,
+                raise_on_error=False,
+            )
         return []
 
     def wire_frame(self, frame: list[int]) -> list[int]:

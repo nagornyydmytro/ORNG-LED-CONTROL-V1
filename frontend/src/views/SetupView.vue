@@ -13,7 +13,7 @@ import {
   setupPost,
   validatePatch,
 } from "../api/setup";
-import { fetchStageLayout, postCommand, activateArtNet, deactivateArtNet } from "../api/client";
+import { fetchStageLayout, postCommand, activateArtNet, deactivateArtNet, armOutput, disarmOutput, fetchArmBlockers } from "../api/client";
 import HardwareBadge from "../components/setup/HardwareBadge.vue";
 import StageSimulator from "../components/simulator/StageSimulator.vue";
 import { APP_STATE_KEY } from "../composables/appStateKey";
@@ -72,9 +72,34 @@ const calibration = reactive({
 });
 
 const artnetBusy = ref(false);
+const armBlockers = ref<string[]>([]);
 
 const runtimeOutput = computed(() => appState?.output.value ?? null);
 const runtimeEngine = computed(() => appState?.engine.value ?? null);
+
+const canEnableArm = computed(() => {
+  const out = runtimeOutput.value;
+  const eng = runtimeEngine.value;
+  if (!out || !eng) return false;
+  if (out.transport !== "artnet") return false;
+  if (!out.udp_active) return false;
+  if (!out.network_allowed) return false;
+  if (!eng.blackout) return false;
+  if (out.armed) return false;
+  const wireNz = out.wire_nonzero_channels ?? out.nonzero_channels ?? 0;
+  return wireNz === 0;
+});
+
+const canDisableArm = computed(() => Boolean(runtimeOutput.value?.armed));
+
+async function refreshArmBlockers() {
+  try {
+    const payload = await fetchArmBlockers();
+    armBlockers.value = payload.blockers ?? [];
+  } catch {
+    armBlockers.value = [];
+  }
+}
 
 async function activateArtNetSafe() {
   const confirmed = window.confirm(
@@ -92,6 +117,7 @@ async function activateArtNetSafe() {
     await activateArtNet(true);
     await appState?.refreshRest?.();
     readiness.value = await fetchReadiness();
+    await refreshArmBlockers();
     setStatus(
       "Art-Net активовано: runtime=artnet, UDP увімкнено, armed=false, Blackout, лише нульові кадри",
     );
@@ -108,9 +134,56 @@ async function returnToMock() {
     await deactivateArtNet();
     await appState?.refreshRest?.();
     readiness.value = await fetchReadiness();
+    await refreshArmBlockers();
     setStatus("Runtime повернуто до Mock: UDP закрито, armed=false, Blackout");
   } catch (err) {
     setStatus(null, err instanceof Error ? err.message : "Не вдалося повернути Mock");
+  } finally {
+    artnetBusy.value = false;
+  }
+}
+
+async function enableArmSafe() {
+  const confirmed = window.confirm(
+    "Увімкнути Arm?\n\n" +
+      "Arm підготовлює РЕАЛЬНИЙ вихід Art-Net. Blackout залишиться увімкненим — " +
+      "поки Blackout увімкнений, на дріт ітимуть лише нулі.\n\n" +
+      "Ненульовий кадр стане можливим лише після окремого зняття Blackout.\n\n" +
+      "Продовжити?",
+  );
+  if (!confirmed) {
+    setStatus("Увімкнення Arm скасовано");
+    return;
+  }
+  artnetBusy.value = true;
+  try {
+    await armOutput(true);
+    await appState?.refreshRest?.();
+    readiness.value = await fetchReadiness();
+    await refreshArmBlockers();
+    setStatus(
+      "Arm увімкнено: armed=true, Blackout лишився увімкненим, wire лише нулі",
+    );
+  } catch (err) {
+    setStatus(null, err instanceof Error ? err.message : "Не вдалося увімкнути Arm");
+    await refreshArmBlockers();
+  } finally {
+    artnetBusy.value = false;
+  }
+}
+
+async function disableArm() {
+  artnetBusy.value = true;
+  try {
+    await disarmOutput();
+    await appState?.refreshRest?.();
+    readiness.value = await fetchReadiness();
+    await refreshArmBlockers();
+    setStatus(
+      "Arm вимкнено: armed=false, Blackout увімкнено, wire нулі; Art-Net UDP лишився активним",
+    );
+  } catch (err) {
+    setStatus(null, err instanceof Error ? err.message : "Не вдалося вимкнути Arm");
   } finally {
     artnetBusy.value = false;
   }
@@ -138,6 +211,7 @@ async function loadAll() {
     layout.value = layoutCfg;
     readiness.value = ready;
     stageLayout.value = await fetchStageLayout().catch(() => null);
+    await refreshArmBlockers();
     const ids = Object.keys(profileMap);
     if (ids.length && !profileMap[selectedProfileId.value]) {
       selectedProfileId.value = ids[0];
@@ -423,10 +497,17 @@ onUnmounted(() => {
               <strong>{{ runtimeEngine?.blackout ? "увімкнено" : "вимкнено" }}</strong>
             </li>
             <li>
-              <span>frame_sum / nonzero</span>
+              <span>source frame_sum / nonzero</span>
               <strong>
-                {{ runtimeOutput?.frame_sum ?? 0 }} /
-                {{ runtimeOutput?.nonzero_channels ?? 0 }}
+                {{ runtimeOutput?.source_frame_sum ?? 0 }} /
+                {{ runtimeOutput?.source_nonzero_channels ?? 0 }}
+              </strong>
+            </li>
+            <li>
+              <span>wire frame_sum / nonzero</span>
+              <strong>
+                {{ runtimeOutput?.wire_frame_sum ?? runtimeOutput?.frame_sum ?? 0 }} /
+                {{ runtimeOutput?.wire_nonzero_channels ?? runtimeOutput?.nonzero_channels ?? 0 }}
               </strong>
             </li>
             <li>
@@ -458,6 +539,46 @@ onUnmounted(() => {
             >
               Повернути runtime до Mock
             </button>
+          </div>
+
+          <div
+            class="artnet-arm"
+            aria-label="Керування Arm"
+          >
+            <h3>Arm</h3>
+            <p class="hint">
+              Arm лише готує реальний вихід. Поки Blackout увімкнений, wire-кадр
+              лишається нульовим. У Mock Arm неможливий.
+            </p>
+            <div class="artnet-runtime__actions">
+              <button
+                type="button"
+                class="action-btn action-btn--danger"
+                :disabled="artnetBusy || !canEnableArm"
+                @click="enableArmSafe"
+              >
+                Увімкнути Arm
+              </button>
+              <button
+                type="button"
+                class="action-btn"
+                :disabled="artnetBusy || !canDisableArm"
+                @click="disableArm"
+              >
+                Вимкнути Arm
+              </button>
+            </div>
+            <ul
+              v-if="!canEnableArm && !runtimeOutput?.armed && armBlockers.length"
+              class="arm-blockers"
+            >
+              <li
+                v-for="reason in armBlockers"
+                :key="reason"
+              >
+                {{ reason }}
+              </li>
+            </ul>
           </div>
         </section>
       </div>
@@ -854,8 +975,14 @@ onUnmounted(() => {
           <li>Мережа Art-Net: {{ readiness.artnet_network_enabled }}</li>
           <li>Blackout: {{ readiness.blackout }}</li>
           <li>
-            frame_sum / nonzero:
-            {{ readiness.frame_sum }} / {{ readiness.nonzero_channels }}
+            source frame_sum / nonzero:
+            {{ readiness.source_frame_sum ?? 0 }} /
+            {{ readiness.source_nonzero_channels ?? 0 }}
+          </li>
+          <li>
+            wire frame_sum / nonzero:
+            {{ readiness.wire_frame_sum ?? readiness.frame_sum }} /
+            {{ readiness.wire_nonzero_channels ?? readiness.nonzero_channels }}
           </li>
           <li>Patch OK: {{ readiness.patch_ok }}</li>
           <li>Приладів: {{ readiness.fixture_count }}</li>

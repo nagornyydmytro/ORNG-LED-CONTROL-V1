@@ -41,9 +41,9 @@ def test_artnet_cannot_be_enabled_implicitly() -> None:
 def test_artnet_arm_requires_explicit_action_and_artnet_transport() -> None:
     controller = create_output_controller()
     with pytest.raises(OutputError, match="explicit"):
-        controller.arm(explicit=False)
-    with pytest.raises(OutputError, match="Only Art-Net"):
-        controller.arm(explicit=True)
+        controller.arm(explicit=False, confirmed=True)
+    with pytest.raises(OutputError, match="Mock|Art-Net"):
+        controller.arm(explicit=True, confirmed=True)
 
 
 def test_mock_publish_records_frames() -> None:
@@ -99,8 +99,11 @@ def test_armed_artnet_controller_sends_via_injected_socket() -> None:
         universe=0,
         injected_socket=sock,
     )
+    controller.allow_real_network = True
     controller.switch_to_artnet(explicit=True)
-    controller.arm(explicit=True)
+    controller.engine.set_blackout(True)
+    controller.arm(explicit=True, confirmed=True)
+    controller.engine.set_blackout(False)
     frame = empty_frame()
     frame[10] = 99
     controller.publish(frame)
@@ -131,9 +134,11 @@ def test_nonzero_requires_armed_and_blackout_off() -> None:
     controller = create_output_controller()
     sock = RecordingSocket()
     controller.configure_artnet(target_ip="10.255.0.2", injected_socket=sock)
+    controller.allow_real_network = True
     controller.switch_to_artnet(explicit=True)
+    controller.engine.set_blackout(True)
+    controller.arm(explicit=True, confirmed=True)
     controller.engine.set_blackout(False)
-    controller.arm(explicit=True)
 
     bright = empty_frame()
     bright[3] = 40
@@ -145,12 +150,13 @@ def test_nonzero_requires_armed_and_blackout_off() -> None:
     assert controller.transport.last_frame == [0] * DMX_UNIVERSE_SIZE
 
     controller.engine.set_blackout(False)
+    before = len(sock.sent)
     controller.disarm()
-    assert controller.transport_kind is TransportKind.MOCK
+    assert controller.transport_kind is TransportKind.ARTNET
     assert controller.armed is False
-    assert controller.allow_real_network is False
-    assert len(sock.sent) >= 2
-    assert all(packet[-512:] == bytes(512) for packet, _ in sock.sent[1:])
+    assert controller.engine.overlays.blackout is True
+    assert len(sock.sent) > before
+    assert all(packet[-512:] == bytes(512) for packet, _ in sock.sent[before:])
 
 
 def test_shutdown_emits_zero_frames_and_returns_to_mock() -> None:
@@ -158,8 +164,10 @@ def test_shutdown_emits_zero_frames_and_returns_to_mock() -> None:
     sock = RecordingSocket()
     controller = OutputController(engine=engine)
     controller.configure_artnet(target_ip="192.168.1.10", injected_socket=sock)
+    controller.allow_real_network = True
     controller.switch_to_artnet(explicit=True)
-    controller.arm(explicit=True)
+    controller.engine.set_blackout(True)
+    controller.arm(explicit=True, confirmed=True)
     engine.strobe_press()
     assert engine.overlays.strobe_held is True
 

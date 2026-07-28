@@ -26,9 +26,10 @@ const outputLabel = computed(() => {
   const preferred = (props.output.preferred_transport ?? mode).toUpperCase();
   const udp = props.output.udp_active ? "UDP ON" : "UDP OFF";
   const arm = props.output.armed ? "armed" : "disarmed";
-  const sum = props.output.frame_sum ?? 0;
-  const nonzero = props.output.nonzero_channels ?? 0;
-  return `${mode} · ${arm} · ${udp} · Σ${sum}/${nonzero} (YAML ${preferred})`;
+  const sum = props.output.wire_frame_sum ?? props.output.frame_sum ?? 0;
+  const nonzero =
+    props.output.wire_nonzero_channels ?? props.output.nonzero_channels ?? 0;
+  return `${mode} · ${arm} · ${udp} · wire Σ${sum}/${nonzero} (YAML ${preferred})`;
 });
 </script>
 

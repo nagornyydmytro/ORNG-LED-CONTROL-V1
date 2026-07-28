@@ -1126,6 +1126,31 @@ select {
   gap: var(--s-3);
 }
 
+.artnet-arm {
+  margin-top: var(--s-2);
+  padding-top: var(--s-3);
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+
+.artnet-arm h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.arm-blockers {
+  margin: 0;
+  padding-left: 1.1rem;
+  color: var(--text-faint);
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
 .wizard-nav {
   display: flex;
   align-items: center;

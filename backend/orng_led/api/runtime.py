@@ -144,6 +144,24 @@ class AppRuntime:
         self.sequence += 1
         return snapshot
 
+    def _source_frame(self, snap: EngineSnapshot | None = None) -> list[int]:
+        """Prepared source frame before Blackout / arm wire gating.
+
+        Includes an active Raw tester frame, or a preserved Raw buffer after a
+        soft exit (activation), or the show look rendered without Blackout.
+        """
+        if self.raw_tester.active or any(int(value) for value in self.raw_tester.frame):
+            return list(self.raw_tester.frame)
+        if snap is not None and not self.engine.overlays.blackout:
+            return list(snap.frame)
+        was_blackout = self.engine.overlays.blackout
+        try:
+            self.engine.overlays.blackout = False
+            rendered = self.engine.render_at(self.engine.clock.time(), dt_s=0.0)
+            return list(rendered.frame)
+        finally:
+            self.engine.overlays.blackout = was_blackout
+
     def _published_frame(self, snap: EngineSnapshot | None = None) -> list[int]:
         """Blackout always wins over raw tester / identify / show layers."""
         from orng_led.engine.frame import empty_frame
@@ -155,6 +173,10 @@ class AppRuntime:
         if snap is not None:
             return list(snap.frame)
         return list(self.engine.render_at(self.engine.clock.time(), dt_s=0.0).frame)
+
+    def _wire_frame(self, snap: EngineSnapshot | None = None) -> list[int]:
+        """Actual outbound frame after arm / Blackout wire policy."""
+        return self.output.wire_frame(self._source_frame(snap))
 
     def _publish_frame(self, frame: list[int]) -> None:
         # Always publish: Art-Net wire policy forces zeros while disarmed /
@@ -168,9 +190,12 @@ class AppRuntime:
     def build_state(self) -> AppStateResponse:
         snap = self.engine.render_at(self.engine.clock.time(), dt_s=0.0)
         out = self.output.status()
-        frame = self._published_frame(snap)
-        frame_sum = int(sum(frame))
-        nonzero = int(sum(1 for value in frame if value))
+        source = self._source_frame(snap)
+        wire = self.output.wire_frame(source)
+        source_sum = int(sum(source))
+        source_nonzero = int(sum(1 for value in source if value))
+        wire_sum = int(sum(wire))
+        wire_nonzero = int(sum(1 for value in wire if value))
         return AppStateResponse(
             engine=EngineState(
                 preset_id=snap.preset_id,
@@ -200,15 +225,20 @@ class AppRuntime:
                 udp_active=out.udp_active,
                 target_ip=out.target_ip,
                 universe=out.universe,
-                frame_sum=frame_sum,
-                nonzero_channels=nonzero,
+                # frame_sum / nonzero_channels = wire (compat + topbar Σ).
+                frame_sum=wire_sum,
+                nonzero_channels=wire_nonzero,
+                source_frame_sum=source_sum,
+                source_nonzero_channels=source_nonzero,
+                wire_frame_sum=wire_sum,
+                wire_nonzero_channels=wire_nonzero,
             ),
             presets=sorted(self.engine.presets.keys()),
             fixture_ids=[fx.id for fx in self.show.patch.fixtures],
-            frame=frame,
+            frame=wire,
             sequence=self.sequence,
             preview_speed=self.preview_speed,
-            simulator=decode_simulator_view(self.show, frame),
+            simulator=decode_simulator_view(self.show, wire),
             raw_tester=self.raw_tester.as_dict(),
         )
 
@@ -238,7 +268,8 @@ class AppRuntime:
             raise OutputError("Art-Net activation requires an explicit confirmation")
 
         if self.raw_tester.active:
-            self.raw_tester.exit()
+            # Soft-exit: leave prepared channel values for source counters / later use.
+            self.raw_tester.active = False
         self.engine.set_blackout(True)
         # Ensure published frame is zero before the safety gate.
         self._publish_frame(self._published_frame())
@@ -287,6 +318,44 @@ class AppRuntime:
         if self.raw_tester.active:
             self.raw_tester.exit()
         self.output.deactivate_to_mock()
+        state = self.build_state()
+        self._remember(client_command_id, state)
+        return state, False
+
+    def artnet_arm_blockers(self) -> list[str]:
+        wire = self._wire_frame()
+        return self.output.arm_blockers(wire_frame=wire)
+
+    def arm_output(
+        self,
+        *,
+        confirmed: bool = False,
+        client_command_id: str | None = None,
+    ) -> tuple[AppStateResponse, bool]:
+        """Explicit confirmed Arm. Does not activate Art-Net or clear Blackout."""
+        cached = self._idempotent(client_command_id)
+        if cached is not None:
+            return cached, True
+        if not confirmed:
+            raise OutputError("Arm requires confirmed=true")
+        wire = self._wire_frame()
+        self.output.arm(explicit=True, confirmed=True, wire_frame=wire)
+        # Blackout stays on; publish confirms wire remains zeros.
+        self._publish_frame(self._source_frame())
+        state = self.build_state()
+        self._remember(client_command_id, state)
+        return state, False
+
+    def disarm_output(
+        self,
+        *,
+        client_command_id: str | None = None,
+    ) -> tuple[AppStateResponse, bool]:
+        """Disarm: force Blackout + zeros; keep Art-Net UDP open if active."""
+        cached = self._idempotent(client_command_id)
+        if cached is not None:
+            return cached, True
+        self.output.disarm()
         state = self.build_state()
         self._remember(client_command_id, state)
         return state, False
@@ -524,7 +593,8 @@ class AppRuntime:
             for profile in self.show.profiles.values()
         ]
         out = self.output.status()
-        frame = self._published_frame()
+        source = self._source_frame()
+        wire = self.output.wire_frame(source)
         return {
             "transport_preferred": self.show.app.transport.value,
             "runtime_transport": self.output.transport_kind.value,
@@ -532,9 +602,14 @@ class AppRuntime:
             "artnet_network_enabled": out.network_allowed,
             "udp_active": out.udp_active,
             "blackout": self.engine.overlays.blackout,
-            "frame_sum": int(sum(frame)),
-            "nonzero_channels": int(sum(1 for value in frame if value)),
+            "frame_sum": int(sum(wire)),
+            "nonzero_channels": int(sum(1 for value in wire if value)),
+            "source_frame_sum": int(sum(source)),
+            "source_nonzero_channels": int(sum(1 for value in source if value)),
+            "wire_frame_sum": int(sum(wire)),
+            "wire_nonzero_channels": int(sum(1 for value in wire if value)),
             "activation_blockers": self.artnet_activation_blockers(),
+            "arm_blockers": self.artnet_arm_blockers(),
             "artnet_hardware_verified": False,
             "artnet_badge": "Не перевірено на обладнанні",
             "profiles": profiles,
@@ -545,6 +620,8 @@ class AppRuntime:
                 "Збережений Art-Net у YAML не активує мережу автоматично.",
                 "Реальний UDP починається лише після явного підтвердження кнопкою "
                 "«Безпечно активувати Art-Net».",
+                "Arm вмикається окремо кнопкою «Увімкнути Arm» лише при Blackout "
+                "і нульовому wire-кадрі.",
                 "Поки armed=false або Blackout=true, на дріт ідуть лише нулі.",
             ],
         }

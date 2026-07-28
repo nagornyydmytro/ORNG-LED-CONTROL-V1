@@ -1,4 +1,11 @@
-import type { AppState, CommandAck, HealthResponse, PresetInfo } from "../vite-env";
+import type {
+  AppState,
+  CommandAck,
+  HealthResponse,
+  PresetInfo,
+  PreviewClip,
+  StageLayout,
+} from "../vite-env";
 
 async function parseJson<T>(response: Response): Promise<T> {
   if (!response.ok) {
@@ -37,6 +44,24 @@ export async function postCommand(
     body: JSON.stringify(payload),
   });
   return parseJson(response);
+}
+
+export async function fetchStageLayout(): Promise<StageLayout> {
+  return parseJson(await fetch("/api/stage/layout"));
+}
+
+/** Safe Mock preview: rendered by the backend show renderer, sent nowhere. */
+export async function fetchPreviewClip(
+  presetId: string,
+  seconds = 6,
+  fps = 12,
+  startS = 0,
+): Promise<PreviewClip> {
+  return parseJson(
+    await fetch(
+      `/api/presets/${presetId}/preview-clip?seconds=${seconds}&fps=${fps}&start_s=${startS}`,
+    ),
+  );
 }
 
 export function createCommandId(prefix: string): string {

@@ -10,7 +10,9 @@ from orng_led.api.runtime import AppRuntime
 from orng_led.api.schemas import (
     AppStateResponse,
     BlackoutCommand,
+    ColorHitCommand,
     CommandAck,
+    DropCommand,
     FaceCommand,
     FailsafeCommand,
     HealthResponse,
@@ -35,6 +37,7 @@ from orng_led.api.schemas import (
     SaveProfileRequest,
     SelectPresetCommand,
     StrobeCommand,
+    SweepHitCommand,
     ValidatePatchRequest,
     WhiteHitCommand,
     dump_config_model,
@@ -101,6 +104,24 @@ def build_api_router() -> APIRouter:
     @router.get("/config/layout")
     def config_layout(request: Request) -> dict:
         return dump_config_model(get_runtime(request).show.layout)
+
+    @router.get("/stage/layout")
+    def stage_layout(request: Request) -> dict:
+        return get_runtime(request).stage_layout()
+
+    @router.get("/presets/{preset_id}/preview-clip")
+    def preview_clip(
+        preset_id: str,
+        request: Request,
+        seconds: float = 6.0,
+        fps: int = 12,
+        start_s: float = 0.0,
+    ) -> dict:
+        runtime = get_runtime(request)
+        try:
+            return runtime.preview_clip(preset_id, seconds=seconds, fps=fps, start_s=start_s)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     @router.get("/presets")
     def presets(request: Request) -> dict:
@@ -219,6 +240,39 @@ def build_api_router() -> APIRouter:
         runtime = get_runtime(request)
         state, replay = runtime.apply_strobe(
             body.action,
+            client_command_id=body.client_command_id,
+        )
+        if not replay:
+            await runtime.broadcast_state()
+        return CommandAck(state=state, idempotent_replay=replay)
+
+    @router.post("/commands/drop", response_model=CommandAck)
+    async def drop(body: DropCommand, request: Request) -> CommandAck:
+        runtime = get_runtime(request)
+        state, replay = runtime.apply_drop(
+            body.action,
+            client_command_id=body.client_command_id,
+        )
+        if not replay:
+            await runtime.broadcast_state()
+        return CommandAck(state=state, idempotent_replay=replay)
+
+    @router.post("/commands/color-hit", response_model=CommandAck)
+    async def color_hit(body: ColorHitCommand, request: Request) -> CommandAck:
+        runtime = get_runtime(request)
+        state, replay = runtime.apply_color_hit(
+            body.rgb(),
+            client_command_id=body.client_command_id,
+        )
+        if not replay:
+            await runtime.broadcast_state()
+        return CommandAck(state=state, idempotent_replay=replay)
+
+    @router.post("/commands/sweep-hit", response_model=CommandAck)
+    async def sweep_hit(body: SweepHitCommand, request: Request) -> CommandAck:
+        runtime = get_runtime(request)
+        state, replay = runtime.apply_sweep_hit(
+            body.rgb(),
             client_command_id=body.client_command_id,
         )
         if not replay:

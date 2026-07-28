@@ -35,6 +35,7 @@ from orng_led.config.models import (
 from orng_led.config.validation import global_channel
 from orng_led.engine.clock import FRAME_DT
 from orng_led.engine.engine import Engine, EngineSnapshot
+from orng_led.engine.intents import Rgbw
 from orng_led.input.dispatcher import InputDispatcher
 from orng_led.output.contract import OutputError
 from orng_led.output.controller import OutputController
@@ -184,6 +185,9 @@ class AppRuntime:
                 white_hit_active=snap.white_hit_active,
                 master_brightness=snap.master_brightness,
                 time_s=snap.time_s,
+                drop_active=snap.drop_active,
+                color_hit_active=snap.color_hit_active,
+                sweep_active=snap.sweep_active,
             ),
             output=OutputState(
                 transport=out.transport.value,
@@ -269,22 +273,24 @@ class AppRuntime:
                 if ch.role is role:
                     channels[global_channel(fixture.start_address, ch.local)] = value
 
+        # One safe, unmistakable identify colour (cyan) for every RGB fixture,
+        # so it can never be confused with a preset look or the brand accent.
         set_role(ChannelRole.DIMMER, level)
+        set_role(ChannelRole.RED, 0)
+        set_role(ChannelRole.GREEN, level)
+        set_role(ChannelRole.BLUE, level)
         if fixture.kind in (FixtureKind.PAR, FixtureKind.FACE_PAR):
-            set_role(ChannelRole.RED, level)
-            set_role(ChannelRole.GREEN, max(0, level // 3))
-            set_role(ChannelRole.BLUE, 0)
-            set_role(ChannelRole.WHITE, max(0, level // 4))
+            set_role(ChannelRole.WHITE, 0)
         elif fixture.kind is FixtureKind.BAR:
             for ch in profile.channels:
                 if ch.role is ChannelRole.SEGMENT:
                     channels[global_channel(fixture.start_address, ch.local)] = level
         elif fixture.kind is FixtureKind.BEAM:
             set_role(ChannelRole.SHUTTER, 255)
-            set_role(ChannelRole.COLOR, max(0, level // 2))
+            set_role(ChannelRole.COLOR, 0)
             # Controlled provisional home pose for Mock visibility.
             set_role(ChannelRole.PAN_COARSE, 128)
-            set_role(ChannelRole.TILT_COARSE, 96)
+            set_role(ChannelRole.TILT_COARSE, 128)
         return channels
 
     def identify_fixture(self, fixture_id: str, level: int = 200) -> AppStateResponse:
@@ -507,6 +513,127 @@ class AppRuntime:
         state = self.build_state()
         self._remember(client_command_id, state)
         return state, False
+
+    def apply_drop(
+        self,
+        action: str,
+        *,
+        client_command_id: str | None = None,
+    ) -> tuple[AppStateResponse, bool]:
+        cached = self._idempotent(client_command_id)
+        if cached is not None:
+            return cached, True
+        if action == "press":
+            self.engine.drop_press()
+        elif action == "release":
+            self.engine.drop_release()
+        else:
+            raise ValueError(f"Unknown drop action: {action}")
+        self._publish_frame(self._published_frame())
+        self.sequence += 1
+        state = self.build_state()
+        self._remember(client_command_id, state)
+        return state, False
+
+    def apply_color_hit(
+        self,
+        color: tuple[float, float, float] | None = None,
+        *,
+        client_command_id: str | None = None,
+    ) -> tuple[AppStateResponse, bool]:
+        cached = self._idempotent(client_command_id)
+        if cached is not None:
+            return cached, True
+        rgb = Rgbw(r=color[0], g=color[1], b=color[2]) if color else None
+        self.engine.trigger_color_hit(rgb)
+        self._publish_frame(self._published_frame())
+        self.sequence += 1
+        state = self.build_state()
+        self._remember(client_command_id, state)
+        return state, False
+
+    def apply_sweep_hit(
+        self,
+        color: tuple[float, float, float] | None = None,
+        *,
+        client_command_id: str | None = None,
+    ) -> tuple[AppStateResponse, bool]:
+        cached = self._idempotent(client_command_id)
+        if cached is not None:
+            return cached, True
+        rgb = Rgbw(r=color[0], g=color[1], b=color[2]) if color else None
+        self.engine.trigger_sweep_hit(rgb)
+        self._publish_frame(self._published_frame())
+        self.sequence += 1
+        state = self.build_state()
+        self._remember(client_command_id, state)
+        return state, False
+
+    def stage_layout(self) -> dict:
+        """Static stage geometry for the simulator (no DMX values here)."""
+        layout = self.show.layout
+        kinds = {fx.id: fx.kind.value for fx in self.show.patch.fixtures}
+        labels = {fx.id: fx.label for fx in self.show.patch.fixtures}
+        groups = {fx.id: list(fx.groups) for fx in self.show.patch.fixtures}
+        placements = []
+        for placement in layout.placements:
+            data = placement.model_dump(mode="json")
+            data["label"] = labels.get(placement.fixture_id, placement.fixture_id)
+            data["groups"] = groups.get(placement.fixture_id, [])
+            data["kind"] = kinds.get(placement.fixture_id, data["kind"])
+            placements.append(data)
+        return {
+            "description": layout.description,
+            "placements": placements,
+            "cable_chain": list(layout.cable_chain),
+            "artnet_node": (
+                layout.artnet_node.model_dump(mode="json") if layout.artnet_node else None
+            ),
+            "hardware_verified": False,
+            "notes": "Provisional stage plan from the operator sketch. PENDING HARDWARE.",
+        }
+
+    def preview_clip(
+        self,
+        preset_id: str,
+        *,
+        seconds: float = 6.0,
+        fps: int = 12,
+        start_s: float = 0.0,
+    ) -> dict:
+        """Render a safe Mock preview clip with the real renderer, off-transport.
+
+        The clip never touches the live engine, the output controller or any
+        transport: it runs a throwaway engine over the same profiles/layout,
+        so what the operator sees is exactly what the show renderer produces.
+        """
+        if preset_id not in self.preset_store.programs():
+            raise KeyError(f"Unknown preset {preset_id!r}")
+        fps = max(4, min(30, int(fps)))
+        seconds = max(1.0, min(20.0, float(seconds)))
+        programs = self.preset_store.programs()
+        engine = Engine(show=self.show, presets=programs, active_preset_id=preset_id)
+        engine.set_blackout(False)
+        engine.overlays.master_brightness = 1.0
+        dt = 1.0 / fps
+        start_s = max(0.0, min(600.0, float(start_s)))
+        for _ in range(int(start_s * fps)):
+            engine.tick(dt_s=dt, wall_dt_s=dt)
+        frames = []
+        total = int(seconds * fps)
+        for _ in range(total):
+            snap = engine.tick(dt_s=dt, wall_dt_s=dt)
+            view = decode_simulator_view(self.show, snap.frame)
+            frames.append(view.model_dump(mode="json"))
+        return {
+            "preset_id": preset_id,
+            "fps": fps,
+            "seconds": seconds,
+            "start_s": start_s,
+            "transport": "none",
+            "safe_mock_preview": True,
+            "frames": frames,
+        }
 
     def apply_blackout(
         self,

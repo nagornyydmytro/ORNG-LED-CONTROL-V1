@@ -9,12 +9,17 @@ from orng_led.config.schema import DMX_UNIVERSE_SIZE
 from orng_led.engine.beam import BeamMotionLimits, BeamMotionState, step_beam
 from orng_led.engine.clock import FRAME_DT, FakeClock
 from orng_led.engine.frame import assert_frame_bounds, empty_frame
-from orng_led.engine.intents import BeamIntent, StageIntent
+from orng_led.engine.intents import BarIntent, BeamIntent, ParIntent, Rgbw, StageIntent
 from orng_led.engine.layers import (
+    COLOR_HIT_DURATION_S,
+    DROP_MAX_DURATION_S,
     STROBE_HOLD_TIMEOUT_S,
+    SWEEP_HIT_DURATION_S,
     WHITE_HIT_DURATION_S,
     OverlayState,
     compose_layers,
+    drop_active,
+    sweep_progress,
 )
 from orng_led.engine.presets import (
     CYCLE_DURATION_S,
@@ -41,6 +46,9 @@ class EngineSnapshot:
     white_hit_active: bool
     master_brightness: float
     frame: list[int]
+    drop_active: bool = False
+    color_hit_active: bool = False
+    sweep_active: bool = False
 
 
 @dataclass
@@ -91,15 +99,78 @@ class Engine:
         self.overlays.strobe_held = False
         self.overlays.strobe_started_at = None
 
-    def on_control_disconnect(self) -> None:
-        """UI/WebSocket disconnect must clear held Strobe (canon §5.3)."""
+    # --- quick live effects -------------------------------------------------
+
+    def current_look_color(self) -> Rgbw:
+        """Average semantic colour of the running preset look."""
+        base = self.active_preset.evaluate(self.preset_elapsed_s, self.show)
+        reds: list[float] = []
+        greens: list[float] = []
+        blues: list[float] = []
+        for intent in base.fixtures.values():
+            if isinstance(intent, ParIntent | BarIntent | BeamIntent):
+                reds.append(intent.color.r)
+                greens.append(intent.color.g)
+                blues.append(intent.color.b)
+        if not reds:
+            return Rgbw(r=1.0, g=1.0, b=1.0)
+        count = float(len(reds))
+        return Rgbw(r=sum(reds) / count, g=sum(greens) / count, b=sum(blues) / count)
+
+    def contrast_color(self) -> Rgbw:
+        """Complement of the running look, so a Colour Hit always reads as an accent."""
+        look = self.current_look_color()
+        peak = max(look.r, look.g, look.b, 0.001)
+        complement = Rgbw(
+            r=max(0.0, peak - look.r),
+            g=max(0.0, peak - look.g),
+            b=max(0.0, peak - look.b),
+        )
+        strongest = max(complement.r, complement.g, complement.b)
+        if strongest < 0.25:
+            # Near-white look: fall back to a cool accent instead of brand orange.
+            return Rgbw(r=0.15, g=0.45, b=1.0)
+        scale = 1.0 / strongest
+        return Rgbw(
+            r=min(1.0, complement.r * scale),
+            g=min(1.0, complement.g * scale),
+            b=min(1.0, complement.b * scale),
+        )
+
+    def drop_press(self) -> None:
+        self.overlays.drop_held = True
+        self.overlays.drop_started_at = self.clock.time()
+
+    def drop_release(self) -> None:
+        self.overlays.drop_held = False
+        self.overlays.drop_started_at = None
+
+    def trigger_color_hit(self, color: Rgbw | None = None) -> Rgbw:
+        chosen = color or self.contrast_color()
+        self.overlays.color_hit_color = chosen
+        self.overlays.color_hit_until = self.clock.time() + COLOR_HIT_DURATION_S
+        return chosen
+
+    def trigger_sweep_hit(self, color: Rgbw | None = None) -> Rgbw:
+        chosen = color or self.contrast_color()
+        self.overlays.sweep_color = chosen
+        self.overlays.sweep_started_at = self.clock.time()
+        return chosen
+
+    def release_momentary(self) -> None:
+        """Release every held momentary control (failsafe path)."""
         self.strobe_release()
+        self.drop_release()
+
+    def on_control_disconnect(self) -> None:
+        """UI/WebSocket disconnect must clear held momentary controls (canon §5.3)."""
+        self.release_momentary()
 
     def on_focus_loss(self) -> None:
-        self.strobe_release()
+        self.release_momentary()
 
     def on_visibility_hidden(self) -> None:
-        self.strobe_release()
+        self.release_momentary()
 
     def set_face(self, enabled: bool, brightness: float | None = None) -> None:
         self.overlays.face_on = enabled
@@ -125,6 +196,19 @@ class Engine:
             and now - self.overlays.strobe_started_at >= STROBE_HOLD_TIMEOUT_S
         ):
             self.strobe_release()
+        if self.overlays.color_hit_until is not None and now >= self.overlays.color_hit_until:
+            self.overlays.color_hit_until = None
+        if (
+            self.overlays.sweep_started_at is not None
+            and now - self.overlays.sweep_started_at >= SWEEP_HIT_DURATION_S
+        ):
+            self.overlays.sweep_started_at = None
+        if (
+            self.overlays.drop_held
+            and self.overlays.drop_started_at is not None
+            and now - self.overlays.drop_started_at >= DROP_MAX_DURATION_S
+        ):
+            self.drop_release()
 
     def _advance_beams(self, stage: StageIntent, dt_s: float) -> None:
         for fixture_id, intent in stage.fixtures.items():
@@ -182,6 +266,11 @@ class Engine:
             white_hit_active=white_hit_active,
             master_brightness=self.overlays.master_brightness,
             frame=frame,
+            drop_active=drop_active(self.overlays, time_s),
+            color_hit_active=(
+                self.overlays.color_hit_until is not None and time_s < self.overlays.color_hit_until
+            ),
+            sweep_active=sweep_progress(self.overlays, time_s) is not None,
         )
 
     def tick(

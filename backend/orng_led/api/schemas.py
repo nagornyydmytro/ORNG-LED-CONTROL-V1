@@ -55,6 +55,9 @@ class EngineState(ApiModel):
     white_hit_active: bool
     master_brightness: float
     time_s: float
+    drop_active: bool = False
+    color_hit_active: bool = False
+    sweep_active: bool = False
 
 
 class AppStateResponse(ApiModel):
@@ -198,6 +201,32 @@ class MasterBrightnessCommand(ApiModel):
 
 class WhiteHitCommand(ApiModel):
     client_command_id: str | None = None
+
+
+Unit = Annotated[float, Field(ge=0.0, le=1.0)]
+
+
+class DropCommand(ApiModel):
+    action: Literal["press", "release"]
+    client_command_id: str | None = None
+
+
+class ColorHitCommand(ApiModel):
+    """Optional explicit RGB; omitted → contrasting colour of the running look."""
+
+    r: Unit | None = None
+    g: Unit | None = None
+    b: Unit | None = None
+    client_command_id: str | None = None
+
+    def rgb(self) -> tuple[float, float, float] | None:
+        if self.r is None or self.g is None or self.b is None:
+            return None
+        return (self.r, self.g, self.b)
+
+
+class SweepHitCommand(ColorHitCommand):
+    pass
 
 
 class FailsafeCommand(ApiModel):

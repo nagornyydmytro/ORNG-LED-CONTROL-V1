@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="uk" data-theme="dark">
+<html lang="uk" data-theme="dark" class="splash-active">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -18,17 +18,164 @@
       })();
     </script>
     <style>
+      html.splash-active,
+      html.splash-active body {
+        background: #000000 !important;
+        overflow: hidden !important;
+      }
+
+      /* Admin UI must not be visible under the loading cover. */
+      html.splash-active #app {
+        visibility: hidden !important;
+        pointer-events: none !important;
+      }
+
       #boot-splash {
         position: fixed;
         inset: 0;
-        z-index: 100000;
+        z-index: 2147483647;
+        width: 100vw;
+        height: 100vh;
+        margin: 0;
+        padding: 0;
+        background: #000000;
+        pointer-events: all;
+      }
+
+      #boot-splash.boot-splash--done {
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.12s linear;
+      }
+
+      #boot-splash canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
         background: #000;
       }
     </style>
   </head>
   <body>
-    <div id="boot-splash" aria-hidden="true"></div>
+    <div
+      id="boot-splash"
+      aria-hidden="true"
+    >
+      <canvas id="boot-splash-canvas"></canvas>
+    </div>
     <div id="app"></div>
+    <script>
+      /* Immediate opaque cover + first paint before Vue boots. */
+      (function () {
+        var root = document.getElementById("boot-splash");
+        var canvas = document.getElementById("boot-splash-canvas");
+        if (!root || !canvas) return;
+        var ctx = canvas.getContext("2d", { alpha: false });
+        if (!ctx) return;
+
+        function paint() {
+          var w = Math.max(1, window.innerWidth | 0);
+          var h = Math.max(1, window.innerHeight | 0);
+          canvas.width = w;
+          canvas.height = h;
+          ctx.fillStyle = "#000000";
+          ctx.fillRect(0, 0, w, h);
+
+          var orange = "#ff5a00";
+          var pitch = Math.max(3, Math.round(w / 80));
+          var thin = Math.max(1, Math.round(pitch * 0.32));
+          var thick = Math.max(thin + 2, Math.round(pitch * 0.95));
+
+          var off = document.createElement("canvas");
+          off.width = w;
+          off.height = h;
+          var o = off.getContext("2d");
+          if (!o) return;
+          o.fillStyle = "#000";
+          o.fillRect(0, 0, w, h);
+          o.fillStyle = orange;
+          o.strokeStyle = orange;
+          o.textAlign = "center";
+          o.textBaseline = "top";
+          o.lineJoin = "round";
+          var fontPx = Math.min(w * 0.3, h * 0.155);
+          function font(size) {
+            return "900 " + size + 'px "Arial Black",Impact,Arial,sans-serif';
+          }
+          o.font = font(fontPx);
+          while (fontPx > 28 && o.measureText("HOTBOX").width > w * 0.84) {
+            fontPx -= 2;
+            o.font = font(fontPx);
+          }
+          o.lineWidth = Math.max(3, fontPx * 0.07);
+          var gap = fontPx * 0.05;
+          var blockH = fontPx * 2 + gap;
+          var top = h * 0.3 - blockH * 0.32;
+          var cx = w * 0.5;
+          o.strokeText("ORNG", cx, top);
+          o.fillText("ORNG", cx, top);
+          o.strokeText("HOTBOX", cx, top + fontPx + gap);
+          o.fillText("HOTBOX", cx, top + fontPx + gap);
+
+          function fade(t, soft) {
+            t = Math.max(0, Math.min(1, t));
+            function s(a, b, x) {
+              var u = Math.max(0, Math.min(1, (x - a) / (b - a)));
+              return u * u * (3 - 2 * u);
+            }
+            return Math.min(s(0, soft, t), s(0, soft, 1 - t));
+          }
+
+          for (var x = (pitch / 2) | 0; x < w; x += pitch) {
+            var fx = fade(x / Math.max(1, w - 1), 0.13);
+            if (fx < 0.05) continue;
+            var band = Math.max(6, (h / 20) | 0);
+            for (var y0 = 0; y0 < h; y0 += band) {
+              var fy = fade((y0 + band * 0.5) / Math.max(1, h - 1), 0.2);
+              var a = 0.62 * fx * fy;
+              if (a < 0.04) continue;
+              ctx.fillStyle = "rgba(255,90,0," + a + ")";
+              ctx.fillRect(x - ((thin / 2) | 0), y0, thin, Math.min(band, h - y0));
+            }
+          }
+
+          ctx.imageSmoothingEnabled = false;
+          for (var sx = (pitch / 2) | 0; sx < w; sx += pitch) {
+            var fxx = fade(sx / Math.max(1, w - 1), 0.13);
+            if (fxx < 0.05) continue;
+            ctx.globalAlpha = fxx;
+            ctx.drawImage(off, sx, 0, 1, h, sx - ((thick / 2) | 0), 0, thick, h);
+          }
+          ctx.globalAlpha = 1;
+
+          var g = ctx.createLinearGradient(0, 0, 0, h);
+          g.addColorStop(0, "rgba(0,0,0,1)");
+          g.addColorStop(0.14, "rgba(0,0,0,0)");
+          g.addColorStop(0.86, "rgba(0,0,0,0)");
+          g.addColorStop(1, "rgba(0,0,0,1)");
+          ctx.fillStyle = g;
+          ctx.fillRect(0, 0, w, h);
+
+          var vig = ctx.createRadialGradient(
+            w * 0.5,
+            h * 0.36,
+            Math.min(w, h) * 0.18,
+            w * 0.5,
+            h * 0.4,
+            Math.max(w, h) * 0.7,
+          );
+          vig.addColorStop(0, "rgba(0,0,0,0)");
+          vig.addColorStop(0.5, "rgba(0,0,0,0)");
+          vig.addColorStop(0.78, "rgba(0,0,0,0.45)");
+          vig.addColorStop(1, "#000000");
+          ctx.fillStyle = vig;
+          ctx.fillRect(0, 0, w, h);
+        }
+
+        paint();
+        window.addEventListener("resize", paint);
+      })();
+    </script>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

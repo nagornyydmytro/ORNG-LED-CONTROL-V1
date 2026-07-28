@@ -53,20 +53,18 @@ def test_simulator_matches_frame_not_parallel_fiction() -> None:
     bar1 = next(b for b in view.bars if b.id == "bar_1")
     # Bar 1 start 93 → index 92 dimmer; segment_color locals 4..11 (no RGB locals).
     assert abs(bar1.dimmer - frame[92] / 255.0) < 1e-9
-    # Palette-only bars approximate RGB from dimmer so Live FX / sim stay aligned.
-    if bar1.dimmer > 0.02:
-        assert abs(bar1.r - bar1.dimmer) < 1e-9
-        assert abs(bar1.g - bar1.dimmer) < 1e-9
-        assert abs(bar1.b - bar1.dimmer) < 1e-9
-    else:
-        assert bar1.r == 0.0
-        assert bar1.g == 0.0
-        assert bar1.b == 0.0
     # Encoded segment colour at local 4 → global 96 → index 95.
     if frame[95] > 0:
         assert bar1.segments[0] == 1.0
+        # Palette DMX (e.g. amber=136) must decode to a real colour, not grey dimmer.
+        assert bar1.r + bar1.g + bar1.b > 0.05
+        assert abs(bar1.r - bar1.g) > 0.05 or abs(bar1.g - bar1.b) > 0.05
     else:
         assert bar1.segments[0] == 0.0
+        if bar1.dimmer <= 0.02:
+            assert bar1.r == 0.0
+            assert bar1.g == 0.0
+            assert bar1.b == 0.0
 
 
 def test_beam_sides_are_spatially_distinct() -> None:

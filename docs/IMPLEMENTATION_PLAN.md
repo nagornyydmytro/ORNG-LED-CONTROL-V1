@@ -71,7 +71,7 @@
 | L010 | Preset editor | DONE | `9151dbf` | PASS — см. `L010 — Результаты проверок` |
 | L011 | Ten complete presets | DONE | `15f8053` | PASS — см. `L011 — Результаты проверок` |
 | L012 | Input adapter and 16-button mapping | DONE | `b10f4e0` | PASS — см. `L012 — Результаты проверок` |
-| L013 | Integration, Windows scripts and HOME acceptance | DONE | hash в отчёте L013, запись в финальный ledger | PASS — см. `L013 — Результаты проверок` |
+| L013 | Integration, Windows scripts and HOME acceptance | DONE | `c2d06e9` | PASS — см. `L013 — Результаты проверок` |
 | H001+ | Real hardware acceptance | PENDING HARDWARE | — | — |
 
 ## 3. HOME PLAN
@@ -762,7 +762,7 @@ Verification:
 #### L013 — Результаты проверок
 
 Статус: `DONE`. Дата: `2026-07-28`. Ветка: `main`.
-Commit hash текущего этапа сообщается в отчёте и записывается финальным ledger.
+Commit: `c2d06e9744db523d799dc123d54c1a3228126446` (`c2d06e9`).
 
 Корректирующий HOME commit (не Lxxx): `34bb2ba2e35edd3f858c78cb954ce11379a814f7`
 (`34bb2ba`) — `fix: complete HOME acceptance corrections`.
@@ -790,8 +790,8 @@ Commit hash текущего этапа сообщается в отчёте и 
 - после L012 выполнен отдельный corrective commit `34bb2ba` с HOME-дефектами
   (SPA toast provide, blackout>raw, transitions, groups, preview_speed, UA UI);
 - hash L012 в ledger — исторический stage-commit `b10f4e0`, не corrective;
-- финальная строка `HOME PLAN COMPLETE` и полный hash L013 — в отдельном
-  docs-only ledger commit после push L013.
+- hash L013 — `c2d06e9`; финальный docs ledger commit фиксирует
+  `HOME PLAN COMPLETE` и полный список PENDING HARDWARE.
 
 ## 4. Hardware plan
 

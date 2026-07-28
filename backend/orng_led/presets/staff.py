@@ -279,7 +279,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         _ep(
             4,
             groups=["left", "bar"],
-            palette="warm_orange",
+            palette="cool_blue",
             effect="wave",
             speed=0.34,
             intensity=0.56,
@@ -288,7 +288,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         _ep(
             5,
             groups=["right", "bar"],
-            palette="amber",
+            palette="mint",
             effect="wave",
             speed=0.34,
             intensity=0.56,
@@ -454,7 +454,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         _ep(
             3,
             groups=["all_rear"],
-            palette="warm_orange",
+            palette="cool_blue",
             effect="breathe",
             speed=0.4,
             intensity=0.72,
@@ -472,7 +472,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         _ep(
             5,
             groups=["all_rear"],
-            palette="amber",
+            palette="mint",
             effect="chase",
             speed=0.5,
             intensity=0.7,
@@ -674,7 +674,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         _ep(
             7,
             groups=["bar", "par"],
-            palette="amber",
+            palette="cool_blue",
             effect="chase",
             speed=0.7,
             intensity=0.78,
@@ -691,7 +691,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         ),
         _ep(
             9,
-            groups=["outer", "beam"],
+            groups=["beam"],
             palette="deep_red",
             effect="pulse",
             speed=0.63,
@@ -739,7 +739,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         _ep(
             4,
             groups=["beam"],
-            palette="amber",
+            palette="cool_blue",
             effect="mirror_sweep",
             speed=0.6,
             intensity=0.8,
@@ -923,7 +923,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         _ep(
             4,
             groups=["beam"],
-            palette="amber",
+            palette="cool_blue",
             effect="mirror_sweep",
             speed=0.7,
             intensity=0.92,

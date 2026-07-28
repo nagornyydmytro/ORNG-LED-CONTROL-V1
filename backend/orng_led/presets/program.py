@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from dataclasses import dataclass
 
-from orng_led.config.models import FixtureKind, ShowConfig
+from orng_led.config.models import FixtureInstance, FixtureKind, ShowConfig
 from orng_led.engine.intents import (
     BarIntent,
     BeamIntent,
@@ -15,6 +16,13 @@ from orng_led.engine.intents import (
     StageIntent,
 )
 from orng_led.engine.presets import CyclePosition
+from orng_led.engine.timing import (
+    accent,
+    effect_rate_hz,
+    movement_rate_hz,
+    saw,
+    unipolar_sine,
+)
 from orng_led.presets.models import EpisodeCard, PresetDocument
 
 PALETTE_RGBW: dict[str, Rgbw] = {
@@ -31,6 +39,17 @@ PALETTE_RGBW: dict[str, Rgbw] = {
 # Transition window into the current episode (seconds of show time).
 FADE_DURATION_S = 2.0
 SOFT_DURATION_S = 3.0
+
+
+RateFn = Callable[[EpisodeCard], float]
+
+
+@dataclass(frozen=True)
+class EffectPhase:
+    """Continuous accumulated phase, in turns, at one evaluation instant."""
+
+    effect_turns: float = 0.0
+    movement_turns: float = 0.0
 
 
 TYPE_TAGS = frozenset({"par", "bar", "beam", "face"})
@@ -75,6 +94,18 @@ def _matches_groups(fixture_groups: list[str], episode_groups: list[str]) -> boo
     return True
 
 
+def _selected_ids(episode: EpisodeCard, show: ShowConfig) -> set[str]:
+    """Fixtures lit by an episode, never an empty stage.
+
+    A selector such as ``["outer", "beam"]`` intersects to nothing because beams
+    carry no ring tag. An episode is a look, not a pause, so an impossible
+    combination falls back to every rear fixture instead of 18 dark seconds.
+    """
+    rear = [f for f in show.patch.fixtures if f.kind is not FixtureKind.FACE_PAR]
+    selected = {f.id for f in rear if _matches_groups(f.groups, episode.groups)}
+    return selected or {f.id for f in rear}
+
+
 @dataclass
 class YamlPresetProgram:
     """PresetProgram backed by a validated PresetDocument."""
@@ -110,10 +141,42 @@ class YamlPresetProgram:
             elapsed = end
         return CyclePosition(0.0, 0, 0.0, 0.0)
 
+    def _accumulated_turns(self, time_s: float, rate_of: RateFn) -> float:
+        """Effect turns accumulated since t=0 — continuous across episode/loop edges.
+
+        Every episode may run at its own Hz; integrating the rate instead of
+        multiplying absolute time keeps the waveform phase continuous, so an
+        episode change never produces a random visual jump.
+        """
+        total = self.total_duration_s
+        episodes = self.document.episodes
+        if total <= 0.0 or not episodes:
+            return 0.0
+        per_cycle = sum(ep.duration_s * rate_of(ep) for ep in episodes)
+        cycles_done = math.floor(time_s / total) if time_s >= 0 else 0
+        pos = self.cycle_position(time_s)
+        turns = cycles_done * per_cycle
+        for index, episode in enumerate(episodes):
+            if index >= pos.episode_index:
+                break
+            turns += episode.duration_s * rate_of(episode)
+        turns += pos.episode_time_s * rate_of(episodes[pos.episode_index])
+        return turns
+
+    def effect_turns(self, time_s: float) -> float:
+        return self._accumulated_turns(time_s, lambda ep: effect_rate_hz(ep.speed, ep.effect))
+
+    def movement_turns(self, time_s: float) -> float:
+        return self._accumulated_turns(time_s, lambda ep: movement_rate_hz(ep.speed))
+
     def evaluate(self, cycle_time_s: float, show: ShowConfig) -> StageIntent:
         pos = self.cycle_position(cycle_time_s)
         episode = self.document.episodes[pos.episode_index]
-        current = _evaluate_episode(episode, pos, show)
+        clock = EffectPhase(
+            effect_turns=self.effect_turns(cycle_time_s),
+            movement_turns=self.movement_turns(cycle_time_s),
+        )
+        current = _evaluate_episode(episode, pos, clock, show)
 
         blend = _transition_blend(episode.transition, pos.episode_time_s)
         if blend <= 0.0:
@@ -121,14 +184,15 @@ class YamlPresetProgram:
 
         prev_index = (pos.episode_index - 1) % len(self.document.episodes)
         prev_episode = self.document.episodes[prev_index]
-        # Sample previous episode at its end so the look continues into the blend.
+        # The previous look is sampled on the *same* continuous phase, so only
+        # the look parameters cross-fade — the waveform itself never restarts.
         prev_pos = CyclePosition(
             cycle_time_s=pos.cycle_time_s,
             episode_index=prev_index,
             episode_time_s=max(0.0, prev_episode.duration_s - 1e-6),
             episode_progress=1.0,
         )
-        previous = _evaluate_episode(prev_episode, prev_pos, show)
+        previous = _evaluate_episode(prev_episode, prev_pos, clock, show)
         return _blend_stage(previous, current, 1.0 - blend)
 
 
@@ -186,6 +250,7 @@ def _blend_intent(
         return BarIntent(
             segments=segs[:8],
             dimmer=_lerp(a.dimmer, b.dimmer, t),
+            color=_blend_rgbw(a.color, b.color, t),
             strobe=_lerp(a.strobe, b.strobe, t),
         )
     if isinstance(a, BeamIntent) and isinstance(b, BeamIntent):
@@ -193,7 +258,8 @@ def _blend_intent(
             pan=_lerp(a.pan, b.pan, t),
             tilt=_lerp(a.tilt, b.tilt, t),
             dimmer=_lerp(a.dimmer, b.dimmer, t),
-            color=_lerp(a.color, b.color, t),
+            color=_blend_rgbw(a.color, b.color, t),
+            wheel=_lerp(a.wheel, b.wheel, t),
             shutter_open=b.shutter_open if t >= 0.5 else a.shutter_open,
             strobe=_lerp(a.strobe, b.strobe, t),
         )
@@ -211,71 +277,100 @@ def _blend_stage(previous: StageIntent, current: StageIntent, t: float) -> Stage
     return out
 
 
-def _modulate(progress: float, speed: float, effect: str) -> float:
-    rate = 0.35 + 1.65 * speed
-    phase = progress * rate
-    if effect in ("static",):
+def _effect_level(effect: str, turns: float, speed: float) -> float:
+    """0..1 modulation of one fixture at the given accumulated phase."""
+    if effect == "static":
         return 1.0
-    if effect in ("pulse", "breathe"):
-        return 0.45 + 0.55 * (0.5 + 0.5 * math.sin(2 * math.pi * phase))
+    if effect == "breathe":
+        return 0.30 + 0.70 * unipolar_sine(turns)
+    if effect == "pulse":
+        # Sharper the faster it runs, so P08–P10 read as accents, not a hum.
+        return 0.12 + 0.88 * accent(turns, 1.6 + 2.6 * speed)
     if effect == "wave":
-        return 0.5 + 0.5 * math.sin(2 * math.pi * phase)
+        return 0.25 + 0.75 * unipolar_sine(turns)
     if effect == "chase":
-        return 0.35 + 0.65 * ((math.sin(2 * math.pi * phase) + 1) * 0.5)
+        return 0.20 + 0.80 * accent(turns, 1.4 + 2.0 * speed)
     if effect == "mirror_sweep":
-        return 0.5 + 0.5 * math.sin(2 * math.pi * phase * 0.5)
+        return 0.35 + 0.65 * unipolar_sine(turns)
     return 0.7
 
 
-def _evaluate_episode(episode: EpisodeCard, pos: CyclePosition, show: ShowConfig) -> StageIntent:
+def _spatial_offset(fixture: FixtureInstance, show: ShowConfig) -> float:
+    """Phase offset in turns derived from the stage layout (left → right)."""
+    placement = show.layout.placement_for(fixture.id)
+    if placement is not None:
+        return placement.x * 0.45
+    order = fixture.spatial.order or 1
+    return (order - 1) * 0.1
+
+
+def _evaluate_episode(
+    episode: EpisodeCard,
+    pos: CyclePosition,
+    clock: EffectPhase,
+    show: ShowConfig,
+) -> StageIntent:
     intent = StageIntent()
     color = PALETTE_RGBW.get(episode.palette, PALETTE_RGBW["warm_orange"])
-    mod = _modulate(pos.episode_progress, episode.speed, episode.effect)
-    intensity = max(0.0, min(1.0, episode.intensity * mod))
-    wave = pos.episode_progress
+    turns = clock.effect_turns
+    mirrored = episode.effect == "mirror_sweep"
+    selection = _selected_ids(episode, show)
 
     for fixture in show.patch.fixtures:
         if fixture.kind is FixtureKind.FACE_PAR:
             continue
-        if not _matches_groups(fixture.groups, episode.groups):
+        if fixture.id not in selection:
             continue
+
+        offset = _spatial_offset(fixture, show)
+        if mirrored:
+            offset = abs(offset - 0.225)
+        local_turns = turns - offset
+        level = _effect_level(episode.effect, local_turns, episode.speed)
+        intensity = max(0.0, min(1.0, episode.intensity * level))
 
         if fixture.kind is FixtureKind.PAR:
             intent.fixtures[fixture.id] = ParIntent(color=color, intensity=intensity)
         elif fixture.kind is FixtureKind.BAR:
-            segments: list[float] = []
-            for index in range(8):
-                if episode.effect == "chase":
-                    center = (wave * 8.0 * (0.5 + episode.speed)) % 8.0
-                    level = max(0.0, 1.0 - abs(index - center) / 1.8)
-                elif episode.effect == "wave":
-                    center = wave * 7.0
-                    level = max(0.0, 1.0 - abs(index - center) / 2.2)
-                elif episode.effect == "static":
-                    level = 0.85
-                else:
-                    level = 0.35 + 0.65 * mod
-                segments.append(level)
+            segments = _bar_segments(episode, local_turns, level)
             intent.fixtures[fixture.id] = BarIntent(
-                segments=tuple(segments),
-                dimmer=intensity,
+                segments=segments,
+                dimmer=max(intensity, 0.15 * episode.intensity),
+                color=color,
             )
         elif fixture.kind is FixtureKind.BEAM:
-            sweep = 0.5 + 0.4 * math.sin(
-                2 * math.pi * (pos.cycle_time_s / max(1.0, pos.cycle_time_s + 1))
-            )
-            if episode.effect == "mirror_sweep":
-                sweep = 0.5 + 0.4 * math.sin(2 * math.pi * wave * (0.4 + episode.speed))
-            if fixture.spatial.side.value == "left":
-                pan = 1.0 - sweep
-            else:
-                pan = sweep
-            tilt = 0.3 + 0.25 * math.sin(2 * math.pi * wave + 0.4)
+            sweep = 0.5 + 0.42 * math.sin(2.0 * math.pi * clock.movement_turns)
+            pan = 1.0 - sweep if fixture.spatial.side.value == "left" else sweep
+            tilt = 0.44 + 0.20 * math.sin(2.0 * math.pi * clock.movement_turns * 0.63 + 0.7)
             intent.fixtures[fixture.id] = BeamIntent(
-                pan=pan,
-                tilt=tilt,
-                dimmer=intensity * 0.85,
-                color=0.15 + 0.2 * intensity,
+                pan=max(0.0, min(1.0, pan)),
+                tilt=max(0.0, min(1.0, tilt)),
+                dimmer=intensity * 0.9,
+                color=color,
+                wheel=0.15 + 0.2 * intensity,
                 shutter_open=True,
             )
     return intent
+
+
+def _bar_segments(episode: EpisodeCard, turns: float, level: float) -> tuple[float, ...]:
+    """Per-segment levels; segment 1 is the bottom of a vertically mounted Bar."""
+    effect = episode.effect
+    segments: list[float] = []
+    if effect == "chase":
+        center = saw(turns) * 8.0
+        for index in range(8):
+            distance = min(abs(index - center), 8.0 - abs(index - center))
+            segments.append(max(0.0, 1.0 - distance / 1.8))
+    elif effect == "wave":
+        for index in range(8):
+            segments.append(unipolar_sine(turns - index / 8.0))
+    elif effect == "mirror_sweep":
+        center = 3.5 + 3.5 * math.sin(2.0 * math.pi * turns)
+        for index in range(8):
+            segments.append(max(0.0, 1.0 - abs(index - center) / 2.4))
+    elif effect == "static":
+        segments = [0.85] * 8
+    else:
+        segments = [max(0.08, level)] * 8
+    return tuple(max(0.0, min(1.0, value)) for value in segments)

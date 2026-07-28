@@ -40,7 +40,7 @@ episodes:
   groups:
   - left
   - bar
-  palette: warm_orange
+  palette: cool_blue
   effect: wave
   speed: 0.34
   intensity: 0.56
@@ -51,7 +51,7 @@ episodes:
   groups:
   - right
   - bar
-  palette: amber
+  palette: mint
   effect: wave
   speed: 0.34
   intensity: 0.56

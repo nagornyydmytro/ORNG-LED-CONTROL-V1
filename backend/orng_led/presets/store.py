@@ -44,6 +44,18 @@ class PresetStore:
                     episode_count=len(doc.episodes),
                     total_duration_s=doc.total_duration_s,
                     source="yaml",
+                    palettes=[ep.palette for ep in doc.episodes],
+                    avg_intensity=(
+                        sum(ep.intensity for ep in doc.episodes) / len(doc.episodes)
+                        if doc.episodes
+                        else 0.0
+                    ),
+                    avg_speed=(
+                        sum(ep.speed for ep in doc.episodes) / len(doc.episodes)
+                        if doc.episodes
+                        else 0.0
+                    ),
+                    effects=sorted({ep.effect for ep in doc.episodes}),
                 )
             )
         if "P05" not in self.documents:

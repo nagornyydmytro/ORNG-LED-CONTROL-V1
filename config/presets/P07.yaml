@@ -72,7 +72,7 @@ episodes:
   groups:
   - bar
   - par
-  palette: amber
+  palette: cool_blue
   effect: chase
   speed: 0.7
   intensity: 0.78
@@ -91,7 +91,6 @@ episodes:
 - id: ep9
   duration_s: 18.0
   groups:
-  - outer
   - beam
   palette: deep_red
   effect: pulse

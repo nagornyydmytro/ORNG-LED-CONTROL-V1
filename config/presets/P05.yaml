@@ -29,7 +29,7 @@ episodes:
   duration_s: 18.0
   groups:
   - all_rear
-  palette: warm_orange
+  palette: cool_blue
   effect: breathe
   speed: 0.4
   intensity: 0.72
@@ -50,7 +50,7 @@ episodes:
   duration_s: 18.0
   groups:
   - all_rear
-  palette: amber
+  palette: mint
   effect: chase
   speed: 0.5
   intensity: 0.7

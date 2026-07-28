@@ -40,7 +40,7 @@ episodes:
   duration_s: 18.0
   groups:
   - beam
-  palette: amber
+  palette: cool_blue
   effect: mirror_sweep
   speed: 0.7
   intensity: 0.92

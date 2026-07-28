@@ -24,6 +24,30 @@ function wsUrl(): string {
   return `${protocol}//${window.location.host}/api/ws`;
 }
 
+/** UI text refresh rate; the canvas keeps rendering every frame regardless. */
+const REACTIVE_PUBLISH_MS = 110;
+
+function controlSignature(state: AppState): string {
+  const e = state.engine;
+  const o = state.output;
+  return [
+    e.preset_id,
+    e.episode_index,
+    e.blackout,
+    e.strobe_held,
+    e.white_hit_active,
+    e.face_on,
+    e.drop_active,
+    e.color_hit_active,
+    e.sweep_active,
+    o.transport,
+    o.armed,
+    o.last_error,
+    state.preview_speed,
+    state.raw_tester?.active,
+  ].join("|");
+}
+
 export function useAppState(toasts: ToastApi) {
   const state = shallowRef<AppState | null>(null);
   const availablePresets = ref<PresetInfo[]>([]);
@@ -35,14 +59,51 @@ export function useAppState(toasts: ToastApi) {
   let disposed = false;
   let intentionalClose = false;
 
+  // Newest frame lives outside Vue reactivity: 30 fps of 512 channels must not
+  // re-render the component tree. The canvas reads it from its own rAF loop.
+  const live: { state: AppState | null } = { state: null };
+  let lastPublishAt = 0;
+  let publishTimer: number | null = null;
+  let lastSignature = "";
+
   const engine = computed(() => state.value?.engine ?? null);
   const output = computed(() => state.value?.output ?? null);
   const availableIds = computed(() => new Set(state.value?.presets ?? []));
 
-  function applyState(next: AppState) {
-    state.value = next;
-    lastError.value = next.output.last_error;
+  function publish() {
+    if (publishTimer !== null) {
+      window.clearTimeout(publishTimer);
+      publishTimer = null;
+    }
+    lastPublishAt = Date.now();
+    state.value = live.state;
+    lastError.value = live.state?.output.last_error ?? null;
     loading.value = false;
+  }
+
+  function applyState(next: AppState) {
+    live.state = next;
+    const signature = controlSignature(next);
+    const changed = signature !== lastSignature;
+    lastSignature = signature;
+    const elapsed = Date.now() - lastPublishAt;
+    if (changed || state.value === null || elapsed >= REACTIVE_PUBLISH_MS) {
+      publish();
+      return;
+    }
+    if (publishTimer === null) {
+      publishTimer = window.setTimeout(publish, REACTIVE_PUBLISH_MS - elapsed);
+    }
+  }
+
+  /** Latest simulator view without reactivity — for the canvas render loop. */
+  function liveView() {
+    return live.state?.simulator ?? null;
+  }
+
+  /** Latest raw frame without reactivity — for the throttled inspector. */
+  function liveFrame(): number[] {
+    return live.state?.frame ?? [];
   }
 
   async function refreshRest() {
@@ -198,6 +259,26 @@ export function useAppState(toasts: ToastApi) {
     await runCommand("preview-speed", { value });
   }
 
+  async function dropPress() {
+    await runCommand("drop", { action: "press" });
+  }
+
+  async function dropRelease() {
+    try {
+      await runCommand("drop", { action: "release" });
+    } catch {
+      // failsafe best-effort; the backend also has a wall-clock max duration
+    }
+  }
+
+  async function colorHit(rgb?: { r: number; g: number; b: number }) {
+    await runCommand("color-hit", rgb ? { ...rgb } : {});
+  }
+
+  async function sweepHit(rgb?: { r: number; g: number; b: number }) {
+    await runCommand("sweep-hit", rgb ? { ...rgb } : {});
+  }
+
   async function notifyFocusLoss() {
     if (socket && socket.readyState === WebSocket.OPEN) {
       socket.send(JSON.stringify({ type: "focus_loss" }));
@@ -216,12 +297,14 @@ export function useAppState(toasts: ToastApi) {
     if (document.visibilityState === "hidden") {
       void notifyVisibilityHidden();
       void strobeRelease();
+      void dropRelease();
     }
   }
 
   function onBlur() {
     void notifyFocusLoss();
     void strobeRelease();
+    void dropRelease();
   }
 
   useKeyboardPad({
@@ -251,6 +334,7 @@ export function useAppState(toasts: ToastApi) {
     window.removeEventListener("blur", onBlur);
     document.removeEventListener("visibilitychange", onVisibility);
     if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
+    if (publishTimer !== null) window.clearTimeout(publishTimer);
     socket?.close();
   });
 
@@ -263,6 +347,8 @@ export function useAppState(toasts: ToastApi) {
     connection,
     loading,
     lastError,
+    liveView,
+    liveFrame,
     selectPreset,
     whiteHit,
     strobePress,
@@ -272,6 +358,10 @@ export function useAppState(toasts: ToastApi) {
     setFace,
     setMasterBrightness,
     setPreviewSpeed,
+    dropPress,
+    dropRelease,
+    colorHit,
+    sweepHit,
     refreshRest,
   };
 }

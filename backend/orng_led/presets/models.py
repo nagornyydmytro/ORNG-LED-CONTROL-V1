@@ -130,3 +130,8 @@ class PresetSummary(StrictModel):
     episode_count: int
     total_duration_s: float
     source: Literal["yaml", "scaffold"] = "yaml"
+    # Shown on the preset cards so the operator sees the real look, not a guess.
+    palettes: list[str] = Field(default_factory=list)
+    avg_intensity: float = 0.0
+    avg_speed: float = 0.0
+    effects: list[str] = Field(default_factory=list)

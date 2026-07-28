@@ -87,6 +87,20 @@ class Ring(StrEnum):
     NONE = "none"
 
 
+class Orientation(StrEnum):
+    VERTICAL = "vertical"
+    HORIZONTAL = "horizontal"
+    POINT = "point"
+
+
+class MountPosition(StrEnum):
+    CEILING = "ceiling"
+    TRUSS = "truss"
+    WALL = "wall"
+    STAGE = "stage"
+    FLOOR = "floor"
+
+
 class TransportMode(StrEnum):
     MOCK = "mock"
     ARTNET = "artnet"
@@ -165,6 +179,35 @@ class FixtureInstance(StrictModel):
     notes: str | None = None
 
 
+Normalized = Annotated[float, Field(ge=-1.0, le=2.0)]
+
+
+class StagePlacement(StrictModel):
+    """Normalized viewer-facing stage coordinates for one fixture.
+
+    ``x`` grows to the audience right, ``y`` grows downwards in the stage
+    picture, ``z`` grows upstage (0 = downstage / closest to the audience).
+    Values describe the drawn rig plan and stay PENDING HARDWARE until the
+    venue day confirms real trim heights and distances.
+    """
+
+    fixture_id: Annotated[str, Field(min_length=1)]
+    kind: FixtureKind
+    x: Normalized
+    y: Normalized
+    z: Normalized = 0.8
+    width: Annotated[float, Field(gt=0.0, le=1.0)] = 0.05
+    height: Annotated[float, Field(gt=0.0, le=1.0)] = 0.05
+    rotation_deg: Annotated[float, Field(ge=-180.0, le=180.0)] = 0.0
+    orientation: Orientation = Orientation.POINT
+    mount: MountPosition = MountPosition.TRUSS
+    aim_x: Annotated[float, Field(ge=-1.0, le=1.0)] = 0.0
+    aim_y: Annotated[float, Field(ge=-1.0, le=1.0)] = -1.0
+    aim_z: Annotated[float, Field(ge=-1.0, le=1.0)] = 0.0
+    zone: str | None = None
+    notes: str | None = None
+
+
 class SpatialLayout(StrictModel):
     """Viewer-facing stage layout metadata."""
 
@@ -172,11 +215,38 @@ class SpatialLayout(StrictModel):
     viewer_facing: Literal[True] = True
     description: str = "Left/right are from the audience looking at the stage (canon §3.3)."
     fixtures: list[str] = Field(default_factory=list)
+    placements: list[StagePlacement] = Field(default_factory=list)
+    cable_chain: list[str] = Field(default_factory=list)
+    artnet_node: StagePlacement | None = None
 
     @field_validator("schema_version")
     @classmethod
     def _check_schema(cls, value: int) -> int:
         return require_supported_schema_version(value)
+
+    @model_validator(mode="after")
+    def _check_placements(self) -> SpatialLayout:
+        seen: set[str] = set()
+        for placement in self.placements:
+            if placement.fixture_id in seen:
+                raise ConfigError(f"Layout: duplicate placement for {placement.fixture_id!r}.")
+            seen.add(placement.fixture_id)
+        listed = set(self.fixtures)
+        if self.placements and listed and seen != listed:
+            raise ConfigError(
+                "Layout placements must cover exactly layout.fixtures. "
+                f"missing={sorted(listed - seen)}, extra={sorted(seen - listed)}."
+            )
+        for fixture_id in self.cable_chain:
+            if listed and fixture_id not in listed:
+                raise ConfigError(f"Layout cable_chain references unknown fixture {fixture_id!r}.")
+        return self
+
+    def placement_for(self, fixture_id: str) -> StagePlacement | None:
+        for placement in self.placements:
+            if placement.fixture_id == fixture_id:
+                return placement
+        return None
 
 
 class PatchDocument(StrictModel):

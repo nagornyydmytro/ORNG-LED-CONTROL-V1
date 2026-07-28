@@ -31,17 +31,23 @@ class ParIntent:
 
 @dataclass(frozen=True)
 class BarIntent:
+    """Bars are RGB fixtures: one colour plus 8 semantic segment levels."""
+
     segments: tuple[float, ...] = (0.0,) * 8
     dimmer: float = 1.0
+    color: Rgbw = field(default_factory=Rgbw)
     strobe: float = 0.0
 
 
 @dataclass(frozen=True)
 class BeamIntent:
+    """Moving heads are RGB too; ``wheel`` stays for the provisional colour wheel."""
+
     pan: float = 0.5
     tilt: float = 0.5
     dimmer: float = 0.0
-    color: float = 0.0
+    color: Rgbw = field(default_factory=Rgbw)
+    wheel: float = 0.0
     shutter_open: bool = True
     strobe: float = 0.0
 

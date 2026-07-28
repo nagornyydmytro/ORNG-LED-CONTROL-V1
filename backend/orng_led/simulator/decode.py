@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from orng_led.config.models import ChannelRole, FixtureKind, ShowConfig
 from orng_led.config.schema import DMX_UNIVERSE_SIZE
 from orng_led.config.validation import global_channel
+from orng_led.simulator.geometry import beam_vector
 
 
 class StrictView(BaseModel):
@@ -36,6 +37,9 @@ class BarFixtureView(StrictView):
     ring: str
     order: int | None = None
     dimmer: float
+    r: float = 0.0
+    g: float = 0.0
+    b: float = 0.0
     segments: list[float] = Field(min_length=8, max_length=8)
 
 
@@ -49,6 +53,16 @@ class BeamFixtureView(StrictView):
     tilt: float
     dimmer: float
     shutter_open: bool
+    r: float = 0.0
+    g: float = 0.0
+    b: float = 0.0
+    strobe: float = 0.0
+    dir_x: float = 0.0
+    dir_y: float = -1.0
+    dir_z: float = 0.0
+    hit_x: float = 0.5
+    hit_z: float = 0.5
+    throw: float = 0.0
 
 
 class SimulatorView(StrictView):
@@ -75,6 +89,10 @@ def _u8(frame: list[int], start: int, local: int | None) -> float:
     return _read(frame, start, local) / 255.0
 
 
+def _first(entries: list[tuple[int, int | None]]) -> int | None:
+    return entries[0][0] if entries else None
+
+
 def decode_simulator_view(show: ShowConfig, frame: list[int]) -> SimulatorView:
     if len(frame) != DMX_UNIVERSE_SIZE:
         raise ValueError(f"Frame must have {DMX_UNIVERSE_SIZE} channels")
@@ -90,12 +108,7 @@ def decode_simulator_view(show: ShowConfig, frame: list[int]) -> SimulatorView:
         channels = profile.channels
 
         if fixture.kind in (FixtureKind.PAR, FixtureKind.FACE_PAR):
-            dim_local = _role_locals(channels, ChannelRole.DIMMER)
-            red = _role_locals(channels, ChannelRole.RED)
-            green = _role_locals(channels, ChannelRole.GREEN)
-            blue = _role_locals(channels, ChannelRole.BLUE)
-            white = _role_locals(channels, ChannelRole.WHITE)
-            intensity = _u8(frame, start, dim_local[0][0] if dim_local else None)
+            intensity = _u8(frame, start, _first(_role_locals(channels, ChannelRole.DIMMER)))
             view = ParFixtureView(
                 id=fixture.id,
                 label=fixture.label,
@@ -104,10 +117,10 @@ def decode_simulator_view(show: ShowConfig, frame: list[int]) -> SimulatorView:
                 ring=fixture.spatial.ring.value,
                 face=fixture.spatial.face or fixture.kind is FixtureKind.FACE_PAR,
                 order=fixture.spatial.order,
-                r=_u8(frame, start, red[0][0] if red else None),
-                g=_u8(frame, start, green[0][0] if green else None),
-                b=_u8(frame, start, blue[0][0] if blue else None),
-                w=_u8(frame, start, white[0][0] if white else None),
+                r=_u8(frame, start, _first(_role_locals(channels, ChannelRole.RED))),
+                g=_u8(frame, start, _first(_role_locals(channels, ChannelRole.GREEN))),
+                b=_u8(frame, start, _first(_role_locals(channels, ChannelRole.BLUE))),
+                w=_u8(frame, start, _first(_role_locals(channels, ChannelRole.WHITE))),
                 intensity=intensity,
             )
             if fixture.kind is FixtureKind.FACE_PAR:
@@ -116,7 +129,6 @@ def decode_simulator_view(show: ShowConfig, frame: list[int]) -> SimulatorView:
                 pars.append(view)
 
         elif fixture.kind is FixtureKind.BAR:
-            dim_local = _role_locals(channels, ChannelRole.DIMMER)
             segments = [0.0] * 8
             for local, segment_index in _role_locals(channels, ChannelRole.SEGMENT):
                 if segment_index is None:
@@ -134,7 +146,10 @@ def decode_simulator_view(show: ShowConfig, frame: list[int]) -> SimulatorView:
                     side=fixture.spatial.side.value,
                     ring=fixture.spatial.ring.value,
                     order=fixture.spatial.order,
-                    dimmer=_u8(frame, start, dim_local[0][0] if dim_local else None),
+                    dimmer=_u8(frame, start, _first(_role_locals(channels, ChannelRole.DIMMER))),
+                    r=_u8(frame, start, _first(_role_locals(channels, ChannelRole.RED))),
+                    g=_u8(frame, start, _first(_role_locals(channels, ChannelRole.GREEN))),
+                    b=_u8(frame, start, _first(_role_locals(channels, ChannelRole.BLUE))),
                     segments=segments,
                 )
             )
@@ -144,7 +159,6 @@ def decode_simulator_view(show: ShowConfig, frame: list[int]) -> SimulatorView:
             pan_f = _role_locals(channels, ChannelRole.PAN_FINE)
             tilt_c = _role_locals(channels, ChannelRole.TILT_COARSE)
             tilt_f = _role_locals(channels, ChannelRole.TILT_FINE)
-            dim_local = _role_locals(channels, ChannelRole.DIMMER)
             shutter = _role_locals(channels, ChannelRole.SHUTTER)
 
             pan_hi = _read(frame, start, pan_c[0][0]) if pan_c else 0
@@ -158,6 +172,19 @@ def decode_simulator_view(show: ShowConfig, frame: list[int]) -> SimulatorView:
             if fixture.spatial.tilt_invert:
                 tilt = 1.0 - tilt
             shutter_level = _u8(frame, start, shutter[0][0] if shutter else None)
+
+            placement = show.layout.placement_for(fixture.id)
+            origin_x = placement.x if placement else 0.5
+            origin_y = (1.0 - placement.y) if placement else 0.75
+            origin_z = placement.z if placement else 0.85
+            vector = beam_vector(
+                pan=pan,
+                tilt=tilt,
+                origin_x=origin_x,
+                origin_y=origin_y,
+                origin_z=origin_z,
+            )
+
             beams.append(
                 BeamFixtureView(
                     id=fixture.id,
@@ -167,8 +194,18 @@ def decode_simulator_view(show: ShowConfig, frame: list[int]) -> SimulatorView:
                     order=fixture.spatial.order,
                     pan=pan,
                     tilt=tilt,
-                    dimmer=_u8(frame, start, dim_local[0][0] if dim_local else None),
+                    dimmer=_u8(frame, start, _first(_role_locals(channels, ChannelRole.DIMMER))),
                     shutter_open=shutter_level > 0.05,
+                    r=_u8(frame, start, _first(_role_locals(channels, ChannelRole.RED))),
+                    g=_u8(frame, start, _first(_role_locals(channels, ChannelRole.GREEN))),
+                    b=_u8(frame, start, _first(_role_locals(channels, ChannelRole.BLUE))),
+                    strobe=_u8(frame, start, _first(_role_locals(channels, ChannelRole.STROBE))),
+                    dir_x=vector.dir_x,
+                    dir_y=vector.dir_y,
+                    dir_z=vector.dir_z,
+                    hit_x=vector.hit_x,
+                    hit_z=vector.hit_z,
+                    throw=vector.throw,
                 )
             )
 

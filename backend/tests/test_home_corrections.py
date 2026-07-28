@@ -46,17 +46,21 @@ def test_identify_fixture_is_mock_visible_and_blackout_wins() -> None:
     assert state.simulator.nonzero_channels > 1
     par = next(p for p in state.simulator.pars if p.id == "par_1")
     assert par.intensity > 0.5
-    assert par.r > 0.5
+    # Identify uses one safe cyan, never the brand orange.
+    assert par.g > 0.5 and par.b > 0.5
+    assert par.r < 0.05
 
     runtime.identify_fixture("bar_1", level=180)
     bar = next(b for b in runtime.build_state().simulator.bars if b.id == "bar_1")
     assert bar.dimmer > 0.5
     assert sum(bar.segments) > 0
+    assert bar.g > 0.5 and bar.b > 0.5
 
     runtime.identify_fixture("beam_left", level=200)
     beam = next(b for b in runtime.build_state().simulator.beams if b.id == "beam_left")
     assert beam.dimmer > 0.5
     assert beam.shutter_open is True
+    assert beam.g > 0.5 and beam.b > 0.5
 
     runtime.apply_blackout(True)
     assert runtime.build_state().frame == [0] * DMX_UNIVERSE_SIZE

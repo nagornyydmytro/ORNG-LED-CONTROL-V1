@@ -59,7 +59,12 @@ def render_bar(
     intent: BarIntent,
 ) -> None:
     roles = _role_map(profile)
+    color = intent.color.scaled(intent.dimmer)
     _write_role(frame, fixture, roles, ChannelRole.DIMMER, intent.dimmer)
+    _write_role(frame, fixture, roles, ChannelRole.RED, color.r)
+    _write_role(frame, fixture, roles, ChannelRole.GREEN, color.g)
+    _write_role(frame, fixture, roles, ChannelRole.BLUE, color.b)
+    _write_role(frame, fixture, roles, ChannelRole.WHITE, color.w)
     _write_role(frame, fixture, roles, ChannelRole.STROBE, intent.strobe)
     invert = fixture.spatial.invert_segments
     segments = list(intent.segments)
@@ -109,8 +114,12 @@ def render_beam(
         local, _ = entries[0]
         write_channel(frame, global_channel(fixture.start_address, local), value)
 
+    color = intent.color.scaled(intent.dimmer)
     _write_role(frame, fixture, roles, ChannelRole.DIMMER, intent.dimmer)
-    _write_role(frame, fixture, roles, ChannelRole.COLOR, intent.color)
+    _write_role(frame, fixture, roles, ChannelRole.RED, color.r)
+    _write_role(frame, fixture, roles, ChannelRole.GREEN, color.g)
+    _write_role(frame, fixture, roles, ChannelRole.BLUE, color.b)
+    _write_role(frame, fixture, roles, ChannelRole.COLOR, intent.wheel)
     shutter = 1.0 if intent.shutter_open else 0.0
     _write_role(frame, fixture, roles, ChannelRole.SHUTTER, shutter)
     _write_role(frame, fixture, roles, ChannelRole.STROBE, intent.strobe)

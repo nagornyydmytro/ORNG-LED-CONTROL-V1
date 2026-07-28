@@ -68,6 +68,7 @@ class BasePulsePreset:
                 intent.fixtures[fixture.id] = BarIntent(
                     segments=tuple(segments),
                     dimmer=0.55 + 0.35 * pulse,
+                    color=Rgbw(r=0.95, g=0.4, b=0.1),
                 )
             elif fixture.kind is FixtureKind.BEAM:
                 # Slow mirrored sweep across the cycle; interpolation happens in engine.
@@ -81,7 +82,8 @@ class BasePulsePreset:
                     pan=pan,
                     tilt=tilt,
                     dimmer=0.45 + 0.25 * pulse,
-                    color=0.2 + 0.1 * pos.episode_index / 9.0,
+                    color=Rgbw(r=0.3, g=0.55, b=1.0),
+                    wheel=0.2 + 0.1 * pos.episode_index / 9.0,
                     shutter_open=True,
                 )
         return intent

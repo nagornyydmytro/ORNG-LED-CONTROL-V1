@@ -1,18 +1,21 @@
 schema_version: 1
 id: beam_32ch_provisional
-label: Beam 32ch (provisional)
+label: Beam 32ch RGB (provisional)
 kind: beam
 footprint: 32
 hardware_verified: false
 capabilities:
   - dimmer
+  - rgb
   - pan_tilt
   - color_wheel
   - gobo
   - strobe
 notes: >
-  Footprint reserved at 32. Exact channel functions, reset ranges and
-  pan/tilt limits are PENDING HARDWARE.
+  Footprint reserved at 32. Confirmed by the operator: the moving heads are
+  RGB, so locals 13/14/15 carry the provisional RGB mix next to the colour
+  wheel. Exact channel functions, reset ranges and pan/tilt limits are
+  PENDING HARDWARE.
 channels:
   - local: 1
     role: pan_coarse
@@ -39,14 +42,14 @@ channels:
   - local: 12
     role: prism
   - local: 13
-    role: unknown
-    label: Provisional
+    role: red
+    label: Red (provisional)
   - local: 14
-    role: unknown
-    label: Provisional
+    role: green
+    label: Green (provisional)
   - local: 15
-    role: unknown
-    label: Provisional
+    role: blue
+    label: Blue (provisional)
   - local: 16
     role: reset
     label: Reset/service (dangerous ranges PENDING HARDWARE)

@@ -1,21 +1,23 @@
 /**
  * Klickpin slit-scan splash — vertical barcode typography.
  *
- * Reference: dense full-height hairline slits; glyphs appear only by thickening
- * those slits. Orange replaces reference red. Soft fade before screen edges.
+ * Technique (matches reference):
+ * 1) dense hairline vertical orange slits on black
+ * 2) solid glyph rendered once, then each 1px column stretched to a thick bar
+ *    → letters form by slit thickening, stay readable
+ * 3) soft fade before viewport edges (user: slits must not touch borders)
  */
 
 export const SPLASH_MIN_MS = 1800;
 
-/** Neon orange (reference was neon red). */
-export const SPLASH_ORANGE = "#ff4d00";
-export const SPLASH_ORANGE_RGB = { r: 255, g: 77, b: 0 };
+/** Neon orange — reference was neon red. */
+export const SPLASH_ORANGE = "#ff3b00";
+export const SPLASH_ORANGE_RGB = { r: 255, g: 59, b: 0 };
 
 export type SplashGlyph = {
   width: number;
   height: number;
-  /** 0..1 coverage per pixel, length = width * height (row-major). */
-  coverage: Float32Array;
+  canvas: HTMLCanvasElement;
 };
 
 export function edgeFade(t: number, soft = 0.12): number {
@@ -29,141 +31,121 @@ function smoothstep(edge0: number, edge1: number, x: number): number {
 }
 
 function fontFor(size: number): string {
-  // Heavy condensed block face — closest system match to the reference.
-  return `900 ${size}px Impact,"Arial Black","Helvetica Neue Condensed",Arial,sans-serif`;
+  return `900 ${size}px Impact,"Arial Black","Helvetica Neue",Arial,sans-serif`;
 }
 
-/**
- * Build glyph coverage with a short vertical smear so letter tops/bottoms
- * bleed into the thin slits (reference “liquid” taper).
- */
+/** Solid orange ORNG / HOTBOX — source for 1px column sampling. */
 export function buildSplashGlyph(width: number, height: number): SplashGlyph {
   const w = Math.max(1, Math.floor(width));
   const h = Math.max(1, Math.floor(height));
   const canvas = document.createElement("canvas");
   canvas.width = w;
   canvas.height = h;
-  const ctx = canvas.getContext("2d", { willReadFrequently: true });
-  const coverage = new Float32Array(w * h);
-  if (!ctx) return { width: w, height: h, coverage };
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return { width: w, height: h, canvas };
 
   ctx.fillStyle = "#000000";
   ctx.fillRect(0, 0, w, h);
-  ctx.fillStyle = "#ffffff";
+
+  ctx.fillStyle = SPLASH_ORANGE;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
 
-  const maxTextW = w * 0.88;
-  let fontPx = Math.min(w * 0.34, h * 0.17);
+  const maxTextW = w * 0.9;
+  let fontPx = Math.min(w * 0.36, h * 0.18);
   ctx.font = fontFor(fontPx);
-  while (fontPx > 32 && ctx.measureText("HOTBOX").width > maxTextW) {
+  while (fontPx > 36 && ctx.measureText("HOTBOX").width > maxTextW) {
     fontPx -= 2;
     ctx.font = fontFor(fontPx);
   }
 
-  // Two lines, block centered near 30% height.
-  const lineGap = fontPx * 0.12;
+  const lineGap = fontPx * 0.18;
   const blockH = fontPx * 2 + lineGap;
-  const blockMidY = h * 0.3 + blockH * 0.15;
+  // Block sits with its optical center near ~30–35% of height.
+  const midY = h * 0.32;
   const cx = w * 0.5;
-  const y1 = blockMidY - blockH * 0.25;
-  const y2 = blockMidY + blockH * 0.25;
+  ctx.fillText("ORNG", cx, midY - blockH * 0.28);
+  ctx.fillText("HOTBOX", cx, midY + blockH * 0.28);
 
-  // Hard fill first (crisp barcode core).
-  ctx.fillText("ORNG", cx, y1);
-  ctx.fillText("HOTBOX", cx, y2);
-
-  // Vertical smear passes — reference letter edges taper into thin slits.
-  const smear = Math.max(4, Math.round(fontPx * 0.12));
-  ctx.globalCompositeOperation = "lighter";
-  for (let dy = 1; dy <= smear; dy += 1) {
-    const a = 1 - dy / (smear + 1);
-    ctx.globalAlpha = 0.35 * a;
-    ctx.fillText("ORNG", cx, y1 - dy);
-    ctx.fillText("ORNG", cx, y1 + dy);
-    ctx.fillText("HOTBOX", cx, y2 - dy);
-    ctx.fillText("HOTBOX", cx, y2 + dy);
-  }
-  ctx.globalAlpha = 1;
-  ctx.globalCompositeOperation = "source-over";
-
-  const data = ctx.getImageData(0, 0, w, h).data;
-  for (let i = 0, p = 0; i < coverage.length; i += 1, p += 4) {
-    coverage[i] = data[p]! / 255;
-  }
-  return { width: w, height: h, coverage };
+  return { width: w, height: h, canvas };
 }
 
-/** @deprecated alias */
 export function buildSplashMask(width: number, height: number): SplashGlyph {
   return buildSplashGlyph(width, height);
 }
 
-/**
- * Paint the slit field. Thin slits everywhere; thick where coverage is high.
- * Fade only near the viewport edges so slits never touch the border.
- */
 export function drawSplashStripes(
   ctx: CanvasRenderingContext2D,
   glyph: SplashGlyph,
   _timeSec = 0,
 ): void {
-  const { width: w, height: h, coverage } = glyph;
+  const w = glyph.width;
+  const h = glyph.height;
+  const src = glyph.canvas;
+
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.globalAlpha = 1;
   ctx.fillStyle = "#000000";
   ctx.fillRect(0, 0, w, h);
   if (w < 8 || h < 8) return;
 
-  // Reference ≈ 13px pitch on 720px → ~55 slits.
+  // Reference ≈ 13px pitch @ 720 → ~55 slits across.
   const pitch = Math.max(4, Math.round(w / 55));
-  const thin = Math.max(1, Math.round(pitch * 0.12));
+  const thin = Math.max(1, Math.round(pitch * 0.15));
   const thick = Math.max(thin + 2, pitch - 1);
   const { r, g, b } = SPLASH_ORANGE_RGB;
   const invW = 1 / Math.max(1, w - 1);
   const invH = 1 / Math.max(1, h - 1);
 
-  // Sample each slit column and draw continuous vertical runs.
-  for (let col = 0; ; col += 1) {
-    const x = Math.floor(col * pitch + pitch * 0.5);
-    if (x >= w) break;
-
-    const fadeX = edgeFade(x * invW, 0.1);
-    if (fadeX < 0.03) continue;
-
-    // Walk the column; coverage drives line width (thin field → thick glyph).
-    let runY = 0;
-    let runCov = coverage[x] ?? 0;
-
-    const flush = (yEnd: number) => {
-      if (yEnd <= runY) return;
-      const midY = (runY + yEnd) * 0.5 * invH;
-      const fadeY = edgeFade(midY, 0.1);
-      const a = fadeX * fadeY;
-      if (a < 0.03) {
-        runY = yEnd;
-        return;
-      }
-      // Reference lines are bright neon, not milky translucent glass.
-      const width = thin + (thick - thin) * Math.min(1, runCov * 1.35);
-      const half = width * 0.5;
-      const brightness = 0.55 + 0.45 * Math.min(1, runCov * 1.2);
-      ctx.fillStyle = `rgba(${r},${g},${b},${(a * brightness).toFixed(3)})`;
-      ctx.fillRect(x - half, runY, width, yEnd - runY);
-      runY = yEnd;
-    };
-
-    for (let y = 1; y < h; y += 1) {
-      const c = coverage[y * w + x] ?? 0;
-      // Quantize coverage so we get clean thin vs thick runs.
-      const q = c > 0.55 ? 1 : c > 0.12 ? 0.35 : 0;
-      if (Math.abs(q - runCov) > 0.2) {
-        flush(y);
-        runCov = q;
-      }
-    }
-    flush(h);
+  // 1) Hairline field — bright neon, full height, fade only near borders.
+  for (let x = Math.floor(pitch * 0.5); x < w; x += pitch) {
+    const fadeX = edgeFade(x * invW, 0.11);
+    if (fadeX < 0.04) continue;
+    // Soft top/bottom dissolve so slits don't hit the physical edge.
+    const grad = ctx.createLinearGradient(0, 0, 0, h);
+    const top = 0.08;
+    const bot = 0.92;
+    grad.addColorStop(0, `rgba(${r},${g},${b},0)`);
+    grad.addColorStop(top, `rgba(${r},${g},${b},${0.85 * fadeX})`);
+    grad.addColorStop(bot, `rgba(${r},${g},${b},${0.85 * fadeX})`);
+    grad.addColorStop(1, `rgba(${r},${g},${b},0)`);
+    ctx.fillStyle = grad;
+    ctx.fillRect(x - (thin >> 1), 0, thin, h);
   }
+
+  // 2) Glyph slits — 1px source column → thick bar (the reference look).
+  ctx.imageSmoothingEnabled = false;
+  for (let x = Math.floor(pitch * 0.5); x < w; x += pitch) {
+    const fadeX = edgeFade(x * invW, 0.11);
+    if (fadeX < 0.04) continue;
+    ctx.globalAlpha = fadeX;
+    ctx.drawImage(src, x, 0, 1, h, x - (thick >> 1), 0, thick, h);
+  }
+  ctx.globalAlpha = 1;
+
+  // Soften glyph bars at top/bottom edges of the viewport only.
+  const edgeWash = ctx.createLinearGradient(0, 0, 0, h);
+  edgeWash.addColorStop(0, "rgba(0,0,0,1)");
+  edgeWash.addColorStop(0.08, "rgba(0,0,0,0)");
+  edgeWash.addColorStop(0.92, "rgba(0,0,0,0)");
+  edgeWash.addColorStop(1, "rgba(0,0,0,1)");
+  ctx.fillStyle = edgeWash;
+  ctx.fillRect(0, 0, w, h);
+
+  // Left/right edge wash — slits must not reach the side borders.
+  const side = Math.max(24, w * 0.08);
+  const left = ctx.createLinearGradient(0, 0, side, 0);
+  left.addColorStop(0, "#000");
+  left.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = left;
+  ctx.fillRect(0, 0, side, h);
+  const right = ctx.createLinearGradient(w - side, 0, w, 0);
+  right.addColorStop(0, "rgba(0,0,0,0)");
+  right.addColorStop(1, "#000");
+  ctx.fillStyle = right;
+  ctx.fillRect(w - side, 0, side, h);
+
+  void invH;
 }
 
 export function paintSplash(

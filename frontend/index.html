@@ -80,87 +80,79 @@
           ctx.fillStyle = "#000";
           ctx.fillRect(0, 0, w, h);
 
+          var orange = "#ff3b00";
+          var R = 255, G = 59, B = 0;
+          var pitch = Math.max(4, Math.round(w / 55));
+          var thin = Math.max(1, Math.round(pitch * 0.15));
+          var thick = Math.max(thin + 2, pitch - 1);
+
           var off = document.createElement("canvas");
           off.width = w;
           off.height = h;
-          var o = off.getContext("2d", { willReadFrequently: true });
+          var o = off.getContext("2d");
           if (!o) return;
           o.fillStyle = "#000";
           o.fillRect(0, 0, w, h);
-          o.fillStyle = "#fff";
+          o.fillStyle = orange;
           o.textAlign = "center";
           o.textBaseline = "middle";
-          var fontPx = Math.min(w * 0.34, h * 0.17);
+          var fontPx = Math.min(w * 0.36, h * 0.18);
           function font(sz) {
             return "900 " + sz + 'px Impact,"Arial Black",Arial,sans-serif';
           }
           o.font = font(fontPx);
-          while (fontPx > 32 && o.measureText("HOTBOX").width > w * 0.88) {
+          while (fontPx > 36 && o.measureText("HOTBOX").width > w * 0.9) {
             fontPx -= 2;
             o.font = font(fontPx);
           }
-          var lineGap = fontPx * 0.12;
+          var lineGap = fontPx * 0.18;
           var blockH = fontPx * 2 + lineGap;
-          var blockMidY = h * 0.3 + blockH * 0.15;
+          var midY = h * 0.32;
           var cx = w * 0.5;
-          var y1 = blockMidY - blockH * 0.25;
-          var y2 = blockMidY + blockH * 0.25;
-          o.fillText("ORNG", cx, y1);
-          o.fillText("HOTBOX", cx, y2);
-          var smear = Math.max(4, (fontPx * 0.12) | 0);
-          o.globalCompositeOperation = "lighter";
-          for (var dy = 1; dy <= smear; dy++) {
-            var a = 1 - dy / (smear + 1);
-            o.globalAlpha = 0.35 * a;
-            o.fillText("ORNG", cx, y1 - dy);
-            o.fillText("ORNG", cx, y1 + dy);
-            o.fillText("HOTBOX", cx, y2 - dy);
-            o.fillText("HOTBOX", cx, y2 + dy);
-          }
-          o.globalAlpha = 1;
-          o.globalCompositeOperation = "source-over";
+          o.fillText("ORNG", cx, midY - blockH * 0.28);
+          o.fillText("HOTBOX", cx, midY + blockH * 0.28);
 
-          var data = o.getImageData(0, 0, w, h).data;
-          var pitch = Math.max(4, Math.round(w / 55));
-          var thin = Math.max(1, Math.round(pitch * 0.12));
-          var thick = Math.max(thin + 2, pitch - 1);
-          var R = 255, G = 77, B = 0;
           var invW = 1 / Math.max(1, w - 1);
-          var invH = 1 / Math.max(1, h - 1);
-
-          for (var col = 0; ; col++) {
-            var x = (col * pitch + pitch * 0.5) | 0;
-            if (x >= w) break;
-            var fadeX = edgeFade(x * invW, 0.1);
-            if (fadeX < 0.03) continue;
-
-            var runY = 0;
-            var runCov = data[x * 4] / 255;
-            function flush(yEnd) {
-              if (yEnd <= runY) return;
-              var midY = ((runY + yEnd) * 0.5) * invH;
-              var fadeY = edgeFade(midY, 0.1);
-              var aa = fadeX * fadeY;
-              if (aa < 0.03) {
-                runY = yEnd;
-                return;
-              }
-              var width = thin + (thick - thin) * Math.min(1, runCov * 1.35);
-              var bright = 0.55 + 0.45 * Math.min(1, runCov * 1.2);
-              ctx.fillStyle = "rgba(" + R + "," + G + "," + B + "," + (aa * bright) + ")";
-              ctx.fillRect(x - width * 0.5, runY, width, yEnd - runY);
-              runY = yEnd;
-            }
-            for (var y = 1; y < h; y++) {
-              var c = data[(y * w + x) * 4] / 255;
-              var q = c > 0.55 ? 1 : c > 0.12 ? 0.35 : 0;
-              if (Math.abs(q - runCov) > 0.2) {
-                flush(y);
-                runCov = q;
-              }
-            }
-            flush(h);
+          for (var x = (pitch * 0.5) | 0; x < w; x += pitch) {
+            var fx = edgeFade(x * invW, 0.11);
+            if (fx < 0.04) continue;
+            var grad = ctx.createLinearGradient(0, 0, 0, h);
+            grad.addColorStop(0, "rgba(" + R + "," + G + "," + B + ",0)");
+            grad.addColorStop(0.08, "rgba(" + R + "," + G + "," + B + "," + 0.85 * fx + ")");
+            grad.addColorStop(0.92, "rgba(" + R + "," + G + "," + B + "," + 0.85 * fx + ")");
+            grad.addColorStop(1, "rgba(" + R + "," + G + "," + B + ",0)");
+            ctx.fillStyle = grad;
+            ctx.fillRect(x - ((thin / 2) | 0), 0, thin, h);
           }
+
+          ctx.imageSmoothingEnabled = false;
+          for (var sx = (pitch * 0.5) | 0; sx < w; sx += pitch) {
+            var fxx = edgeFade(sx * invW, 0.11);
+            if (fxx < 0.04) continue;
+            ctx.globalAlpha = fxx;
+            ctx.drawImage(off, sx, 0, 1, h, sx - ((thick / 2) | 0), 0, thick, h);
+          }
+          ctx.globalAlpha = 1;
+
+          var edgeWash = ctx.createLinearGradient(0, 0, 0, h);
+          edgeWash.addColorStop(0, "#000");
+          edgeWash.addColorStop(0.08, "rgba(0,0,0,0)");
+          edgeWash.addColorStop(0.92, "rgba(0,0,0,0)");
+          edgeWash.addColorStop(1, "#000");
+          ctx.fillStyle = edgeWash;
+          ctx.fillRect(0, 0, w, h);
+
+          var side = Math.max(24, w * 0.08);
+          var left = ctx.createLinearGradient(0, 0, side, 0);
+          left.addColorStop(0, "#000");
+          left.addColorStop(1, "rgba(0,0,0,0)");
+          ctx.fillStyle = left;
+          ctx.fillRect(0, 0, side, h);
+          var right = ctx.createLinearGradient(w - side, 0, w, 0);
+          right.addColorStop(0, "rgba(0,0,0,0)");
+          right.addColorStop(1, "#000");
+          ctx.fillStyle = right;
+          ctx.fillRect(w - side, 0, side, h);
         }
 
         paint();

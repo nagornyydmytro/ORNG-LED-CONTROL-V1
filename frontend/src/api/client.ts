@@ -67,3 +67,33 @@ export async function fetchPreviewClip(
 export function createCommandId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
 }
+
+export async function activateArtNet(confirmed: boolean): Promise<CommandAck> {
+  const response = await fetch("/api/output/activate-artnet", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      confirmed,
+      client_command_id: createCommandId("activate-artnet"),
+    }),
+  });
+  return parseJson(response);
+}
+
+export async function deactivateArtNet(): Promise<CommandAck> {
+  const response = await fetch("/api/output/deactivate-artnet", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      client_command_id: createCommandId("deactivate-artnet"),
+    }),
+  });
+  return parseJson(response);
+}
+
+export async function fetchActivationBlockers(): Promise<{
+  ok: boolean;
+  blockers: string[];
+}> {
+  return parseJson(await fetch("/api/output/activation-blockers"));
+}

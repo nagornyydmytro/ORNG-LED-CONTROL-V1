@@ -33,12 +33,16 @@ export interface EngineState {
 
 export interface OutputState {
   transport: string;
+  preferred_transport?: string;
   armed: boolean;
   last_error: string | null;
   frames_sent: number;
   network_allowed: boolean;
+  udp_active?: boolean;
   target_ip: string | null;
   universe: number;
+  frame_sum?: number;
+  nonzero_channels?: number;
 }
 
 export interface ParFixtureView {

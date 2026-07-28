@@ -95,7 +95,7 @@ class UdpArtNetTransport:
 
     def close(self) -> None:
         self._closed = True
-        if self.socket is not None and self._owns_socket:
+        if self.socket is not None:
             self.socket.close()
         self.socket = None
         self._owns_socket = False

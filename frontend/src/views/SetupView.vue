@@ -13,7 +13,7 @@ import {
   setupPost,
   validatePatch,
 } from "../api/setup";
-import { fetchStageLayout, postCommand } from "../api/client";
+import { fetchStageLayout, postCommand, activateArtNet, deactivateArtNet } from "../api/client";
 import HardwareBadge from "../components/setup/HardwareBadge.vue";
 import StageSimulator from "../components/simulator/StageSimulator.vue";
 import { APP_STATE_KEY } from "../composables/appStateKey";
@@ -70,6 +70,51 @@ const calibration = reactive({
   barInvertNotes: "Фізична орієнтація сегментів Bars — PENDING HARDWARE",
   beamNotes: "Pan/tilt home, invert і робочі межі — PENDING HARDWARE",
 });
+
+const artnetBusy = ref(false);
+
+const runtimeOutput = computed(() => appState?.output.value ?? null);
+const runtimeEngine = computed(() => appState?.engine.value ?? null);
+
+async function activateArtNetSafe() {
+  const confirmed = window.confirm(
+    "Безпечно активувати Art-Net?\n\n" +
+      "Перше натискання почне РЕАЛЬНУ відправку нульових ArtDmx-пакетів " +
+      "на контролер (UDP 6454). Вивід лишиться disarmed, Blackout увімкнений.\n\n" +
+      "Продовжити?",
+  );
+  if (!confirmed) {
+    setStatus("Активацію Art-Net скасовано");
+    return;
+  }
+  artnetBusy.value = true;
+  try {
+    await activateArtNet(true);
+    await appState?.refreshRest?.();
+    readiness.value = await fetchReadiness();
+    setStatus(
+      "Art-Net активовано: runtime=artnet, UDP увімкнено, armed=false, Blackout, лише нульові кадри",
+    );
+  } catch (err) {
+    setStatus(null, err instanceof Error ? err.message : "Не вдалося активувати Art-Net");
+  } finally {
+    artnetBusy.value = false;
+  }
+}
+
+async function returnToMock() {
+  artnetBusy.value = true;
+  try {
+    await deactivateArtNet();
+    await appState?.refreshRest?.();
+    readiness.value = await fetchReadiness();
+    setStatus("Runtime повернуто до Mock: UDP закрито, armed=false, Blackout");
+  } catch (err) {
+    setStatus(null, err instanceof Error ? err.message : "Не вдалося повернути Mock");
+  } finally {
+    artnetBusy.value = false;
+  }
+}
 
 function setStatus(ok: string | null, err: string | null = null) {
   message.value = ok;
@@ -339,8 +384,8 @@ onUnmounted(() => {
           </select>
         </label>
         <p class="hint">
-          Runtime залишається на Mock і не вмикає реальну мережу. Art-Net output
-          за замовчуванням вимкнений.
+          Runtime залишається на Mock і не вмикає реальну мережу, навіть якщо в YAML
+          вибрано Art-Net. Збереження конфігу лише записує бажаний transport.
         </p>
         <button
           type="button"
@@ -350,6 +395,71 @@ onUnmounted(() => {
         >
           Зберегти
         </button>
+
+        <section
+          class="artnet-runtime"
+          aria-label="Фактичний runtime Art-Net"
+        >
+          <h3>Фактичний runtime</h3>
+          <ul class="kv">
+            <li>
+              <span>Бажаний (YAML)</span>
+              <strong>{{ String(app.transport ?? "mock") }}</strong>
+            </li>
+            <li>
+              <span>Runtime transport</span>
+              <strong>{{ runtimeOutput?.transport ?? "mock" }}</strong>
+            </li>
+            <li>
+              <span>UDP / Art-Net</span>
+              <strong>{{ runtimeOutput?.udp_active ? "активний" : "вимкнено" }}</strong>
+            </li>
+            <li>
+              <span>armed</span>
+              <strong>{{ runtimeOutput?.armed ? "true" : "false" }}</strong>
+            </li>
+            <li>
+              <span>Blackout</span>
+              <strong>{{ runtimeEngine?.blackout ? "увімкнено" : "вимкнено" }}</strong>
+            </li>
+            <li>
+              <span>frame_sum / nonzero</span>
+              <strong>
+                {{ runtimeOutput?.frame_sum ?? 0 }} /
+                {{ runtimeOutput?.nonzero_channels ?? 0 }}
+              </strong>
+            </li>
+            <li>
+              <span>target</span>
+              <strong>
+                {{ runtimeOutput?.target_ip ?? artnet.target_ip ?? "—" }}
+                · U{{ runtimeOutput?.universe ?? artnet.universe ?? 0 }}
+              </strong>
+            </li>
+          </ul>
+          <p class="hint">
+            Кнопка нижче вмикає реальний UDP і одразу починає слати лише нульові
+            ArtDmx-кадри. Arm і зняття Blackout — окремі наступні кроки.
+          </p>
+          <div class="artnet-runtime__actions">
+            <button
+              type="button"
+              class="action-btn action-btn--danger"
+              :disabled="artnetBusy || runtimeOutput?.transport === 'artnet'"
+              @click="activateArtNetSafe"
+            >
+              Безпечно активувати Art-Net
+            </button>
+            <button
+              type="button"
+              class="action-btn"
+              :disabled="artnetBusy || runtimeOutput?.transport !== 'artnet'"
+              @click="returnToMock"
+            >
+              Повернути runtime до Mock
+            </button>
+          </div>
+        </section>
       </div>
 
       <!-- 2 Network -->
@@ -737,10 +847,16 @@ onUnmounted(() => {
           v-if="readiness"
           class="ready-list"
         >
-          <li>Бажаний транспорт: {{ readiness.transport_preferred }}</li>
+          <li>Бажаний транспорт (YAML): {{ readiness.transport_preferred }}</li>
           <li>Робочий транспорт: {{ readiness.runtime_transport }}</li>
-          <li>Вивід увімкнено: {{ readiness.output_armed }}</li>
+          <li>UDP / Art-Net активний: {{ readiness.udp_active }}</li>
+          <li>Вивід armed: {{ readiness.output_armed }}</li>
           <li>Мережа Art-Net: {{ readiness.artnet_network_enabled }}</li>
+          <li>Blackout: {{ readiness.blackout }}</li>
+          <li>
+            frame_sum / nonzero:
+            {{ readiness.frame_sum }} / {{ readiness.nonzero_channels }}
+          </li>
           <li>Patch OK: {{ readiness.patch_ok }}</li>
           <li>Приладів: {{ readiness.fixture_count }}</li>
           <li>

@@ -108,14 +108,49 @@ def test_armed_artnet_controller_sends_via_injected_socket() -> None:
     assert parse_artdmx_header(sock.sent[0][0])["length"] == 512
 
 
-def test_disarmed_artnet_refuses_send() -> None:
+def test_disarmed_artnet_sends_only_zero_frames() -> None:
+    """While Art-Net is active but disarmed, the wire must carry zeros only."""
     controller = create_output_controller()
     sock = RecordingSocket()
-    controller.configure_artnet(target_ip="192.168.1.10", injected_socket=sock)
+    controller.configure_artnet(target_ip="127.0.0.1", injected_socket=sock)
+    controller.engine.set_blackout(True)
     controller.switch_to_artnet(explicit=True)
-    with pytest.raises(OutputError, match="not armed"):
-        controller.publish(empty_frame())
-    assert sock.sent == []
+    assert controller.armed is False
+
+    bright = empty_frame()
+    bright[10] = 99
+    controller.publish(bright)
+    assert len(sock.sent) == 1
+    packet, address = sock.sent[0]
+    assert address == ("127.0.0.1", 6454)
+    assert packet[-512:] == bytes(512)
+    assert controller.transport.last_frame == [0] * DMX_UNIVERSE_SIZE
+
+
+def test_nonzero_requires_armed_and_blackout_off() -> None:
+    controller = create_output_controller()
+    sock = RecordingSocket()
+    controller.configure_artnet(target_ip="10.255.0.2", injected_socket=sock)
+    controller.switch_to_artnet(explicit=True)
+    controller.engine.set_blackout(False)
+    controller.arm(explicit=True)
+
+    bright = empty_frame()
+    bright[3] = 40
+    controller.publish(bright)
+    assert controller.transport.last_frame == bright
+
+    controller.engine.set_blackout(True)
+    controller.publish(bright)
+    assert controller.transport.last_frame == [0] * DMX_UNIVERSE_SIZE
+
+    controller.engine.set_blackout(False)
+    controller.disarm()
+    assert controller.transport_kind is TransportKind.MOCK
+    assert controller.armed is False
+    assert controller.allow_real_network is False
+    assert len(sock.sent) >= 2
+    assert all(packet[-512:] == bytes(512) for packet, _ in sock.sent[1:])
 
 
 def test_shutdown_emits_zero_frames_and_returns_to_mock() -> None:

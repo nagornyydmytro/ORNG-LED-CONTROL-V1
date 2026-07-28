@@ -23,7 +23,9 @@ from orng_led.config.models import AppConfig, FixtureProfile, PatchDocument
 
 def test_provisional_show_config_loads() -> None:
     show = load_show_config()
-    assert show.app.transport.value == "mock"
+    # Preferred YAML transport may be mock (HOME default) or artnet (venue day).
+    # Runtime still starts Mock regardless — covered by output/H001 tests.
+    assert show.app.transport.value in {"mock", "artnet"}
     assert show.app.output_armed is False
     assert len(show.patch.fixtures) == 12
     assert len(show.profiles) == 4

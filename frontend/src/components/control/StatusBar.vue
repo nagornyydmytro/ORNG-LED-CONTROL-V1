@@ -23,8 +23,12 @@ const cycleLabel = computed(() => {
 const outputLabel = computed(() => {
   if (!props.output) return "невідомо";
   const mode = props.output.transport.toUpperCase();
-  if (props.output.armed) return `${mode} · увімкнено`;
-  return `${mode} · вимкнено`;
+  const preferred = (props.output.preferred_transport ?? mode).toUpperCase();
+  const udp = props.output.udp_active ? "UDP ON" : "UDP OFF";
+  const arm = props.output.armed ? "armed" : "disarmed";
+  const sum = props.output.frame_sum ?? 0;
+  const nonzero = props.output.nonzero_channels ?? 0;
+  return `${mode} · ${arm} · ${udp} · Σ${sum}/${nonzero} (YAML ${preferred})`;
 });
 </script>
 

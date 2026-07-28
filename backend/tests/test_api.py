@@ -70,7 +70,7 @@ def test_preview_speed_command(client) -> None:
 def test_config_and_presets_endpoints(client) -> None:
     test_client, _runtime = client
     app_cfg = test_client.get("/api/config/app").json()
-    assert app_cfg["transport"] == "mock"
+    assert app_cfg["transport"] in {"mock", "artnet"}
     assert app_cfg["output_armed"] is False
 
     patch = test_client.get("/api/config/patch").json()

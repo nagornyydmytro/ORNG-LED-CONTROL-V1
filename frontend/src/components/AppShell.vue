@@ -6,7 +6,11 @@ import type { ConnectionStatus } from "../composables/useAppState";
 defineProps<{
   connection: ConnectionStatus;
   transport: string;
+  preferredTransport?: string;
   armed: boolean;
+  udpActive?: boolean;
+  frameSum?: number;
+  nonzeroChannels?: number;
   outputError: string | null;
   blackout?: boolean;
 }>();
@@ -75,19 +79,35 @@ function connectionLabel(status: ConnectionStatus): string {
           <span class="topbar__conn">{{ connectionLabel(connection) }}</span>
         </div>
         <div class="topbar__tags">
-          <span class="badge badge--muted">{{ transport.toUpperCase() }}</span>
+          <span
+            class="badge badge--muted"
+            :title="'Бажаний transport з YAML'"
+          >YAML {{ (preferredTransport ?? "mock").toUpperCase() }}</span>
+          <span
+            class="badge"
+            :class="transport === 'artnet' ? 'badge--warn' : 'badge--muted'"
+            :title="'Фактичний runtime transport'"
+          >RT {{ transport.toUpperCase() }}</span>
+          <span
+            class="badge"
+            :class="udpActive ? 'badge--warn' : 'badge--ok'"
+          >UDP {{ udpActive ? "ON" : "OFF" }}</span>
           <span
             v-if="armed"
             class="badge badge--warn"
-          >вивід увімкнено</span>
+          >armed</span>
           <span
             v-else
             class="badge badge--ok"
-          >вивід вимкнено</span>
+          >disarmed</span>
           <span
             v-if="blackout"
             class="badge badge--danger"
           >BLACKOUT</span>
+          <span
+            class="badge badge--muted"
+            :title="'frame_sum / nonzero'"
+          >Σ{{ frameSum ?? 0 }}/{{ nonzeroChannels ?? 0 }}</span>
         </div>
       </header>
 

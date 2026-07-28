@@ -33,12 +33,27 @@ class ReadyResponse(ApiModel):
 
 class OutputState(ApiModel):
     transport: str
+    preferred_transport: str = "mock"
     armed: bool
     last_error: str | None = None
     frames_sent: int
     network_allowed: bool
+    udp_active: bool = False
     target_ip: str | None = None
     universe: int = 0
+    frame_sum: int = 0
+    nonzero_channels: int = 0
+
+
+class ActivateArtNetCommand(ApiModel):
+    """Confirmed operator action to start Art-Net with zero frames only."""
+
+    confirmed: bool = False
+    client_command_id: str | None = None
+
+
+class DeactivateArtNetCommand(ApiModel):
+    client_command_id: str | None = None
 
 
 class EngineState(ApiModel):

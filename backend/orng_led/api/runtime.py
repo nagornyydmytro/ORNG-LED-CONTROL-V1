@@ -157,19 +157,20 @@ class AppRuntime:
         return list(self.engine.render_at(self.engine.clock.time(), dt_s=0.0).frame)
 
     def _publish_frame(self, frame: list[int]) -> None:
-        if self.output.transport_kind.value == "mock":
+        # Always publish: Art-Net wire policy forces zeros while disarmed /
+        # blacked out, and Mock keeps the local recorder in sync.
+        try:
             self.output.publish(frame)
-        elif self.output.armed:
-            try:
-                self.output.publish(frame)
-            except OutputError:
-                # Fault already recorded on controller; engine keeps running.
-                pass
+        except OutputError:
+            # Fault already recorded on controller; engine keeps running.
+            pass
 
     def build_state(self) -> AppStateResponse:
         snap = self.engine.render_at(self.engine.clock.time(), dt_s=0.0)
         out = self.output.status()
         frame = self._published_frame(snap)
+        frame_sum = int(sum(frame))
+        nonzero = int(sum(1 for value in frame if value))
         return AppStateResponse(
             engine=EngineState(
                 preset_id=snap.preset_id,
@@ -191,12 +192,16 @@ class AppRuntime:
             ),
             output=OutputState(
                 transport=out.transport.value,
+                preferred_transport=self.show.app.transport.value,
                 armed=out.armed,
                 last_error=out.last_error,
                 frames_sent=out.frames_sent,
                 network_allowed=out.network_allowed,
+                udp_active=out.udp_active,
                 target_ip=out.target_ip,
                 universe=out.universe,
+                frame_sum=frame_sum,
+                nonzero_channels=nonzero,
             ),
             presets=sorted(self.engine.presets.keys()),
             fixture_ids=[fx.id for fx in self.show.patch.fixtures],
@@ -206,6 +211,85 @@ class AppRuntime:
             simulator=decode_simulator_view(self.show, frame),
             raw_tester=self.raw_tester.as_dict(),
         )
+
+    def artnet_activation_blockers(self) -> list[str]:
+        frame = self._published_frame()
+        return self.output.activation_blockers(
+            published_frame=frame,
+            raw_tester_active=self.raw_tester.active,
+        )
+
+    def activate_artnet_network(
+        self,
+        *,
+        confirmed: bool = False,
+        allow_real_udp: bool = True,
+        client_command_id: str | None = None,
+    ) -> tuple[AppStateResponse, bool]:
+        """Explicit confirmed Art-Net activation. Starts disarmed with zero frames.
+
+        Production callers pass ``allow_real_udp=True``. Tests must pass
+        ``allow_real_udp=False`` and inject a recording socket first.
+        """
+        cached = self._idempotent(client_command_id)
+        if cached is not None:
+            return cached, True
+        if not confirmed:
+            raise OutputError("Art-Net activation requires an explicit confirmation")
+
+        if self.raw_tester.active:
+            self.raw_tester.exit()
+        self.engine.set_blackout(True)
+        # Ensure published frame is zero before the safety gate.
+        self._publish_frame(self._published_frame())
+
+        # Production: take target from YAML. Tests may pre-configure a loopback
+        # target with an injected RecordingSocket — keep that address so venue
+        # IP is never used in unit tests.
+        if self.output._injected_socket is not None:
+            if not self.output.target_ip:
+                raise OutputError("Injected Art-Net socket requires a configured target_ip")
+            self.output.configure_artnet(
+                target_ip=self.output.target_ip,
+                universe=self.output.universe,
+                udp_port=self.output.udp_port,
+                injected_socket=self.output._injected_socket,
+            )
+        elif self.show.app.artnet.target_ip:
+            self.output.configure_artnet(
+                target_ip=self.show.app.artnet.target_ip,
+                universe=self.show.app.artnet.universe,
+                udp_port=self.show.app.artnet.udp_port,
+            )
+
+        blockers = self.artnet_activation_blockers()
+        if blockers:
+            raise OutputError("Активацію Art-Net заблоковано: " + "; ".join(blockers))
+
+        self.output.activate_artnet(
+            explicit=True,
+            confirmed=True,
+            allow_real_udp=allow_real_udp,
+        )
+        state = self.build_state()
+        self._remember(client_command_id, state)
+        return state, False
+
+    def deactivate_artnet_network(
+        self,
+        *,
+        client_command_id: str | None = None,
+    ) -> tuple[AppStateResponse, bool]:
+        """Send zeros, close UDP, return runtime to Mock + Blackout."""
+        cached = self._idempotent(client_command_id)
+        if cached is not None:
+            return cached, True
+        if self.raw_tester.active:
+            self.raw_tester.exit()
+        self.output.deactivate_to_mock()
+        state = self.build_state()
+        self._remember(client_command_id, state)
+        return state, False
 
     def apply_preview_speed(
         self,
@@ -439,11 +523,18 @@ class AppRuntime:
             }
             for profile in self.show.profiles.values()
         ]
+        out = self.output.status()
+        frame = self._published_frame()
         return {
             "transport_preferred": self.show.app.transport.value,
             "runtime_transport": self.output.transport_kind.value,
-            "output_armed": False,
-            "artnet_network_enabled": False,
+            "output_armed": out.armed,
+            "artnet_network_enabled": out.network_allowed,
+            "udp_active": out.udp_active,
+            "blackout": self.engine.overlays.blackout,
+            "frame_sum": int(sum(frame)),
+            "nonzero_channels": int(sum(1 for value in frame if value)),
+            "activation_blockers": self.artnet_activation_blockers(),
             "artnet_hardware_verified": False,
             "artnet_badge": "Не перевірено на обладнанні",
             "profiles": profiles,
@@ -451,8 +542,10 @@ class AppRuntime:
             "patch_ok": len(collect_patch_errors(self.show.patch, self.show.profiles)) == 0,
             "raw_tester_active": self.raw_tester.active,
             "notes": [
-                "Mock wizard path does not confirm hardware.",
-                "Art-Net remains disarmed; real network send is blocked by default.",
+                "Збережений Art-Net у YAML не активує мережу автоматично.",
+                "Реальний UDP починається лише після явного підтвердження кнопкою "
+                "«Безпечно активувати Art-Net».",
+                "Поки armed=false або Blackout=true, на дріт ідуть лише нулі.",
             ],
         }
 

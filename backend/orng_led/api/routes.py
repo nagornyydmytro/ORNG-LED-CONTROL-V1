@@ -8,10 +8,12 @@ from pydantic import ValidationError
 from orng_led import __version__
 from orng_led.api.runtime import AppRuntime
 from orng_led.api.schemas import (
+    ActivateArtNetCommand,
     AppStateResponse,
     BlackoutCommand,
     ColorHitCommand,
     CommandAck,
+    DeactivateArtNetCommand,
     DropCommand,
     FaceCommand,
     FailsafeCommand,
@@ -43,6 +45,7 @@ from orng_led.api.schemas import (
     dump_config_model,
 )
 from orng_led.config.models import ConfigError
+from orng_led.output.contract import OutputError
 
 
 def get_runtime(request: Request) -> AppRuntime:
@@ -289,6 +292,42 @@ def build_api_router() -> APIRouter:
         if not replay:
             await runtime.broadcast_state()
         return CommandAck(state=state, idempotent_replay=replay)
+
+    @router.post("/output/activate-artnet", response_model=CommandAck)
+    async def activate_artnet(body: ActivateArtNetCommand, request: Request) -> CommandAck:
+        """Start Art-Net UDP with zero frames only. Requires explicit confirmation."""
+        runtime = get_runtime(request)
+        try:
+            state, replay = runtime.activate_artnet_network(
+                confirmed=body.confirmed,
+                allow_real_udp=True,
+                client_command_id=body.client_command_id,
+            )
+        except OutputError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        if not replay:
+            await runtime.broadcast_state()
+        return CommandAck(state=state, idempotent_replay=replay)
+
+    @router.post("/output/deactivate-artnet", response_model=CommandAck)
+    async def deactivate_artnet(
+        body: DeactivateArtNetCommand,
+        request: Request,
+    ) -> CommandAck:
+        """Send zeros, close UDP, return runtime to Mock."""
+        runtime = get_runtime(request)
+        state, replay = runtime.deactivate_artnet_network(
+            client_command_id=body.client_command_id,
+        )
+        if not replay:
+            await runtime.broadcast_state()
+        return CommandAck(state=state, idempotent_replay=replay)
+
+    @router.get("/output/activation-blockers")
+    def activation_blockers(request: Request) -> dict:
+        runtime = get_runtime(request)
+        blockers = runtime.artnet_activation_blockers()
+        return {"ok": len(blockers) == 0, "blockers": blockers}
 
     @router.post("/commands/face", response_model=CommandAck)
     async def face(body: FaceCommand, request: Request) -> CommandAck:

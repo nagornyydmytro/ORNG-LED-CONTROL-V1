@@ -1093,6 +1093,39 @@ select {
   cursor: not-allowed;
 }
 
+.action-btn--danger {
+  border-color: color-mix(in srgb, var(--danger, #c43c3c) 55%, var(--line-strong));
+  color: #ffb4b4;
+}
+
+.action-btn--danger:hover:not(:disabled) {
+  border-color: var(--danger, #c43c3c);
+  background: color-mix(in srgb, var(--danger, #c43c3c) 12%, var(--bg-2));
+}
+
+.artnet-runtime {
+  margin-top: var(--s-5);
+  padding: var(--s-4);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-lg);
+  background: var(--bg-0);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+
+.artnet-runtime h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.artnet-runtime__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-3);
+}
+
 .wizard-nav {
   display: flex;
   align-items: center;

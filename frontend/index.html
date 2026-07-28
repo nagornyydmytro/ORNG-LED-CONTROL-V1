@@ -1,9 +1,21 @@
 <!doctype html>
-<html lang="uk">
+<html lang="uk" data-theme="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark light" />
     <title>ORNG LED CONTROL</title>
+    <script>
+      (function () {
+        try {
+          var t = sessionStorage.getItem("orng-ui-theme");
+          if (t === "light" || t === "dark") {
+            document.documentElement.dataset.theme = t;
+            document.documentElement.style.colorScheme = t;
+          }
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="app"></div>

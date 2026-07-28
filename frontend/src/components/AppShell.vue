@@ -2,6 +2,7 @@
 import { RouterLink, RouterView } from "vue-router";
 import ToastStack from "./ToastStack.vue";
 import type { ConnectionStatus } from "../composables/useAppState";
+import { useTheme } from "../composables/useTheme";
 
 defineProps<{
   connection: ConnectionStatus;
@@ -14,6 +15,8 @@ defineProps<{
   outputError: string | null;
   blackout?: boolean;
 }>();
+
+const { isLight, setTheme } = useTheme();
 
 const links = [
   { to: "/", label: "Пульт", glyph: "◉" },
@@ -33,6 +36,11 @@ function connectionLabel(status: ConnectionStatus): string {
     case "offline":
       return "Офлайн";
   }
+}
+
+function onThemeToggle(event: Event) {
+  const checked = (event.target as HTMLInputElement).checked;
+  setTheme(checked ? "light" : "dark");
 }
 </script>
 
@@ -61,6 +69,30 @@ function connectionLabel(status: ConnectionStatus): string {
           <span class="nav-link__label">{{ link.label }}</span>
         </RouterLink>
       </nav>
+
+      <div class="sidebar__theme">
+        <label class="theme-switch">
+          <span class="theme-switch__label">
+            <span class="theme-switch__title">Тема</span>
+            <span class="theme-switch__hint">{{ isLight ? "Світла · glass" : "Темна" }}</span>
+          </span>
+          <span class="theme-switch__track">
+            <input
+              class="theme-switch__input"
+              type="checkbox"
+              role="switch"
+              :checked="isLight"
+              :aria-checked="isLight"
+              aria-label="Перемкнути світлу liquid-glass тему"
+              @change="onThemeToggle"
+            >
+            <span
+              class="theme-switch__thumb"
+              aria-hidden="true"
+            />
+          </span>
+        </label>
+      </div>
 
       <div class="sidebar__foot">
         <p class="sidebar__note">

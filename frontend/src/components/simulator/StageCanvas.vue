@@ -53,15 +53,28 @@ function fixturesForAria(): StagePlacement[] {
   return props.layout?.placements ?? [];
 }
 
+function isLightTheme(): boolean {
+  return document.documentElement.dataset.theme === "light";
+}
+
 function drawBackdrop(ctx: CanvasRenderingContext2D, box: Box) {
+  const light = isLightTheme();
   const backdrop = ctx.createLinearGradient(0, box.y, 0, box.y + box.height);
-  backdrop.addColorStop(0, "#0b0c10");
-  backdrop.addColorStop(0.72, "#0e1016");
-  backdrop.addColorStop(1, "#05060a");
+  if (light) {
+    /* Soft peach → lavender wash so surrounding glass can refract color. */
+    backdrop.addColorStop(0, "#f6eef0");
+    backdrop.addColorStop(0.35, "#e8eef8");
+    backdrop.addColorStop(0.72, "#dde6f4");
+    backdrop.addColorStop(1, "#d0dced");
+  } else {
+    backdrop.addColorStop(0, "#0b0c10");
+    backdrop.addColorStop(0.72, "#0e1016");
+    backdrop.addColorStop(1, "#05060a");
+  }
   ctx.fillStyle = backdrop;
   ctx.fillRect(box.x, box.y, box.width, box.height);
 
-  ctx.strokeStyle = "rgba(255, 255, 255, 0.05)";
+  ctx.strokeStyle = light ? "rgba(15, 23, 42, 0.08)" : "rgba(255, 255, 255, 0.05)";
   ctx.lineWidth = 1;
   for (let i = 1; i < 4; i += 1) {
     const y = box.y + box.height * (0.72 + i * 0.07);
@@ -130,7 +143,7 @@ function drawGlow(
 }
 
 function drawLabel(ctx: CanvasRenderingContext2D, box: Box, text: string, x: number, y: number) {
-  ctx.fillStyle = "rgba(224, 228, 238, 0.55)";
+  ctx.fillStyle = isLightTheme() ? "rgba(15, 23, 42, 0.55)" : "rgba(224, 228, 238, 0.55)";
   ctx.font = `${Math.max(8, box.width * 0.0118)}px system-ui, sans-serif`;
   ctx.textAlign = "center";
   ctx.fillText(text, x, y);

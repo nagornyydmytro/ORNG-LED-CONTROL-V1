@@ -158,6 +158,12 @@ def decode_simulator_view(show: ShowConfig, frame: list[int]) -> SimulatorView:
             r = _u8(frame, start, _first(_role_locals(channels, ChannelRole.RED)))
             g = _u8(frame, start, _first(_role_locals(channels, ChannelRole.GREEN)))
             b = _u8(frame, start, _first(_role_locals(channels, ChannelRole.BLUE)))
+            whole_local = _first(_role_locals(channels, ChannelRole.WHOLE_COLOR))
+            whole_level = _u8(frame, start, whole_local) if whole_local is not None else 0.0
+            # Post-whitelist equivalence: solid whole-bar when CH whole is lit and
+            # every segment colour/intensity channel is dark.
+            if whole_level > 0.02 and sum(segments) < 0.05 and dimmer > 0.02:
+                segments = [1.0] * 8
             # Palette-only bars: when dimmer/segments are active but RGB roles are
             # absent, mirror the semantic look as near-white so sim matches Live FX.
             if dimmer > 0.02 and r + g + b < 0.05:

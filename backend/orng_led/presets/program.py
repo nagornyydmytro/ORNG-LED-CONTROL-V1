@@ -243,16 +243,26 @@ def _blend_intent(
             strobe=_lerp(a.strobe, b.strobe, t),
         )
     if isinstance(a, BarIntent) and isinstance(b, BarIntent):
-        segs = tuple(_lerp(x, y, t) for x, y in zip(a.segments, b.segments, strict=False))
-        # Pad if segment counts differ (should not for staff profiles).
-        if len(segs) < 8:
-            segs = segs + (0.0,) * (8 - len(segs))
+        # Exclusive mode follows the *current* episode immediately. Keeping the
+        # previous whole=True flag during soft/fade left whole_color active and
+        # forced segments to 0 — the wire drove a solid whole-bar look while a
+        # later sample of the same episode already looked like a chase.
+        if b.whole:
+            segs = (0.0,) * 8
+        else:
+            # Take the current segment pattern immediately. Lerping from a whole
+            # episode's zero segments kept every segment below the renderer's
+            # on-threshold for the first beat, leaving only Master Dimmer on the
+            # wire (fixture appears as one static colour / dark).
+            segs = tuple(b.segments[:8])
+            if len(segs) < 8:
+                segs = segs + (0.0,) * (8 - len(segs))
         return BarIntent(
             segments=segs[:8],
             dimmer=_lerp(a.dimmer, b.dimmer, t),
             color=_blend_rgbw(a.color, b.color, t),
             strobe=_lerp(a.strobe, b.strobe, t),
-            whole=b.whole if t >= 0.5 else a.whole,
+            whole=b.whole,
         )
     if isinstance(a, BeamIntent) and isinstance(b, BeamIntent):
         return BeamIntent(

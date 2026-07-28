@@ -68,7 +68,13 @@ def _register_frontend(application: FastAPI) -> None:
         index_path = FRONTEND_DIST / "index.html"
         if not index_path.is_file():
             raise HTTPException(status_code=503, detail="Frontend build missing index.html")
-        return FileResponse(index_path)
+        return FileResponse(
+            index_path,
+            headers={
+                "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+                "Pragma": "no-cache",
+            },
+        )
 
     @application.get("/{full_path:path}")
     async def spa_fallback(full_path: str) -> FileResponse:
@@ -85,7 +91,13 @@ def _register_frontend(application: FastAPI) -> None:
         index_path = FRONTEND_DIST / "index.html"
         if not index_path.is_file():
             raise HTTPException(status_code=503, detail="Frontend build missing index.html")
-        return FileResponse(index_path)
+        return FileResponse(
+            index_path,
+            headers={
+                "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+                "Pragma": "no-cache",
+            },
+        )
 
 
 app = create_app()

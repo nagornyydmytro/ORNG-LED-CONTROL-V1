@@ -205,6 +205,28 @@ def missing_roles_for_intent(
         elif ChannelRole.RED in roles and ChannelRole.GREEN not in roles:
             missing.append("Green/Blue (неповний RGB для білого)")
 
+    if isinstance(intent, BarIntent) and level > 0.02:
+        if intent.whole:
+            if ChannelRole.WHOLE_COLOR not in roles and ChannelRole.COLOR not in roles:
+                missing.append("Whole Fixture / Fixed Color Palette")
+        else:
+            if ChannelRole.SEGMENT_COLOR not in roles and ChannelRole.SEGMENT not in roles:
+                missing.append("Segment Color")
+            elif ChannelRole.SEGMENT_COLOR in roles:
+                segs = [
+                    ch
+                    for ch in profile.channels
+                    if ch.role is ChannelRole.SEGMENT_COLOR and ch.segment_index is not None
+                ]
+                if len(segs) < 8:
+                    missing.append(f"Segment Color ({len(segs)}/8)")
+            if ChannelRole.FIXED not in roles:
+                missing.append("Fixed (strip/mode select)")
+            else:
+                fixed_ch = next(ch for ch in profile.channels if ch.role is ChannelRole.FIXED)
+                if fixed_ch.fixed_value is None:
+                    missing.append("Fixed value")
+
     if isinstance(intent, BeamIntent) and intent.shutter_open:
         if ChannelRole.SHUTTER not in roles and ChannelRole.STROBE not in roles:
             # Only warn when there is otherwise some output path — heads often need shutter.
@@ -380,6 +402,25 @@ def render_par(
     _apply_fixed_and_unused(frame, fixture, profile)
 
 
+def _enforce_bar_mode_exclusivity(
+    frame: list[int],
+    fixture: FixtureInstance,
+    profile: FixtureProfile,
+    *,
+    whole: bool,
+) -> None:
+    """Guarantee segment and whole-bar colour channels are never both active."""
+    roles = _role_map(profile)
+    if whole:
+        for channel in roles.get(ChannelRole.SEGMENT, []):
+            _write_local(frame, fixture, channel.local, 0)
+        for channel in roles.get(ChannelRole.SEGMENT_COLOR, []):
+            _write_local(frame, fixture, channel.local, 0)
+    else:
+        for channel in roles.get(ChannelRole.WHOLE_COLOR, []):
+            _write_local(frame, fixture, channel.local, 0)
+
+
 def render_bar(
     frame: list[int],
     fixture: FixtureInstance,
@@ -413,7 +454,7 @@ def render_bar(
             value = _palette_dmx(channel, intent.color, active=lit)
             _write_local(frame, fixture, channel.local, value)
     else:
-        # Segment mode: whole_color must stay 0.
+        # Segment mode: whole_color must stay 0 — never leave a stale whole value.
         for channel in roles.get(ChannelRole.WHOLE_COLOR, []):
             _write_local(frame, fixture, channel.local, 0)
         for channel in roles.get(ChannelRole.SEGMENT, []):
@@ -428,7 +469,10 @@ def render_bar(
             value = _palette_dmx(channel, intent.color, active=level > 0.05 and lit)
             _write_local(frame, fixture, channel.local, value)
 
+    # Profile FIXED (e.g. strip-select / direction) from the saved mapping only.
     _apply_fixed_and_unused(frame, fixture, profile)
+    # Hard exclusivity after every write path.
+    _enforce_bar_mode_exclusivity(frame, fixture, profile, whole=intent.whole)
 
 
 def _write_beam_axes(

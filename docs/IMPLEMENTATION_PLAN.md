@@ -72,6 +72,7 @@
 | L011 | Ten complete presets | DONE | `15f8053` | PASS — см. `L011 — Результаты проверок` |
 | L012 | Input adapter and 16-button mapping | DONE | `b10f4e0` | PASS — см. `L012 — Результаты проверок` |
 | L013 | Integration, Windows scripts and HOME acceptance | DONE | `c2d06e9` | PASS — см. `L013 — Результаты проверок` |
+| Corrective HOME/product | Stage model, RGB, 3D beam, timing, live FX, UI | DONE | см. §6 | PASS — см. `§6 Corrective HOME/product acceptance` |
 | H001+ | Real hardware acceptance | PENDING HARDWARE | — | — |
 
 ## 3. HOME PLAN
@@ -882,4 +883,46 @@ HOME software acceptance завершена. Следующий разрешён
 в заведении с оборудованием.
 
 **HOME PLAN COMPLETE**
+
+## 6. Corrective HOME/product acceptance (2026-07-28)
+
+Раздел 5 остаётся историческим: он фиксировал только программный контур.
+Пользователь отклонил ту приёмку, потому что она не подтверждала продуктовую,
+визуальную и динамическую корректность интерфейса. Приёмка была переоткрыта,
+дефекты исправлены, результат перепроверен в реальном браузере. Ни один
+исторический hash не изменён; этап `H001` не начат.
+
+Подробности — в `docs/HOME_ACCEPTANCE_REPORT.md`, приложение A.
+
+### Что исправлено
+
+| Область | Результат |
+|---|---|
+| Модель сцены | data-driven `StagePlacement` + `config/layout.yaml` по эскизу пользователя; кабельный overlay |
+| RGB | RGB-каналы у Bar и Beam, `Rgbw` в intents/renderer/decoder, палитры пресетов расширены |
+| Beam | 3D-вектор из Pan/Tilt и геометрическая точка попадания, canvas-рендер |
+| Время | `engine/timing.py`: секунды / Hz / обороты фазы разделены; P10 на `×1` даёт ~3.1 Hz вместо 0.1 Hz |
+| Производительность | кадр вне реактивности Vue, один render loop, инспектор с throttling 4 Гц |
+| Живые эффекты | `DROP`, `COLOR HIT`, `SWEEP HIT` как отдельные слои с monotonic-failsafe |
+| UI | тёмный control-panel shell, responsive пульт, палитры и шкала эпизодов на странице пресетов |
+| Дефект пресета | `P07` эпизод 9 больше не гасит сцену на 18 с; пустой селектор групп теперь не даёт тёмный эпизод |
+
+### Проверки corrective-этапа
+
+- backend pytest: **185 passed**;
+- ruff check / ruff format --check: **PASS**;
+- frontend vitest: **26 passed**;
+- typecheck / lint / production build: **PASS**;
+- `scripts/check.ps1`: **PASS**;
+- браузер `1440×900`, `1920×1080`, `390×844`: Console 0 ошибок, Network 0
+  неуспешных запросов;
+- финальное состояние: `mock` / `armed=false` / Blackout / `frame_sum=0`.
+
+### Границы
+
+`hardware_verified` и `hardware_tuned` остаются `false`. Реальные DMX-адреса,
+карты каналов, Pan/Tilt limits, физическая ориентация Beam и цветопередача —
+`PENDING HARDWARE` по `docs/HARDWARE_DAY_CHECKLIST.md`.
+
+**HOME CORRECTION COMPLETE**
 

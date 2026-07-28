@@ -85,6 +85,17 @@ docs/             IMPLEMENTATION_PLAN.md, HARDWARE_DAY_CHECKLIST.md, HOME_ACCEPT
 Конфигурация `config/` versioned (`schema_version: 1`). Все provisional-профили
 помечены `hardware_verified: false`.
 
+`config/layout.yaml` задаёт расстановку сцены (нормализованные координаты,
+ориентация, монтаж) и порядок кабельной цепочки DMX. Симулятор строится только
+из этого файла, поэтому изменение расстановки не требует правок Vue-кода.
+
+## Живые эффекты
+
+Кроме `Blackout`, `White Hit` и `Strobe`, в UI доступны `Drop` (momentary),
+`Color Hit` (контрастный RGB-акцент) и `Sweep Hit` (одиночный проход по сцене).
+Все они возвращают сцену автоматически, используют monotonic-таймеры защиты и
+полностью перекрываются Blackout. Физическая раскладка 16 кнопок не изменена.
+
 ## Безопасность output
 
 На старте активен только **Mock** transport и безопасный нулевой кадр (Blackout).

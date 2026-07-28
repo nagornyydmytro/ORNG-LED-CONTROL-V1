@@ -148,5 +148,15 @@ describe("ChannelsView", () => {
     expect(wrapper.text()).toContain("Почати тестування");
     expect(wrapper.text()).toContain("Зберегти мапінг");
     expect(wrapper.text()).toContain("Функція каналу");
+    expect(wrapper.findAll('input[type="range"]').length).toBe(7);
+    expect(wrapper.findAll('input[type="number"]').length).toBeGreaterThanOrEqual(7);
+  });
+
+  it("shows beam safety warning", async () => {
+    const wrapper = await mountView();
+    await wrapper.find("select").setValue("beam");
+    await flushPromises();
+    expect(wrapper.text()).toContain("Beam Head");
+    expect(wrapper.text()).toMatch(/рухом|reset/i);
   });
 });

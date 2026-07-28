@@ -263,6 +263,7 @@ function goNextEpisode() {
           :drop-active="engine?.drop_active ?? false"
           :color-hit-active="engine?.color_hit_active ?? false"
           :sweep-active="engine?.sweep_active ?? false"
+          :live-effects="state?.live_effects ?? null"
           :disabled="offline"
           @white-hit="whiteHit"
           @strobe-press="strobePress"

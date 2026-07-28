@@ -149,6 +149,20 @@ def decode_simulator_view(show: ShowConfig, frame: list[int]) -> SimulatorView:
                     # Encoded palette values are not linear RGB; treat any
                     # non-zero as a fully-lit segment for stage visualization.
                     segments[idx] = max(segments[idx], 1.0)
+            dimmer = _u8(frame, start, _first(_role_locals(channels, ChannelRole.DIMMER)))
+            r = _u8(frame, start, _first(_role_locals(channels, ChannelRole.RED)))
+            g = _u8(frame, start, _first(_role_locals(channels, ChannelRole.GREEN)))
+            b = _u8(frame, start, _first(_role_locals(channels, ChannelRole.BLUE)))
+            # Palette-only bars: when dimmer/segments are active but RGB roles are
+            # absent, mirror the semantic look as near-white so sim matches Live FX.
+            if dimmer > 0.02 and r + g + b < 0.05:
+                has_palette = bool(
+                    _role_locals(channels, ChannelRole.SEGMENT_COLOR)
+                    or _role_locals(channels, ChannelRole.WHOLE_COLOR)
+                    or _role_locals(channels, ChannelRole.COLOR)
+                )
+                if has_palette and (sum(segments) > 0 or dimmer > 0.02):
+                    r = g = b = dimmer
             bars.append(
                 BarFixtureView(
                     id=fixture.id,
@@ -157,10 +171,10 @@ def decode_simulator_view(show: ShowConfig, frame: list[int]) -> SimulatorView:
                     side=fixture.spatial.side.value,
                     ring=fixture.spatial.ring.value,
                     order=fixture.spatial.order,
-                    dimmer=_u8(frame, start, _first(_role_locals(channels, ChannelRole.DIMMER))),
-                    r=_u8(frame, start, _first(_role_locals(channels, ChannelRole.RED))),
-                    g=_u8(frame, start, _first(_role_locals(channels, ChannelRole.GREEN))),
-                    b=_u8(frame, start, _first(_role_locals(channels, ChannelRole.BLUE))),
+                    dimmer=dimmer,
+                    r=r,
+                    g=g,
+                    b=b,
                     segments=segments,
                 )
             )
@@ -196,6 +210,20 @@ def decode_simulator_view(show: ShowConfig, frame: list[int]) -> SimulatorView:
                 origin_z=origin_z,
             )
 
+            dimmer = _u8(frame, start, _first(_role_locals(channels, ChannelRole.DIMMER)))
+            r = _u8(frame, start, _first(_role_locals(channels, ChannelRole.RED)))
+            g = _u8(frame, start, _first(_role_locals(channels, ChannelRole.GREEN)))
+            b = _u8(frame, start, _first(_role_locals(channels, ChannelRole.BLUE)))
+            color_wheel = _role_locals(channels, ChannelRole.COLOR) or _role_locals(
+                channels, ChannelRole.WHOLE_COLOR
+            )
+            if dimmer > 0.02 and r + g + b < 0.05 and color_wheel:
+                # Palette/wheel heads: show semantic white when dimmer is up.
+                r = g = b = dimmer
+            # If shutter is unmapped but dimmer is active, treat as open for visualization.
+            if not shutter and dimmer > 0.02:
+                shutter_level = 1.0
+
             beams.append(
                 BeamFixtureView(
                     id=fixture.id,
@@ -205,11 +233,11 @@ def decode_simulator_view(show: ShowConfig, frame: list[int]) -> SimulatorView:
                     order=fixture.spatial.order,
                     pan=pan,
                     tilt=tilt,
-                    dimmer=_u8(frame, start, _first(_role_locals(channels, ChannelRole.DIMMER))),
-                    shutter_open=shutter_level > 0.05,
-                    r=_u8(frame, start, _first(_role_locals(channels, ChannelRole.RED))),
-                    g=_u8(frame, start, _first(_role_locals(channels, ChannelRole.GREEN))),
-                    b=_u8(frame, start, _first(_role_locals(channels, ChannelRole.BLUE))),
+                    dimmer=dimmer,
+                    shutter_open=shutter_level > 0.05 or dimmer > 0.02,
+                    r=r,
+                    g=g,
+                    b=b,
                     strobe=_u8(frame, start, _first(_role_locals(channels, ChannelRole.STROBE))),
                     dir_x=vector.dir_x,
                     dir_y=vector.dir_y,

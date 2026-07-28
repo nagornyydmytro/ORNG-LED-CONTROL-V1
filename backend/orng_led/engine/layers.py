@@ -5,9 +5,9 @@ Priority, lowest first::
     preset → sweep hit → colour hit → white hit → strobe → drop
            → face → master → blackout
 
-Blackout is not a layer here: the engine zeroes the frame after composition,
-so nothing can ever out-rank it. Every timeout below is measured on the real
-monotonic engine clock, never on preview-scaled show time.
+Blackout is not a layer here: the engine zeroes the *base* before composition,
+so Live Effects still compose on top. Absolute physical stop is Disarm / Art-Net
+gates — not Blackout.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
-from orng_led.config.models import FixtureKind, ShowConfig
+from orng_led.config.models import FixtureInstance, FixtureKind, ShowConfig
 from orng_led.engine.intents import BarIntent, BeamIntent, ParIntent, Rgbw, StageIntent
 
 WHITE_HIT_DURATION_S = 0.18
@@ -29,6 +29,34 @@ SWEEP_HIT_DURATION_S = 0.75
 SWEEP_WIDTH = 0.22
 
 WHITE = Rgbw(r=1.0, g=1.0, b=1.0, w=1.0)
+
+# Live-effect identity for debug / UI (not tied to nonzero preset channels).
+LIVE_EFFECT_META: dict[str, dict[str, object]] = {
+    "white_hit": {
+        "label": "White Hit",
+        "target_groups": ["rear", "all_rear", "par", "bar", "beam"],
+    },
+    "color_hit": {
+        "label": "Color Hit",
+        "target_groups": ["rear", "all_rear", "par", "bar", "beam"],
+    },
+    "sweep_hit": {
+        "label": "Sweep Hit",
+        "target_groups": ["rear", "all_rear", "par", "bar", "beam"],
+    },
+    "strobe": {
+        "label": "Live Strobe",
+        "target_groups": ["rear", "all_rear", "par", "bar", "beam"],
+    },
+    "drop": {
+        "label": "Drop",
+        "target_groups": ["rear", "all_rear", "par", "bar", "beam"],
+    },
+    "face": {
+        "label": "DJ Face",
+        "target_groups": ["face", "face_par"],
+    },
+}
 
 
 @dataclass
@@ -82,56 +110,67 @@ def _is_rear(kind: FixtureKind) -> bool:
     return kind is not FixtureKind.FACE_PAR
 
 
+def rear_fixture_ids(show: ShowConfig) -> list[str]:
+    return [fx.id for fx in show.patch.fixtures if _is_rear(fx.kind)]
+
+
+def face_fixture_ids(show: ShowConfig) -> list[str]:
+    return [fx.id for fx in show.patch.fixtures if fx.kind is FixtureKind.FACE_PAR]
+
+
+def _beam_pan_tilt(previous: object | None) -> tuple[float, float]:
+    if isinstance(previous, BeamIntent):
+        return previous.pan, previous.tilt
+    return 0.5, 0.5
+
+
+def _force_rear_look(
+    stage: StageIntent,
+    fixture: FixtureInstance,
+    *,
+    color: Rgbw,
+    level: float,
+    strobe: float = 0.0,
+) -> None:
+    """Independent full look — never gated by whether the preset already lit this fixture."""
+    level = max(0.0, min(1.0, level))
+    if fixture.kind is FixtureKind.PAR:
+        stage.fixtures[fixture.id] = ParIntent(color=color, intensity=level, strobe=strobe)
+    elif fixture.kind is FixtureKind.BAR:
+        segments = (level,) * 8 if level > 0 else (0.0,) * 8
+        stage.fixtures[fixture.id] = BarIntent(
+            segments=segments,
+            dimmer=level,
+            color=color,
+            strobe=strobe,
+        )
+    elif fixture.kind is FixtureKind.BEAM:
+        previous = stage.fixtures.get(fixture.id)
+        pan, tilt = _beam_pan_tilt(previous)
+        stage.fixtures[fixture.id] = BeamIntent(
+            pan=pan,
+            tilt=tilt,
+            dimmer=level,
+            color=color,
+            shutter_open=level > 0.02,
+            strobe=strobe,
+        )
+
+
 def apply_white_hit(stage: StageIntent, show: ShowConfig) -> StageIntent:
     for fixture in show.patch.fixtures:
         if not _is_rear(fixture.kind):
             continue
-        if fixture.kind is FixtureKind.PAR:
-            stage.fixtures[fixture.id] = ParIntent(color=WHITE, intensity=1.0)
-        elif fixture.kind is FixtureKind.BAR:
-            stage.fixtures[fixture.id] = BarIntent(
-                segments=(1.0,) * 8,
-                dimmer=1.0,
-                color=WHITE,
-            )
-        elif fixture.kind is FixtureKind.BEAM:
-            previous = stage.fixtures.get(fixture.id)
-            pan = previous.pan if isinstance(previous, BeamIntent) else 0.5
-            tilt = previous.tilt if isinstance(previous, BeamIntent) else 0.5
-            stage.fixtures[fixture.id] = BeamIntent(
-                pan=pan,
-                tilt=tilt,
-                dimmer=1.0,
-                color=WHITE,
-                shutter_open=True,
-            )
+        _force_rear_look(stage, fixture, color=WHITE, level=1.0)
     return stage
 
 
 def apply_color_hit(stage: StageIntent, show: ShowConfig, color: Rgbw) -> StageIntent:
-    """Short, strong RGB accent over the running preset (never brand orange by default)."""
+    """Short, strong RGB accent — full independent replace for every rear fixture."""
     for fixture in show.patch.fixtures:
         if not _is_rear(fixture.kind):
             continue
-        current = stage.fixtures.get(fixture.id)
-        if fixture.kind is FixtureKind.PAR:
-            stage.fixtures[fixture.id] = ParIntent(color=color, intensity=1.0)
-        elif fixture.kind is FixtureKind.BAR:
-            stage.fixtures[fixture.id] = BarIntent(
-                segments=(1.0,) * 8,
-                dimmer=1.0,
-                color=color,
-            )
-        elif fixture.kind is FixtureKind.BEAM:
-            pan = current.pan if isinstance(current, BeamIntent) else 0.5
-            tilt = current.tilt if isinstance(current, BeamIntent) else 0.5
-            stage.fixtures[fixture.id] = BeamIntent(
-                pan=pan,
-                tilt=tilt,
-                dimmer=1.0,
-                color=color,
-                shutter_open=True,
-            )
+        _force_rear_look(stage, fixture, color=color, level=1.0)
     return stage
 
 
@@ -156,31 +195,8 @@ def apply_sweep_hit(
         if distance >= SWEEP_WIDTH:
             continue
         boost = 1.0 - (distance / SWEEP_WIDTH)
-        current = stage.fixtures.get(fixture.id)
-        if fixture.kind is FixtureKind.PAR:
-            base_intensity = current.intensity if isinstance(current, ParIntent) else 0.0
-            stage.fixtures[fixture.id] = ParIntent(
-                color=color,
-                intensity=max(base_intensity, boost),
-            )
-        elif fixture.kind is FixtureKind.BAR:
-            base_dimmer = current.dimmer if isinstance(current, BarIntent) else 0.0
-            stage.fixtures[fixture.id] = BarIntent(
-                segments=(boost,) * 8,
-                dimmer=max(base_dimmer, boost),
-                color=color,
-            )
-        elif fixture.kind is FixtureKind.BEAM:
-            pan = current.pan if isinstance(current, BeamIntent) else 0.5
-            tilt = current.tilt if isinstance(current, BeamIntent) else 0.5
-            base_dimmer = current.dimmer if isinstance(current, BeamIntent) else 0.0
-            stage.fixtures[fixture.id] = BeamIntent(
-                pan=pan,
-                tilt=tilt,
-                dimmer=max(base_dimmer, boost),
-                color=color,
-                shutter_open=True,
-            )
+        # Independent: wavefront forces light even if the preset left this fixture dark.
+        _force_rear_look(stage, fixture, color=color, level=boost)
     return stage
 
 
@@ -193,35 +209,14 @@ def apply_drop(stage: StageIntent, show: ShowConfig) -> StageIntent:
 
 
 def apply_strobe(stage: StageIntent, show: ShowConfig, now: float) -> StageIntent:
+    """Independent full-scene strobe — does not use the preset frame as a fixture mask."""
     gate = _strobe_gate(now)
+    level = 1.0 if gate > 0 else 0.0
+    strobe = 0.85 if gate > 0 else 0.0
     for fixture in show.patch.fixtures:
         if not _is_rear(fixture.kind):
             continue
-        current = stage.fixtures.get(fixture.id)
-        if isinstance(current, ParIntent):
-            stage.fixtures[fixture.id] = ParIntent(
-                color=current.color,
-                intensity=current.intensity * gate,
-                strobe=0.85 if gate > 0 else 0.0,
-            )
-        elif isinstance(current, BarIntent):
-            segments = tuple(level * gate for level in current.segments)
-            stage.fixtures[fixture.id] = BarIntent(
-                segments=segments,
-                dimmer=current.dimmer * gate,
-                color=current.color,
-                strobe=0.85 if gate > 0 else 0.0,
-            )
-        elif isinstance(current, BeamIntent):
-            stage.fixtures[fixture.id] = BeamIntent(
-                pan=current.pan,
-                tilt=current.tilt,
-                dimmer=current.dimmer * gate,
-                color=current.color,
-                wheel=current.wheel,
-                shutter_open=gate > 0,
-                strobe=0.85 if gate > 0 else 0.0,
-            )
+        _force_rear_look(stage, fixture, color=WHITE, level=level, strobe=strobe)
     return stage
 
 
@@ -266,6 +261,31 @@ def apply_master_brightness(stage: StageIntent, master: float) -> StageIntent:
                 strobe=intent.strobe,
             )
     return stage
+
+
+def active_live_effect_ids(overlays: OverlayState, now: float) -> list[str]:
+    active: list[str] = []
+    if sweep_progress(overlays, now) is not None:
+        active.append("sweep_hit")
+    if overlays.color_hit_until is not None and now < overlays.color_hit_until:
+        active.append("color_hit")
+    if overlays.white_hit_until is not None and now < overlays.white_hit_until:
+        active.append("white_hit")
+    if _strobe_active(overlays, now):
+        active.append("strobe")
+    if drop_active(overlays, now):
+        active.append("drop")
+    if overlays.face_on:
+        active.append("face")
+    return active
+
+
+def target_fixture_ids_for_effect(effect_id: str, show: ShowConfig) -> list[str]:
+    if effect_id == "face":
+        return face_fixture_ids(show)
+    if effect_id in LIVE_EFFECT_META:
+        return rear_fixture_ids(show)
+    return []
 
 
 def compose_layers(

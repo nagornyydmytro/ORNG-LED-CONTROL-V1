@@ -103,6 +103,7 @@ class AppStateResponse(ApiModel):
     simulator: SimulatorView
     raw_tester: dict[str, Any] | None = None
     preset_editor_preview: dict[str, Any] | None = None
+    live_effects: dict[str, Any] | None = None
 
 
 class PreviewSpeedCommand(ApiModel):

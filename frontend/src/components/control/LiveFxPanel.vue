@@ -1,12 +1,16 @@
 <script setup lang="ts">
+import { computed } from "vue";
+import { RouterLink } from "vue-router";
 import MomentaryButton from "./MomentaryButton.vue";
+import type { LiveEffectsState } from "../../vite-env";
 
-defineProps<{
+const props = defineProps<{
   strobeHeld: boolean;
   whiteHitActive: boolean;
   dropActive: boolean;
   colorHitActive: boolean;
   sweepActive: boolean;
+  liveEffects?: LiveEffectsState | null;
   disabled?: boolean;
 }>();
 
@@ -19,6 +23,8 @@ const emit = defineEmits<{
   colorHit: [];
   sweepHit: [];
 }>();
+
+const warnings = computed(() => props.liveEffects?.warnings ?? []);
 </script>
 
 <template>
@@ -29,7 +35,8 @@ const emit = defineEmits<{
     <header class="card__head">
       <h2>Живі ефекти</h2>
       <p class="card__sub">
-        Утримання = momentary. Відпускання, втрата фокуса чи звʼязку миттєво знімає ефект.
+        Самостійний шар поверх пресету. Утримання = momentary. Не залежить від того, які
+        прилади вже горіли в епізоді.
       </p>
     </header>
 
@@ -82,6 +89,25 @@ const emit = defineEmits<{
         <span class="fx-btn__label">SWEEP HIT</span>
         <span class="fx-btn__hint">прохід зліва направо</span>
       </button>
+    </div>
+
+    <div
+      v-if="warnings.length"
+      class="banner banner--warn fx-warnings"
+      role="status"
+    >
+      <p
+        v-for="(w, i) in warnings"
+        :key="i"
+      >
+        {{ w }}
+      </p>
+      <RouterLink
+        class="btn btn--sm"
+        to="/channels"
+      >
+        Відкрити налаштування каналів
+      </RouterLink>
     </div>
   </section>
 </template>

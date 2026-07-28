@@ -249,7 +249,73 @@ class AppRuntime:
             simulator=decode_simulator_view(self.show, wire),
             raw_tester=self.raw_tester.as_dict(),
             preset_editor_preview=self._editor_preview_state(source=source, wire=wire),
+            live_effects=self._live_effects_state(source=source, wire=wire),
         )
+
+    def _composed_stage_now(self):
+        """Rebuild the composed StageIntent used for coverage / debug (no beam step)."""
+        from orng_led.engine.intents import StageIntent
+        from orng_led.engine.layers import compose_layers
+        from orng_led.engine.presets import NONE_PRESET_ID
+
+        engine = self.engine
+        time_s = engine.clock.time()
+        if engine.editor_preview_program is not None:
+            base = engine.editor_preview_program.evaluate(
+                engine.editor_preview_elapsed_s, engine.show
+            )
+        elif engine.active_preset_id == NONE_PRESET_ID:
+            base = StageIntent()
+        else:
+            base = engine.active_preset.evaluate(engine.preset_elapsed_s, engine.show)
+        if engine.overlays.blackout:
+            base = StageIntent()
+        return compose_layers(base, engine.show, engine.overlays, time_s)
+
+    def _live_effects_state(
+        self,
+        *,
+        source: list[int] | None = None,
+        wire: list[int] | None = None,
+    ) -> dict[str, object]:
+        from orng_led.engine.layers import (
+            active_live_effect_ids,
+            target_fixture_ids_for_effect,
+        )
+        from orng_led.engine.renderer import analyze_live_effect_coverage
+
+        now = self.engine.clock.time()
+        active_ids = active_live_effect_ids(self.engine.overlays, now)
+        src = source if source is not None else self._source_frame()
+        wr = wire if wire is not None else self._wire_frame()
+        effects: list[dict[str, object]] = []
+        if active_ids:
+            stage = self._composed_stage_now()
+            for effect_id in active_ids:
+                targets = target_fixture_ids_for_effect(effect_id, self.show)
+                effects.append(analyze_live_effect_coverage(self.show, stage, effect_id, targets))
+        warnings = []
+        for effect in effects:
+            for skip in effect.get("skipped", []):  # type: ignore[union-attr]
+                if not isinstance(skip, dict):
+                    continue
+                missing = ", ".join(str(m) for m in skip.get("missing", []))
+                label = effect.get("label", effect.get("id"))
+                fx_id = skip.get("fixture_id")
+                fx_label = skip.get("label") or fx_id
+                if skip.get("partial"):
+                    warnings.append(f"{label}: {fx_label} частково — не налаштовано {missing}")
+                else:
+                    warnings.append(f"{label}: {fx_label} не активовано — не налаштовано {missing}")
+        return {
+            "active": bool(active_ids),
+            "active_ids": active_ids,
+            "effects": effects,
+            "warnings": warnings,
+            "source_nonzero_channels": int(sum(1 for value in src if value)),
+            "wire_nonzero_channels": int(sum(1 for value in wr if value)),
+            "source_owner": self._source_owner(src),
+        }
 
     def _editor_preview_output_blockers(self) -> list[str]:
         blockers: list[str] = []
@@ -754,6 +820,9 @@ class AppRuntime:
         profiles[profile.id] = profile
         self.show = self.show.model_copy(update={"profiles": profiles})
         self.engine.show = self.show
+        # Drop any stale DMX on old locals, then re-render active intents.
+        self._publish_frame(self._published_frame())
+        self.sequence += 1
         return self.build_state()
 
     def save_layout(self, data: dict) -> AppStateResponse:

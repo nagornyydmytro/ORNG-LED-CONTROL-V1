@@ -83,6 +83,16 @@ DEFAULT_COLOR_PALETTE: dict[str, int] = {
     "purple": 112,
 }
 
+# Working DMX bytes for complex channels (operator-calibrated via UI).
+DEFAULT_CONTROL_VALUES: dict[str, int] = {
+    "open": 255,
+    "closed": 0,
+    "off": 0,
+    "min": 32,
+    "max": 220,
+    "neutral": 128,
+}
+
 
 class ChannelDefinition(StrictModel):
     local: Annotated[int, Field(ge=1, le=DMX_CHANNEL_MAX)]
@@ -92,6 +102,8 @@ class ChannelDefinition(StrictModel):
     notes: str | None = None
     fixed_value: Annotated[int, Field(ge=0, le=255)] | None = None
     palette: dict[str, int] | None = None
+    # Shutter open/closed, program off, strobe min/max, movement neutral, etc.
+    control_values: dict[str, int] | None = None
 
     @field_validator("palette")
     @classmethod
@@ -103,6 +115,19 @@ class ChannelDefinition(StrictModel):
             number = int(raw)
             if number < 0 or number > 255:
                 raise ConfigError(f"Palette value for {key!r} must be 0..255")
+            cleaned[str(key)] = number
+        return cleaned
+
+    @field_validator("control_values")
+    @classmethod
+    def _control_bounds(cls, value: dict[str, int] | None) -> dict[str, int] | None:
+        if value is None:
+            return None
+        cleaned: dict[str, int] = {}
+        for key, raw in value.items():
+            number = int(raw)
+            if number < 0 or number > 255:
+                raise ConfigError(f"Control value for {key!r} must be 0..255")
             cleaned[str(key)] = number
         return cleaned
 

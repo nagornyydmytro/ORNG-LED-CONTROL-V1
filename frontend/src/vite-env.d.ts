@@ -166,6 +166,7 @@ export interface AppState {
     universe_size: number;
   } | null;
   preset_editor_preview?: PresetEditorPreviewState | null;
+  live_effects?: LiveEffectsState | null;
 }
 
 export interface PresetEditorPreviewState {
@@ -181,6 +182,32 @@ export interface PresetEditorPreviewState {
   blockers?: string[];
   source_nonzero_channels?: number;
   wire_nonzero_channels?: number;
+}
+
+export interface LiveEffectSkipped {
+  fixture_id: string;
+  label?: string;
+  missing: string[];
+  partial?: boolean;
+}
+
+export interface LiveEffectInfo {
+  id: string;
+  label: string;
+  target_groups: string[];
+  target_fixture_ids: string[];
+  applied_fixture_ids: string[];
+  skipped: LiveEffectSkipped[];
+}
+
+export interface LiveEffectsState {
+  active: boolean;
+  active_ids: string[];
+  effects: LiveEffectInfo[];
+  warnings: string[];
+  source_nonzero_channels?: number;
+  wire_nonzero_channels?: number;
+  source_owner?: string;
 }
 
 export interface CommandAck {

@@ -124,18 +124,37 @@ describe("SetupView wizard", () => {
     );
   });
 
+  function mountSetup(options: Parameters<typeof mount>[1] = {}) {
+    const globalOpts = (options?.global ?? {}) as {
+      stubs?: Record<string, unknown>;
+      provide?: Record<string | symbol, unknown>;
+    };
+    return mount(SetupView, {
+      ...options,
+      global: {
+        ...globalOpts,
+        stubs: {
+          RouterLink: { template: '<a class="router-link-stub"><slot /></a>' },
+          StageSimulator: true,
+          ...(globalOpts.stubs ?? {}),
+        },
+      },
+    });
+  }
+
   it("renders ten setup steps and hardware badge", async () => {
-    const wrapper = mount(SetupView);
+    const wrapper = mountSetup();
     await flushPromises();
     expect(wrapper.text()).toContain("Налаштування");
     expect(wrapper.findAll(".wizard-step")).toHaveLength(10);
     expect(wrapper.text()).toContain("Не перевірено на обладнанні");
     expect(wrapper.text()).toContain("Mock / Art-Net");
     expect(wrapper.text()).toContain("Зведення готовності");
+    expect(wrapper.text()).toContain("Відкрити налаштування каналів");
   });
 
   it("renders Arm controls with blockers while Mock", async () => {
-    const wrapper = mount(SetupView);
+    const wrapper = mountSetup();
     await flushPromises();
     expect(wrapper.text()).toContain("Увімкнути Arm");
     expect(wrapper.text()).toContain("Вимкнути Arm");
@@ -159,9 +178,8 @@ describe("SetupView wizard", () => {
   it("requires confirm before enabling Arm", async () => {
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
     const fetchMock = vi.mocked(fetch);
-    const wrapper = mount(SetupView, {
+    const wrapper = mountSetup({
       global: {
-        stubs: { StageSimulator: true },
         provide: {
           [APP_STATE_KEY]: {
             output: {
@@ -217,7 +235,7 @@ describe("SetupView wizard", () => {
   });
 
   it("can open raw tester step", async () => {
-    const wrapper = mount(SetupView);
+    const wrapper = mountSetup();
     await flushPromises();
     const steps = wrapper.findAll(".wizard-step");
     await steps[5].trigger("click");
@@ -266,9 +284,8 @@ describe("SetupView wizard", () => {
       refreshRest: vi.fn(async () => undefined),
       setPreviewSpeed: vi.fn(),
     };
-    const wrapper = mount(SetupView, {
+    const wrapper = mountSetup({
       global: {
-        stubs: { StageSimulator: true },
         provide: { [APP_STATE_KEY]: appState },
       },
     });

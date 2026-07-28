@@ -30,6 +30,8 @@ interface ChannelEdit {
   fixed_value: number | null;
   segment_index: number | null;
   palette: Record<string, number> | null;
+  control_values: Record<string, number> | null;
+  controlOpen: boolean;
   testValue: number;
   paletteOpen: boolean;
 }
@@ -93,6 +95,8 @@ function emptyChannel(local: number): ChannelEdit {
     fixed_value: null,
     segment_index: null,
     palette: null,
+    control_values: null,
+    controlOpen: false,
     testValue: 0,
     paletteOpen: false,
   };
@@ -108,6 +112,14 @@ function channelFromProfile(raw: Record<string, unknown>, local: number): Channe
       if (typeof v === "number") palette[key] = clampByte(v);
     }
   }
+  const controlRaw = raw.control_values;
+  let control_values: Record<string, number> | null = null;
+  if (controlRaw && typeof controlRaw === "object") {
+    control_values = {};
+    for (const [key, value] of Object.entries(controlRaw as Record<string, unknown>)) {
+      if (typeof value === "number") control_values[key] = clampByte(value);
+    }
+  }
   return {
     local,
     role: String(raw.role ?? "unused"),
@@ -115,6 +127,8 @@ function channelFromProfile(raw: Record<string, unknown>, local: number): Channe
     fixed_value: raw.fixed_value == null ? null : clampByte(Number(raw.fixed_value)),
     segment_index: raw.segment_index == null ? null : Number(raw.segment_index),
     palette,
+    control_values,
+    controlOpen: false,
     testValue: 0,
     paletteOpen: false,
   };
@@ -134,6 +148,33 @@ function needsPalette(role: string, hasPalette: boolean): boolean {
     role === "segment_color" ||
     hasPalette
   );
+}
+
+const CONTROL_KEYS_BY_ROLE: Record<string, string[]> = {
+  shutter: ["closed", "open"],
+  strobe: ["closed", "open", "min", "max"],
+  program: ["off"],
+  effect_speed: ["off", "min", "max"],
+  direction_mode: ["off", "neutral"],
+  movement_speed: ["neutral"],
+  color: ["off", "open"],
+  whole_color: ["off"],
+};
+
+function needsControlValues(role: string): boolean {
+  return role in CONTROL_KEYS_BY_ROLE;
+}
+
+function ensureControlValues(ch: ChannelEdit): Record<string, number> {
+  const keys = CONTROL_KEYS_BY_ROLE[ch.role] ?? [];
+  if (!ch.control_values) ch.control_values = {};
+  for (const key of keys) {
+    if (ch.control_values[key] == null) {
+      ch.control_values[key] =
+        key === "open" || key === "max" ? 255 : key === "neutral" ? 128 : key === "min" ? 32 : 0;
+    }
+  }
+  return ch.control_values;
 }
 
 function loadChannelsFromProfile(profileId: string, footprint: number) {
@@ -281,6 +322,12 @@ function onRoleChange(ch: ChannelEdit, role: string) {
     ch.palette = null;
     ch.paletteOpen = false;
   }
+  if (needsControlValues(role)) {
+    ensureControlValues(ch);
+  } else {
+    ch.control_values = null;
+    ch.controlOpen = false;
+  }
   if (role === "segment" || role === "segment_color") {
     if (ch.segment_index == null) ch.segment_index = 1;
   }
@@ -313,6 +360,13 @@ async function saveMapping() {
           palette[key] = clampByte(ch.palette[key] ?? DEFAULT_CHANNEL_PALETTE[key]);
         }
         entry.palette = palette;
+      }
+      if (needsControlValues(ch.role) && ch.control_values) {
+        const control: Record<string, number> = {};
+        for (const key of CONTROL_KEYS_BY_ROLE[ch.role] ?? []) {
+          if (ch.control_values[key] != null) control[key] = clampByte(ch.control_values[key]);
+        }
+        entry.control_values = control;
       }
       return entry;
     });
@@ -503,11 +557,21 @@ onMounted(async () => {
       </div>
 
       <p
+        v-if="selectedType === 'beam'"
+        class="banner banner--warn"
+        role="status"
+      >
+        Beam Head: невідомий канал може керувати рухом, програмою або reset. Після старту
+        тестування рухайте кожен ползунок лише вручну.
+      </p>
+
+      <p
         v-if="testing"
         class="hint"
       >
-        Тестування активне — слайдери надсилають значення на прилад і
-        <strong>не</strong> зберігаються в мапінг.
+        Тестування активне — можна одночасно тримати кілька ненульових ползунків (наприклад
+        спочатку dimmer, потім колір). Значення <strong>не</strong> зберігаються в мапінг
+        до «Зберегти мапінг».
       </p>
 
       <div
@@ -608,6 +672,37 @@ onMounted(async () => {
                 max="8"
               >
             </label>
+          </div>
+
+          <div
+            v-if="needsControlValues(ch.role)"
+            class="channel-row__palette"
+          >
+            <button
+              type="button"
+              class="action-btn"
+              @click="ch.controlOpen = !ch.controlOpen; ensureControlValues(ch)"
+            >
+              {{ ch.controlOpen ? "Сховати робочі значення" : "Робочі значення функції" }}
+            </button>
+            <div
+              v-if="ch.controlOpen && ch.control_values"
+              class="palette-grid"
+            >
+              <label
+                v-for="key in CONTROL_KEYS_BY_ROLE[ch.role] ?? []"
+                :key="key"
+                class="field field--inline"
+              >
+                <span>{{ key }}</span>
+                <input
+                  v-model.number="ch.control_values[key]"
+                  type="number"
+                  min="0"
+                  max="255"
+                >
+              </label>
+            </div>
           </div>
 
           <div

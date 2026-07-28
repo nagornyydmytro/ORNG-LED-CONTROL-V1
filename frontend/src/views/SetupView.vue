@@ -1,15 +1,14 @@
 <script setup lang="ts">
 import { computed, inject, onMounted, reactive, ref, watch } from "vue";
+import { RouterLink } from "vue-router";
 import {
   fetchAppConfig,
   fetchLayout,
   fetchPatch,
-  fetchProfiles,
   fetchReadiness,
   saveAppConfig,
   saveLayout,
   savePatch,
-  saveProfile,
   setupPost,
   validatePatch,
 } from "../api/setup";
@@ -26,7 +25,7 @@ const STEPS = [
   "Мережа, IP, Universe, FPS",
   "Список приладів",
   "DMX patch",
-  "Fixture profile",
+  "Профілі / канали",
   "Raw DMX tester",
   "Розташування",
   "Калібрація Bars / Beam",
@@ -44,11 +43,9 @@ const readiness = ref<Record<string, unknown> | null>(null);
 
 const app = ref<Record<string, unknown> | null>(null);
 const patch = ref<Record<string, unknown> | null>(null);
-const profiles = ref<Record<string, Record<string, unknown>>>({});
 const layout = ref<Record<string, unknown> | null>(null);
 const stageLayout = ref<StageLayout | null>(null);
 
-const selectedProfileId = ref("par_7ch_provisional");
 const rawChannel = ref(1);
 const rawValue = ref(0);
 
@@ -61,8 +58,6 @@ const fixtures = computed(() => {
   const list = patch.value?.fixtures;
   return Array.isArray(list) ? (list as Record<string, unknown>[]) : [];
 });
-
-const selectedProfile = computed(() => profiles.value[selectedProfileId.value] ?? null);
 
 const calibration = reactive({
   barInvertNotes: "Фізична орієнтація сегментів Bars — PENDING HARDWARE",
@@ -221,24 +216,18 @@ async function loadAll() {
   loading.value = true;
   error.value = null;
   try {
-    const [appCfg, patchCfg, profileMap, layoutCfg, ready] = await Promise.all([
+    const [appCfg, patchCfg, layoutCfg, ready] = await Promise.all([
       fetchAppConfig(),
       fetchPatch(),
-      fetchProfiles(),
       fetchLayout(),
       fetchReadiness(),
     ]);
     app.value = appCfg;
     patch.value = patchCfg;
-    profiles.value = profileMap;
     layout.value = layoutCfg;
     readiness.value = ready;
     stageLayout.value = await fetchStageLayout().catch(() => null);
     await refreshArmBlockers();
-    const ids = Object.keys(profileMap);
-    if (ids.length && !profileMap[selectedProfileId.value]) {
-      selectedProfileId.value = ids[0];
-    }
   } catch (err) {
     setStatus(null, err instanceof Error ? err.message : "Помилка завантаження");
   } finally {
@@ -283,21 +272,6 @@ async function persistPatch() {
     readiness.value = await fetchReadiness();
   } catch (err) {
     setStatus(null, err instanceof Error ? err.message : "Помилка збереження patch");
-  } finally {
-    saving.value = false;
-  }
-}
-
-async function persistProfile() {
-  const profile = selectedProfile.value;
-  if (!profile) return;
-  saving.value = true;
-  try {
-    await saveProfile(String(profile.id), profile);
-    setStatus(`Профіль ${String(profile.id)} збережено (hardware_verified=false)`);
-    readiness.value = await fetchReadiness();
-  } catch (err) {
-    setStatus(null, err instanceof Error ? err.message : "Помилка збереження профілю");
   } finally {
     saving.value = false;
   }
@@ -366,17 +340,6 @@ function updateFixtureAddress(index: number, value: string) {
   list[index].start_address = Number(value);
   patch.value = { ...patch.value!, fixtures: list };
   void runValidatePatch();
-}
-
-function updateProfileChannelLocal(index: number, field: string, value: string) {
-  const profile = selectedProfile.value;
-  if (!profile) return;
-  const channels = [...((profile.channels as Record<string, unknown>[]) ?? [])];
-  channels[index] = { ...channels[index], [field]: field === "local" ? Number(value) : value };
-  profiles.value = {
-    ...profiles.value,
-    [selectedProfileId.value]: { ...profile, channels },
-  };
 }
 
 function updateSpatial(fixtureId: string, field: string, value: boolean) {
@@ -719,57 +682,32 @@ onMounted(() => {
         </div>
       </div>
 
-      <!-- 5 Profiles -->
+      <!-- 5 Profiles → canonical channel mapper -->
       <div v-show="step === 4">
-        <h2>5. Fixture profile</h2>
+        <h2>5. Профілі приладів / Налаштування каналів</h2>
         <HardwareBadge />
-        <label class="field">
-          Профіль
-          <select v-model="selectedProfileId">
-            <option
-              v-for="(prof, id) in profiles"
-              :key="id"
-              :value="id"
-            >
-              {{ prof.label }} ({{ id }})
-            </option>
-          </select>
-        </label>
-        <div
-          v-if="selectedProfile"
-          class="table"
-        >
-          <div
-            v-for="(ch, index) in (selectedProfile.channels as Record<string, unknown>[])"
-            :key="index"
-            class="table-row"
+        <p class="hint">
+          Призначення каналів, ползунки 0–255 і збереження мапінгу зібрані на окремій
+          сторінці. Це єдиний шлях для визначення фізичних функцій PAR / LED Bar / Beam.
+        </p>
+        <ol class="hint">
+          <li>Відкрийте «Налаштування каналів».</li>
+          <li>Оберіть тип і конкретний фізичний прилад.</li>
+          <li>Натисніть «Почати тестування» і рухайте ползунки (можна кілька одночасно).</li>
+          <li>Призначте функцію кожного каналу та робочі значення (White, Shutter Open…).</li>
+          <li>Натисніть «Зберегти мапінг».</li>
+        </ol>
+        <div class="row-actions">
+          <RouterLink
+            class="action-btn"
+            to="/channels"
           >
-            <label>
-              Local
-              <input
-                type="number"
-                min="1"
-                :value="Number(ch.local)"
-                @input="updateProfileChannelLocal(index, 'local', ($event.target as HTMLInputElement).value)"
-              >
-            </label>
-            <label>
-              Role
-              <input
-                :value="String(ch.role)"
-                @input="updateProfileChannelLocal(index, 'role', ($event.target as HTMLInputElement).value)"
-              >
-            </label>
-          </div>
+            Відкрити налаштування каналів
+          </RouterLink>
         </div>
-        <button
-          type="button"
-          class="action-btn"
-          :disabled="saving"
-          @click="persistProfile"
-        >
-          Зберегти профіль
-        </button>
+        <p class="hint">
+          Шлях у меню: <strong>Налаштування каналів</strong> (або Setup → пункт 5 → ця кнопка).
+        </p>
       </div>
 
       <!-- 6 Raw tester -->

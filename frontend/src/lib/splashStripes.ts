@@ -262,8 +262,8 @@ export function createSplashPainter(
     const edgeSoftX = 0.08;
     const edgeSoftY = 0.1;
     const band = Math.max(3, (h / 50) | 0);
-    // Liquid warp amplitude — reference letter edges shred vertically.
-    const warpAmp = h * 0.045;
+    // Mild liquid warp — keep ORNG/HOTBOX readable as block glyphs.
+    const warpAmp = h * 0.012;
 
     ctx.fillStyle = `rgb(${r},${g},${b})`;
 
@@ -282,11 +282,11 @@ export function createSplashPainter(
       }
 
       // Per-slit time warp → kinetic typography behind fixed grating.
-      const phase = timeSec * 3.2 + i * 0.41;
+      const phase = timeSec * 2.6 + i * 0.28;
       const yWarp = Math.sin(phase) * warpAmp;
       const xSample = Math.max(
         0,
-        Math.min(w - 1, x + Math.round(Math.sin(phase * 0.7) * pitch * 1.2)),
+        Math.min(w - 1, x + Math.round(Math.sin(phase * 0.55) * pitch * 0.45)),
       );
 
       let run = -1;

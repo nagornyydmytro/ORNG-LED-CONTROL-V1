@@ -874,19 +874,20 @@ class AppRuntime:
         fixture_id = self.beam_calibration.fixture_id
         session_pan = float(self.beam_calibration.semantic_pan)
         session_tilt = float(self.beam_calibration.semantic_tilt)
-        # End session without publishing Pan/Tilt zeros.
+        # End session without publishing Pan/Tilt zeros and without auto-home.
         self.beam_calibration = BeamCalibrationTestSession()
         if fixture_id:
             from orng_led.engine.beam import BeamMotionState
 
             fixture = next((fx for fx in self.show.patch.fixtures if fx.id == fixture_id), None)
             if fixture is not None:
-                # Resume from the last calibration pose, then glide to saved home.
+                # Keep the last calibration pose as last_valid — do not glide home.
                 self.engine.beam_motion[fixture_id] = BeamMotionState(
                     pan=session_pan,
                     tilt=session_tilt,
+                    last_valid_pan=session_pan,
+                    last_valid_tilt=session_tilt,
                 )
-                self.engine.request_beam_home(fixture_id)
         self._publish_frame(self._published_frame(), from_raw=False)
         self.sequence += 1
         return self.build_state()

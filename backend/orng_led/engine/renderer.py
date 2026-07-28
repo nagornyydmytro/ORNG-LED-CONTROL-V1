@@ -437,8 +437,9 @@ def _write_beam_axes(
     profile: FixtureProfile,
     motion: BeamMotionState,
 ) -> None:
-    """Always emit calibrated pan/tilt — never leave axes at 0/0 while show-owned."""
+    """Always emit last-valid pan/tilt clamped to saved min/max — never 0/0 by default."""
     from orng_led.engine.beam_transform import (
+        clamp,
         encode_axis_dmx,
         missing_pan_tilt_roles,
         pan_tilt_role_locals,
@@ -448,8 +449,19 @@ def _write_beam_axes(
     if missing_pan_tilt_roles(profile):
         return
     roles = _role_map(profile)
+    semantic_pan = float(motion.last_valid_pan if motion.last_valid_pan is not None else motion.pan)
+    semantic_tilt = float(
+        motion.last_valid_tilt if motion.last_valid_tilt is not None else motion.tilt
+    )
     physical_pan, physical_tilt = semantic_to_physical(
-        fixture.spatial, pan=motion.pan, tilt=motion.tilt
+        fixture.spatial, pan=semantic_pan, tilt=semantic_tilt
+    )
+    # Final hard clamp — no preset/effect/transition may bypass saved ranges.
+    physical_pan = clamp(
+        physical_pan, float(fixture.spatial.pan_min), float(fixture.spatial.pan_max)
+    )
+    physical_tilt = clamp(
+        physical_tilt, float(fixture.spatial.tilt_min), float(fixture.spatial.tilt_max)
     )
     role_locals = pan_tilt_role_locals(profile)
     pan_enc = encode_axis_dmx(physical_pan, has_fine=role_locals["pan_fine"] is not None)
@@ -511,9 +523,9 @@ def render_fixture(
     elif isinstance(intent, BarIntent):
         render_bar(frame, fixture, profile, intent, master=master)
     elif isinstance(intent, BeamIntent):
-        motion = beam_motion.get(fixture.id) or BeamMotionState(
-            pan=float(fixture.spatial.home_pan),
-            tilt=float(fixture.spatial.home_tilt),
+        motion = beam_motion.get(fixture.id) or BeamMotionState.from_home(
+            float(fixture.spatial.home_pan),
+            float(fixture.spatial.home_tilt),
         )
         render_beam(frame, fixture, profile, intent, motion, master=master)
     else:
@@ -528,7 +540,7 @@ def render_stage(
     master: float = 1.0,
     scrub: bool = True,
 ) -> list[int]:
-    """Render show frame. Beam axes always follow motion/home; light follows intents."""
+    """Render show frame. Beam axes always follow last_valid pose; light follows intents."""
     from orng_led.engine.show_whitelist import scrub_show_frame
 
     frame = empty_frame()
@@ -538,9 +550,9 @@ def render_stage(
         intent = stage.fixtures.get(fixture.id)
 
         if fixture.kind is FixtureKind.BEAM:
-            motion = beam_motion.get(fixture.id) or BeamMotionState(
-                pan=float(fixture.spatial.home_pan),
-                tilt=float(fixture.spatial.home_tilt),
+            motion = beam_motion.get(fixture.id) or BeamMotionState.from_home(
+                float(fixture.spatial.home_pan),
+                float(fixture.spatial.home_tilt),
             )
             if isinstance(intent, BeamIntent):
                 render_beam(frame, fixture, profile, intent, motion, master=master)
@@ -564,13 +576,13 @@ def safe_dark_frame(
     show: ShowConfig,
     beam_motion: dict[str, BeamMotionState] | None = None,
 ) -> list[int]:
-    """Lights off, Beam axes parked at motion/home — never Pan/Tilt 0/0."""
-    motion = beam_motion or {}
+    """Lights off, Beam axes parked at last_valid/home — never Pan/Tilt 0/0."""
+    motion = dict(beam_motion or {})
     for fixture in show.patch.fixtures:
         if fixture.kind is FixtureKind.BEAM and fixture.id not in motion:
-            motion[fixture.id] = BeamMotionState(
-                pan=float(fixture.spatial.home_pan),
-                tilt=float(fixture.spatial.home_tilt),
+            motion[fixture.id] = BeamMotionState.from_home(
+                float(fixture.spatial.home_pan),
+                float(fixture.spatial.home_tilt),
             )
     return render_stage(show, StageIntent(), motion, master=0.0, scrub=True)
 

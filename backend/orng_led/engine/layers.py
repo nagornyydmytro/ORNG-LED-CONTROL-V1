@@ -126,7 +126,11 @@ def _force_rear_look(
     level: float,
     strobe: float = 0.0,
 ) -> None:
-    """Independent full look — never gated by whether the preset already lit this fixture."""
+    """Independent full look for every rear fixture — never gated by the preset.
+
+    Beam Live Effects must never touch Pan/Tilt: motion stays on the engine's
+    last-valid pose. Only colour, dimmer and (when requested) strobe change.
+    """
     level = max(0.0, min(1.0, level))
     if fixture.kind is FixtureKind.PAR:
         stage.fixtures[fixture.id] = ParIntent(color=color, intensity=level, strobe=strobe)
@@ -140,13 +144,9 @@ def _force_rear_look(
             whole=False,
         )
     elif fixture.kind is FixtureKind.BEAM:
-        previous = stage.fixtures.get(fixture.id)
-        # Preserve preset pan/tilt when present; otherwise hold motion (None).
-        pan = previous.pan if isinstance(previous, BeamIntent) else None
-        tilt = previous.tilt if isinstance(previous, BeamIntent) else None
         stage.fixtures[fixture.id] = BeamIntent(
-            pan=pan,
-            tilt=tilt,
+            pan=None,
+            tilt=None,
             dimmer=level,
             color=color,
             shutter_open=level > 0.02,

@@ -63,8 +63,6 @@ class Engine:
     overlays: OverlayState = field(default_factory=OverlayState)
     beam_motion: dict[str, BeamMotionState] = field(default_factory=dict)
     beam_limits: BeamMotionLimits = field(default_factory=BeamMotionLimits)
-    # When set, beam interpolates toward this semantic target while no BeamIntent.
-    beam_return_home: set[str] = field(default_factory=set)
     # Temporary single-episode hardware check from the preset editor.
     # Does not replace the pad selection; only the base look source.
     editor_preview_program: PresetProgram | None = None
@@ -77,9 +75,9 @@ class Engine:
             self.active_preset_id = base.id
         for fixture in self.show.patch.fixtures:
             if fixture.kind is FixtureKind.BEAM and fixture.id not in self.beam_motion:
-                self.beam_motion[fixture.id] = BeamMotionState(
-                    pan=float(fixture.spatial.home_pan),
-                    tilt=float(fixture.spatial.home_tilt),
+                self.beam_motion[fixture.id] = BeamMotionState.from_home(
+                    float(fixture.spatial.home_pan),
+                    float(fixture.spatial.home_tilt),
                 )
         self.overlays.master_brightness = self.show.app.master_brightness
 
@@ -93,14 +91,15 @@ class Engine:
         )
 
     def reset_beam_motion_to_home(self, fixture_id: str | None = None) -> None:
+        """Seed last-valid from saved home (only after an explicit calibration save)."""
         for fixture in self.show.patch.fixtures:
             if fixture.kind is not FixtureKind.BEAM:
                 continue
             if fixture_id is not None and fixture.id != fixture_id:
                 continue
-            self.beam_motion[fixture.id] = BeamMotionState(
-                pan=float(fixture.spatial.home_pan),
-                tilt=float(fixture.spatial.home_tilt),
+            self.beam_motion[fixture.id] = BeamMotionState.from_home(
+                float(fixture.spatial.home_pan),
+                float(fixture.spatial.home_tilt),
             )
 
     @property
@@ -282,58 +281,75 @@ class Engine:
         ):
             self.drop_release()
 
-    def request_beam_home(self, fixture_id: str | None = None) -> None:
-        """Smoothly return Beam(s) to saved home without lighting them."""
-        for fixture in self.show.patch.fixtures:
-            if fixture.kind is not FixtureKind.BEAM:
-                continue
-            if fixture_id is not None and fixture.id != fixture_id:
-                continue
-            self.beam_return_home.add(fixture.id)
+    def _live_fx_active_at(self, time_s: float) -> bool:
+        from orng_led.engine.layers import _strobe_active, drop_active, sweep_progress
+
+        overlays = self.overlays
+        if overlays.white_hit_until is not None and time_s < overlays.white_hit_until:
+            return True
+        if overlays.color_hit_until is not None and time_s < overlays.color_hit_until:
+            return True
+        if sweep_progress(overlays, time_s) is not None:
+            return True
+        if _strobe_active(overlays, time_s):
+            return True
+        if drop_active(overlays, time_s):
+            return True
+        return False
+
+    def _live_fx_freezes_beam_motion(self, time_s: float, *, dt_s: float = 0.0) -> bool:
+        """Any Live Effect freezes Beam axes for its duration (including the expiry tick)."""
+        if self._live_fx_active_at(time_s):
+            return True
+        # If this engine step crossed the expiry boundary, keep axes frozen for the step.
+        start = time_s - max(0.0, dt_s)
+        return self._live_fx_active_at(start)
 
     def _beam_axes_mapped(self, fixture) -> bool:
         from orng_led.engine.beam_transform import missing_pan_tilt_roles
 
         return not missing_pan_tilt_roles(self.show.profile_for(fixture))
 
-    def _advance_beams(self, stage: StageIntent, dt_s: float) -> None:
+    def _ensure_beam_motion(self, fixture) -> BeamMotionState:
+        state = self.beam_motion.get(fixture.id)
+        if state is None:
+            state = BeamMotionState.from_home(
+                float(fixture.spatial.home_pan),
+                float(fixture.spatial.home_tilt),
+            )
+            self.beam_motion[fixture.id] = state
+        return state
+
+    def _advance_beams(self, stage: StageIntent, dt_s: float, *, time_s: float) -> None:
+        """Move only when a BeamIntent supplies pan/tilt and no Live FX is active.
+
+        Absence of a Beam intent is never a command to Home or 0/0. Live Effects
+        freeze axes for their full duration so Sweep/Drop never steer heads.
+        """
+        freeze = self._live_fx_freezes_beam_motion(time_s, dt_s=dt_s)
         for fixture in self.show.patch.fixtures:
             if fixture.kind is not FixtureKind.BEAM:
                 continue
-            fixture_id = fixture.id
-            state = self.beam_motion.setdefault(
-                fixture_id,
-                BeamMotionState(
-                    pan=float(fixture.spatial.home_pan),
-                    tilt=float(fixture.spatial.home_tilt),
-                ),
+            state = self._ensure_beam_motion(fixture)
+            state.hold_last_valid()
+            if freeze:
+                continue
+            if not self._beam_axes_mapped(fixture):
+                continue
+            if not fixture.spatial.beam_calibration_confirmed:
+                continue
+            intent = stage.fixtures.get(fixture.id)
+            if not isinstance(intent, BeamIntent):
+                continue
+            if intent.pan is None or intent.tilt is None:
+                continue
+            step_beam(
+                state,
+                float(intent.pan),
+                float(intent.tilt),
+                dt_s,
+                self.beam_limits_for(fixture.id),
             )
-            mapped = self._beam_axes_mapped(fixture)
-            confirmed = bool(fixture.spatial.beam_calibration_confirmed)
-            intent = stage.fixtures.get(fixture_id)
-            limits = self.beam_limits_for(fixture_id)
-
-            # Incomplete mapping: never move. Unconfirmed: only allow explicit home park.
-            if not mapped:
-                self.beam_return_home.discard(fixture_id)
-                continue
-
-            if fixture_id in self.beam_return_home:
-                home_pan = float(fixture.spatial.home_pan)
-                home_tilt = float(fixture.spatial.home_tilt)
-                step_beam(state, home_pan, home_tilt, dt_s, limits)
-                if abs(state.pan - home_pan) < 1e-3 and abs(state.tilt - home_tilt) < 1e-3:
-                    self.beam_return_home.discard(fixture_id)
-                continue
-
-            if not confirmed:
-                continue
-
-            if isinstance(intent, BeamIntent):
-                if intent.pan is not None and intent.tilt is not None:
-                    step_beam(state, float(intent.pan), float(intent.tilt), dt_s, limits)
-                continue
-            # Hold last valid position — never step toward 0/0.
 
     def render_at(self, time_s: float, *, dt_s: float = 0.0) -> EngineSnapshot:
         """Render a deterministic frame for an absolute clock time."""
@@ -353,7 +369,7 @@ class Engine:
             base = StageIntent()
 
         composed = compose_layers(base, self.show, self.overlays, time_s)
-        self._advance_beams(composed, dt_s)
+        self._advance_beams(composed, dt_s, time_s=time_s)
         frame = render_stage(
             self.show,
             composed,
@@ -443,7 +459,12 @@ class Engine:
         """Pure helper: same preset time ⇒ same base+layers frame (no beam step)."""
         saved_elapsed = self.preset_elapsed_s
         saved_beams = {
-            key: BeamMotionState(pan=state.pan, tilt=state.tilt)
+            key: BeamMotionState(
+                pan=state.pan,
+                tilt=state.tilt,
+                last_valid_pan=state.last_valid_pan,
+                last_valid_tilt=state.last_valid_tilt,
+            )
             for key, state in self.beam_motion.items()
         }
         try:
@@ -451,10 +472,16 @@ class Engine:
             # Snap beams to targets for pure deterministic comparison of color layers.
             base = self.active_preset.evaluate(preset_time_s, self.show)
             for fixture_id, intent in base.fixtures.items():
-                if isinstance(intent, BeamIntent):
+                if (
+                    isinstance(intent, BeamIntent)
+                    and intent.pan is not None
+                    and intent.tilt is not None
+                ):
                     self.beam_motion[fixture_id] = BeamMotionState(
-                        pan=intent.pan,
-                        tilt=intent.tilt,
+                        pan=float(intent.pan),
+                        tilt=float(intent.tilt),
+                        last_valid_pan=float(intent.pan),
+                        last_valid_tilt=float(intent.tilt),
                     )
             return self.render_at(self.clock.time(), dt_s=0.0).frame
         finally:

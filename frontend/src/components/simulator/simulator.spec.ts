@@ -280,8 +280,8 @@ describe("StageSimulator", () => {
     const wrapper = mount(StageSimulator, {
       props: { layout, view: () => view, previewSpeed: 1 },
     });
-    await wrapper.find("select").setValue("60");
-    expect(wrapper.emitted("update:previewSpeed")?.[0]).toEqual([60]);
+    await wrapper.find("select").setValue("10");
+    expect(wrapper.emitted("update:previewSpeed")?.[0]).toEqual([10]);
   });
 });
 

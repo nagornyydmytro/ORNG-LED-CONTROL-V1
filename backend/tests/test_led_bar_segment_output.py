@@ -301,6 +301,26 @@ def test_p01_p10_keep_whole_color_zero_and_ch3_mapping() -> None:
             _assert_ch3_service(show, frame, fixture.id)
 
 
+def test_p09_pulse_episodes_drive_bar_strobe_speed() -> None:
+    """P09 ep1/ep6 are harsh pulse — bars must light solid and write strobe_speed."""
+    show = load_show_config()
+    for episode_index in (0, 5):
+        engine = _engine("P09")
+        engine.seek_episode(episode_index)
+        for _ in range(10):
+            frame = engine.tick(dt_s=0.2, wall_dt_s=0.2).frame
+        for fixture in show.patch.fixtures:
+            if fixture.kind is not FixtureKind.BAR:
+                continue
+            strobe = _read_role_values(show, frame, fixture.id, ChannelRole.STROBE_SPEED)
+            assert strobe and strobe[0][2] > 40, (episode_index, fixture.id, strobe)
+            dimmer = _read_role_values(show, frame, fixture.id, ChannelRole.DIMMER)[0][2]
+            assert dimmer > 100, (episode_index, fixture.id, dimmer)
+            segs = _segment_values(show, frame, fixture.id)
+            assert all(v > 0 for v in segs), (episode_index, fixture.id, segs)
+            assert _read_role_values(show, frame, fixture.id, ChannelRole.WHOLE_COLOR)[0][2] == 0
+
+
 def test_live_fx_does_not_enable_program_or_break_segment_exclusivity() -> None:
     show = load_show_config()
     engine = _engine("P05")

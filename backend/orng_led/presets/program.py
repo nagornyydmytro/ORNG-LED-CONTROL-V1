@@ -356,12 +356,22 @@ def _evaluate_episode(
             intent.fixtures[fixture.id] = ParIntent(color=color, intensity=intensity)
         elif fixture.kind is FixtureKind.BAR:
             segments = _bar_segments(episode, local_turns, level)
-            # Chase/wave/mirror use segments; static/breathe/pulse prefer whole palette.
+            # Chase/wave/mirror use segments; static/breathe/pulse prefer solid look.
             whole = episode.effect in {"static", "breathe", "pulse"}
+            if episode.effect == "pulse":
+                # Physical LED Bars need the mapped strobe_speed channel for a
+                # hard flash. Soft dimmer accents alone look like a dull pulse and
+                # leave CH2 (Strobe) at 0 — P09 ep1/ep6 read as "bars should strobe".
+                strobe = max(0.45, min(1.0, 0.40 + 0.60 * episode.speed))
+                dimmer = max(0.65, float(episode.intensity))
+            else:
+                strobe = 0.0
+                dimmer = max(intensity, 0.15 * episode.intensity)
             intent.fixtures[fixture.id] = BarIntent(
                 segments=(0.0,) * 8 if whole else segments,
-                dimmer=max(intensity, 0.15 * episode.intensity),
+                dimmer=dimmer,
                 color=color,
+                strobe=strobe,
                 whole=whole,
             )
         elif fixture.kind is FixtureKind.BEAM:

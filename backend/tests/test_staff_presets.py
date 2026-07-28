@@ -140,12 +140,17 @@ def test_cycle_boundary_beam_no_teleport(preset_id: str, show, staff_docs) -> No
 
 
 @pytest.mark.parametrize("preset_id", STAFF_PRESET_IDS)
-def test_staff_intents_do_not_bypass_strobe_limits(preset_id: str, show, staff_docs) -> None:
+def test_staff_intents_keep_strobe_in_unit_range(preset_id: str, show, staff_docs) -> None:
+    """Preset pulse may drive mapped bar strobe_speed; Live FX hold limits stay fixed."""
+    from orng_led.engine.intents import BarIntent
+
     program = YamlPresetProgram(staff_docs[preset_id])
     intent = program.evaluate(30.0, show)
     for fixture_intent in intent.fixtures.values():
-        strobe = getattr(fixture_intent, "strobe", 0.0)
-        assert strobe == 0.0
+        strobe = float(getattr(fixture_intent, "strobe", 0.0))
+        assert 0.0 <= strobe <= 1.0
+        if not isinstance(fixture_intent, BarIntent):
+            assert strobe == 0.0
     assert STROBE_MAX_HZ == 4.0
     assert STROBE_HOLD_TIMEOUT_S == 8.0
 

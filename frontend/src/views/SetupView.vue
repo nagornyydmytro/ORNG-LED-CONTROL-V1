@@ -13,10 +13,11 @@ import {
   setupPost,
   validatePatch,
 } from "../api/setup";
-import { postCommand } from "../api/client";
+import { fetchStageLayout, postCommand } from "../api/client";
 import HardwareBadge from "../components/setup/HardwareBadge.vue";
 import StageSimulator from "../components/simulator/StageSimulator.vue";
 import { APP_STATE_KEY } from "../composables/appStateKey";
+import type { StageLayout } from "../vite-env";
 
 const appState = inject(APP_STATE_KEY, null);
 
@@ -45,6 +46,7 @@ const app = ref<Record<string, unknown> | null>(null);
 const patch = ref<Record<string, unknown> | null>(null);
 const profiles = ref<Record<string, Record<string, unknown>>>({});
 const layout = ref<Record<string, unknown> | null>(null);
+const stageLayout = ref<StageLayout | null>(null);
 
 const selectedProfileId = ref("par_7ch_provisional");
 const rawChannel = ref(1);
@@ -90,6 +92,7 @@ async function loadAll() {
     profiles.value = profileMap;
     layout.value = layoutCfg;
     readiness.value = ready;
+    stageLayout.value = await fetchStageLayout().catch(() => null);
     const ids = Object.keys(profileMap);
     if (ids.length && !profileMap[selectedProfileId.value]) {
       selectedProfileId.value = ids[0];
@@ -753,8 +756,10 @@ onUnmounted(() => {
 
     <StageSimulator
       v-if="appState"
-      :simulator="appState.state.value?.simulator ?? null"
-      :frame="appState.state.value?.frame ?? []"
+      :layout="stageLayout"
+      :view="appState.liveView"
+      :frame="appState.liveFrame"
+      :nonzero-channels="appState.state.value?.simulator?.nonzero_channels ?? 0"
       :engine-preset-id="appState.engine.value?.preset_id ?? '—'"
       :preset-time-s="appState.engine.value?.preset_time_s ?? 0"
       :episode-index="appState.engine.value?.episode_index ?? 0"
@@ -766,7 +771,8 @@ onUnmounted(() => {
       :face-on="appState.engine.value?.face_on ?? false"
       :preview-speed="appState.state.value?.preview_speed ?? 1"
       :disabled="appState.connection.value === 'offline'"
-      compact
+      title="Жива сцена (Mock)"
+      badge="Фактичний кадр виводу"
       @update:preview-speed="appState.setPreviewSpeed"
     />
 

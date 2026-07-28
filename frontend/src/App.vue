@@ -13,6 +13,7 @@ const connection = computed(() => appState.connection.value);
 const transport = computed(() => appState.output.value?.transport ?? "mock");
 const armed = computed(() => appState.output.value?.armed ?? false);
 const outputError = computed(() => appState.output.value?.last_error ?? null);
+const blackout = computed(() => appState.engine.value?.blackout ?? false);
 </script>
 
 <template>
@@ -21,5 +22,6 @@ const outputError = computed(() => appState.output.value?.last_error ?? null);
     :transport="transport"
     :armed="armed"
     :output-error="outputError"
+    :blackout="blackout"
   />
 </template>

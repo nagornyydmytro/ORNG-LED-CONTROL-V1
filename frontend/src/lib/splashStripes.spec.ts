@@ -6,8 +6,8 @@ describe("splashStripes", () => {
     expect(SPLASH_MIN_MS).toBeGreaterThanOrEqual(1500);
   });
 
-  it("holds long enough for text animation to read", () => {
-    expect(SPLASH_MIN_MS).toBeGreaterThanOrEqual(2500);
+  it("holds long enough for text to scroll behind slits", () => {
+    expect(SPLASH_MIN_MS).toBeGreaterThanOrEqual(3000);
   });
 
   it("fades stripes to zero at screen edges", () => {

@@ -1,5 +1,6 @@
 import { flushPromises, mount } from "@vue/test-utils";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ref } from "vue";
 import HardwareBadge from "./HardwareBadge.vue";
 import SetupView from "../../views/SetupView.vue";
 import { APP_STATE_KEY } from "../../composables/appStateKey";
@@ -260,6 +261,49 @@ describe("SetupView wizard", () => {
   it("requires confirm before enabling Arm", async () => {
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
     const fetchMock = vi.mocked(fetch);
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const json = (body: unknown) =>
+        Promise.resolve({
+          ok: true,
+          json: async () => body,
+        });
+      if (url.endsWith("/api/output/arm-blockers")) {
+        return json({ ok: true, blockers: [] });
+      }
+      if (url.endsWith("/api/setup/readiness")) {
+        return json({
+          transport_preferred: "artnet",
+          runtime_transport: "artnet",
+          output_armed: false,
+          artnet_network_enabled: true,
+          udp_active: true,
+          blackout: true,
+          artnet_badge: "Не перевірено на обладнанні",
+          patch_ok: true,
+          fixture_count: 1,
+          profiles: [],
+          source_frame_sum: 0,
+          source_nonzero_channels: 0,
+          wire_frame_sum: 120,
+          wire_nonzero_channels: 4,
+          arm_blockers: [],
+        });
+      }
+      if (url.endsWith("/api/config/app")) return json(sampleApp);
+      if (url.endsWith("/api/config/patch")) return json(samplePatch);
+      if (url.endsWith("/api/config/profiles")) return json(sampleProfiles);
+      if (url.endsWith("/api/config/layout")) {
+        return json({
+          schema_version: 1,
+          viewer_facing: true,
+          description: "test",
+          fixtures: ["par_1"],
+        });
+      }
+      return json({ ok: true });
+    });
+
     const wrapper = mountSetup({
       global: {
         provide: {
@@ -270,10 +314,11 @@ describe("SetupView wizard", () => {
                 udp_active: true,
                 network_allowed: true,
                 armed: false,
-                wire_nonzero_channels: 0,
-                nonzero_channels: 0,
-                frame_sum: 0,
-                wire_frame_sum: 0,
+                // Safe Beam axes may leave wire non-zero — must not block Arm.
+                wire_nonzero_channels: 4,
+                nonzero_channels: 4,
+                frame_sum: 120,
+                wire_frame_sum: 120,
                 source_frame_sum: 0,
                 source_nonzero_channels: 0,
               },
@@ -314,6 +359,197 @@ describe("SetupView wizard", () => {
         }),
     ).toBe(false);
     confirmSpy.mockRestore();
+  });
+
+  it("enables Arm when backend blockers empty even if wire_nonzero > 0", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const json = (body: unknown) =>
+        Promise.resolve({ ok: true, json: async () => body });
+      if (url.endsWith("/api/output/arm-blockers")) {
+        return json({ ok: true, blockers: [] });
+      }
+      if (url.endsWith("/api/config/app")) return json(sampleApp);
+      if (url.endsWith("/api/config/patch")) return json(samplePatch);
+      if (url.endsWith("/api/config/profiles")) return json(sampleProfiles);
+      if (url.endsWith("/api/config/layout")) {
+        return json({
+          schema_version: 1,
+          viewer_facing: true,
+          description: "test",
+          fixtures: ["par_1"],
+        });
+      }
+      if (url.endsWith("/api/setup/readiness")) {
+        return json({
+          runtime_transport: "artnet",
+          output_armed: false,
+          artnet_network_enabled: true,
+          udp_active: true,
+          blackout: true,
+          wire_nonzero_channels: 8,
+          arm_blockers: [],
+          artnet_badge: "Не перевірено на обладнанні",
+          patch_ok: true,
+          fixture_count: 1,
+          profiles: [],
+        });
+      }
+      return json({ ok: true });
+    });
+
+    const wrapper = mountSetup({
+      global: {
+        provide: {
+          [APP_STATE_KEY]: {
+            output: {
+              value: {
+                transport: "artnet",
+                udp_active: true,
+                network_allowed: true,
+                armed: false,
+                wire_nonzero_channels: 8,
+                nonzero_channels: 8,
+              },
+            },
+            engine: { value: { blackout: true } },
+            state: { value: null },
+            connection: { value: "online" },
+            liveView: () => null,
+            liveFrame: null,
+            refreshRest: vi.fn(async () => undefined),
+            setPreviewSpeed: vi.fn(),
+          },
+        },
+      },
+    });
+    await flushPromises();
+    const enableArm = wrapper
+      .findAll("button")
+      .find((btn) => btn.text() === "Увімкнути Arm");
+    expect(enableArm!.attributes("disabled")).toBeUndefined();
+    expect(wrapper.text()).not.toContain("Світлові канали");
+  });
+
+  it("disables Arm and shows backend blocker reasons", async () => {
+    const wrapper = mountSetup({
+      global: {
+        provide: {
+          [APP_STATE_KEY]: {
+            output: {
+              value: {
+                transport: "artnet",
+                udp_active: true,
+                network_allowed: true,
+                armed: false,
+                wire_nonzero_channels: 0,
+                nonzero_channels: 0,
+              },
+            },
+            engine: { value: { blackout: true } },
+            state: { value: null },
+            connection: { value: "online" },
+            liveView: () => null,
+            liveFrame: null,
+            refreshRest: vi.fn(async () => undefined),
+            setPreviewSpeed: vi.fn(),
+          },
+        },
+      },
+    });
+    await flushPromises();
+    // Default mock returns Mock transport blocker from beforeEach.
+    const enableArm = wrapper
+      .findAll("button")
+      .find((btn) => btn.text() === "Увімкнути Arm");
+    expect(enableArm!.attributes("disabled")).toBeDefined();
+    expect(wrapper.text()).toContain("Runtime має бути Art-Net");
+  });
+
+  it("refreshes arm blockers when runtime transport changes", async () => {
+    const fetchMock = vi.mocked(fetch);
+    let blockers: string[] = ["Runtime має бути Art-Net (у Mock Arm неможливий)"];
+    const output = ref({
+      transport: "mock",
+      udp_active: false,
+      network_allowed: false,
+      armed: false,
+      wire_nonzero_channels: 2,
+      nonzero_channels: 2,
+    });
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const json = (body: unknown) =>
+        Promise.resolve({ ok: true, json: async () => body });
+      if (url.endsWith("/api/output/arm-blockers")) {
+        return json({ ok: blockers.length === 0, blockers });
+      }
+      if (url.endsWith("/api/config/app")) return json(sampleApp);
+      if (url.endsWith("/api/config/patch")) return json(samplePatch);
+      if (url.endsWith("/api/config/profiles")) return json(sampleProfiles);
+      if (url.endsWith("/api/config/layout")) {
+        return json({
+          schema_version: 1,
+          viewer_facing: true,
+          description: "test",
+          fixtures: ["par_1"],
+        });
+      }
+      if (url.endsWith("/api/setup/readiness")) {
+        return json({
+          runtime_transport: output.value.transport,
+          output_armed: false,
+          artnet_network_enabled: output.value.network_allowed,
+          udp_active: output.value.udp_active,
+          blackout: true,
+          wire_nonzero_channels: output.value.wire_nonzero_channels,
+          arm_blockers: blockers,
+          artnet_badge: "Не перевірено на обладнанні",
+          patch_ok: true,
+          fixture_count: 1,
+          profiles: [],
+        });
+      }
+      return json({ ok: true });
+    });
+
+    const wrapper = mountSetup({
+      global: {
+        provide: {
+          [APP_STATE_KEY]: {
+            output,
+            engine: { value: { blackout: true } },
+            state: { value: null },
+            connection: { value: "online" },
+            liveView: () => null,
+            liveFrame: null,
+            refreshRest: vi.fn(async () => undefined),
+            setPreviewSpeed: vi.fn(),
+          },
+        },
+      },
+    });
+    await flushPromises();
+    let enableArm = wrapper
+      .findAll("button")
+      .find((btn) => btn.text() === "Увімкнути Arm");
+    expect(enableArm!.attributes("disabled")).toBeDefined();
+
+    blockers = [];
+    output.value = {
+      transport: "artnet",
+      udp_active: true,
+      network_allowed: true,
+      armed: false,
+      wire_nonzero_channels: 2,
+      nonzero_channels: 2,
+    };
+    await flushPromises();
+    enableArm = wrapper
+      .findAll("button")
+      .find((btn) => btn.text() === "Увімкнути Arm");
+    expect(enableArm!.attributes("disabled")).toBeUndefined();
   });
 
   it("can open raw tester step", async () => {

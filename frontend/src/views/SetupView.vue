@@ -133,15 +133,11 @@ const sourceOwnerLabel = computed(() => {
 
 const canEnableArm = computed(() => {
   const out = runtimeOutput.value;
-  const eng = runtimeEngine.value;
-  if (!out || !eng) return false;
-  if (out.transport !== "artnet") return false;
-  if (!out.udp_active) return false;
-  if (!out.network_allowed) return false;
-  if (!eng.blackout) return false;
+  if (!out) return false;
   if (out.armed) return false;
-  const wireNz = out.wire_nonzero_channels ?? out.nonzero_channels ?? 0;
-  return wireNz === 0;
+  // Backend /api/output/arm-blockers is the sole safety source of truth.
+  // Do not gate on wire_nonzero_channels — safe Beam Pan/Tilt may be non-zero.
+  return armBlockers.value.length === 0;
 });
 
 const canDisableArm = computed(() => Boolean(runtimeOutput.value?.armed));
@@ -151,9 +147,24 @@ async function refreshArmBlockers() {
     const payload = await fetchArmBlockers();
     armBlockers.value = payload.blockers ?? [];
   } catch {
-    armBlockers.value = [];
+    armBlockers.value = ["Не вдалося отримати список блокувальників Arm"];
   }
 }
+
+watch(
+  () => [
+    runtimeOutput.value?.transport,
+    runtimeOutput.value?.udp_active,
+    runtimeOutput.value?.network_allowed,
+    runtimeOutput.value?.armed,
+    runtimeOutput.value?.wire_nonzero_channels,
+    runtimeOutput.value?.source_nonzero_channels,
+    runtimeEngine.value?.blackout,
+  ],
+  () => {
+    void refreshArmBlockers();
+  },
+);
 
 async function activateArtNetSafe() {
   const confirmed = window.confirm(

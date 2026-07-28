@@ -158,6 +158,9 @@ def test_bar_segment_and_whole_modes_exclusive() -> None:
         if channel.role is ChannelRole.FIXED and channel.fixed_value is not None:
             assert seg_frame[idx] == channel.fixed_value
             assert whole_frame[idx] == channel.fixed_value
+        if channel.role is ChannelRole.UNUSED:
+            assert seg_frame[idx] == 0
+            assert whole_frame[idx] == 0
         if channel.role is ChannelRole.PROGRAM:
             assert seg_frame[idx] == 0
             assert whole_frame[idx] == 0
@@ -303,15 +306,24 @@ def test_scrub_zeros_forbidden_roles() -> None:
         assert frame[idx] == 0
 
 
-def test_mapping_fixed_value_used_not_hardcoded() -> None:
+def test_mapping_fixed_value_used_when_present_not_hardcoded() -> None:
     show = load_show_config()
     bar = next(fx for fx in show.patch.fixtures if fx.kind is FixtureKind.BAR)
     profile = show.profile_for(bar)
-    fixed = next(ch for ch in profile.channels if ch.role is ChannelRole.FIXED)
-    assert fixed.fixed_value is not None
+    fixed_channels = [
+        ch for ch in profile.channels if ch.role is ChannelRole.FIXED and ch.fixed_value is not None
+    ]
     stage = StageIntent(
         fixtures={bar.id: BarIntent(dimmer=0.5, color=Rgbw(r=1, g=0, b=0), whole=True)}
     )
     frame = render_stage(show, stage, {}, master=1.0)
-    idx = global_channel(bar.start_address, fixed.local) - 1
-    assert frame[idx] == int(fixed.fixed_value)
+    if fixed_channels:
+        for fixed in fixed_channels:
+            idx = global_channel(bar.start_address, fixed.local) - 1
+            assert frame[idx] == int(fixed.fixed_value)
+    else:
+        # Operator left strip/mode unused — former service local stays 0.
+        ch3 = next(ch for ch in profile.channels if ch.local == 3)
+        assert ch3.role is ChannelRole.UNUSED
+        idx = global_channel(bar.start_address, 3) - 1
+        assert frame[idx] == 0

@@ -220,12 +220,8 @@ def missing_roles_for_intent(
                 ]
                 if len(segs) < 8:
                     missing.append(f"Segment Color ({len(segs)}/8)")
-            if ChannelRole.FIXED not in roles:
-                missing.append("Fixed (strip/mode select)")
-            else:
-                fixed_ch = next(ch for ch in profile.channels if ch.role is ChannelRole.FIXED)
-                if fixed_ch.fixed_value is None:
-                    missing.append("Fixed value")
+            # FIXED / strip-select is optional. Operators may leave that channel
+            # unused so show mode never drives internal strip/mode programs.
 
     if isinstance(intent, BeamIntent) and intent.shutter_open:
         if ChannelRole.SHUTTER not in roles and ChannelRole.STROBE not in roles:
@@ -345,6 +341,9 @@ def _apply_fixed_and_unused(
     for channel in profile.channels:
         if channel.role is ChannelRole.FIXED and channel.fixed_value is not None:
             _write_local(frame, fixture, channel.local, channel.fixed_value)
+        elif channel.role is ChannelRole.UNUSED:
+            # Explicit zero: unused must never retain a previous fixed/service value.
+            _write_local(frame, fixture, channel.local, 0)
 
 
 def _write_strobe_speed(

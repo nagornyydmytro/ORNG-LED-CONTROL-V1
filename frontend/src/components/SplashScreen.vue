@@ -112,6 +112,7 @@ onBeforeUnmount(() => {
   padding: 0;
   background: #000000;
   pointer-events: all;
+  display: block;
   overflow: hidden;
 }
 

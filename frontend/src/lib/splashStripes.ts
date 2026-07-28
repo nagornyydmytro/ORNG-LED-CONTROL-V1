@@ -1,20 +1,25 @@
 /**
  * Klickpin slit-scan splash — vertical barcode typography.
  *
- * Matches reference geometry: ~13–14px slit pitch, hairline field, letters from
- * thickening those slits. Orange replaces red. Soft fade before screen edges.
+ * Dense thin vertical slits on black; ORNG / HOTBOX appear where those slits
+ * thicken. Orange replaces reference red. Slits fade before screen edges.
  */
 
 export const SPLASH_MIN_MS = 1800;
 
-export const SPLASH_ORANGE = "#ff2a00";
-export const SPLASH_ORANGE_RGB = { r: 255, g: 42, b: 0 };
+/** Hot orange (reference red → brand orange). */
+export const SPLASH_ORANGE = "#ff4d00";
+export const SPLASH_ORANGE_RGB = { r: 255, g: 77, b: 0 };
 
-export type SplashGlyph = {
+export type SplashMask = {
   width: number;
   height: number;
-  canvas: HTMLCanvasElement;
+  /** 0/255 coverage, row-major, length = width * height */
+  coverage: Uint8Array;
 };
+
+/** @deprecated alias kept for SplashScreen imports */
+export type SplashGlyph = SplashMask;
 
 export function edgeFade(t: number, soft = 0.12): number {
   const x = Math.max(0, Math.min(1, t));
@@ -27,78 +32,75 @@ function smoothstep(edge0: number, edge1: number, x: number): number {
 }
 
 function fontFor(size: number): string {
-  return `900 ${size}px Impact,"Arial Black",Arial,sans-serif`;
+  return `900 ${size}px "Arial Black",Impact,Arial,sans-serif`;
 }
 
-/** Hard-edged orange glyphs (no AA mush after slit stretch). */
-export function buildSplashGlyph(width: number, height: number): SplashGlyph {
+/**
+ * Binary glyph mask for ORNG / HOTBOX.
+ * Block height ≈ 30% of the viewport; centered horizontally, upper-mid.
+ */
+export function buildSplashMask(width: number, height: number): SplashMask {
   const w = Math.max(1, Math.floor(width));
   const h = Math.max(1, Math.floor(height));
   const canvas = document.createElement("canvas");
   canvas.width = w;
   canvas.height = h;
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
-  if (!ctx) return { width: w, height: h, canvas };
+  const coverage = new Uint8Array(w * h);
+  if (!ctx) return { width: w, height: h, coverage };
 
   ctx.fillStyle = "#000000";
   ctx.fillRect(0, 0, w, h);
-
   ctx.fillStyle = "#ffffff";
+  ctx.strokeStyle = "#ffffff";
   ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  // Prefer crisp rasterization where the engine supports it.
-  (ctx as CanvasRenderingContext2D & { textRendering?: string }).textRendering =
-    "geometricPrecision";
+  ctx.textBaseline = "top";
+  ctx.lineJoin = "round";
 
+  // Whole block ≈ 30% of screen height.
   const maxTextW = w * 0.9;
-  let fontPx = Math.min(w * 0.34, h * 0.16);
+  let fontPx = Math.min(w * 0.32, h * 0.135);
   ctx.font = fontFor(fontPx);
-  while (fontPx > 40 && ctx.measureText("HOTBOX").width > maxTextW) {
+  while (fontPx > 28 && ctx.measureText("HOTBOX").width > maxTextW) {
     fontPx -= 2;
     ctx.font = fontFor(fontPx);
   }
 
-  const lineGap = fontPx * 0.16;
-  const blockH = fontPx * 2 + lineGap;
-  const midY = h * 0.32;
+  const gap = fontPx * 0.06;
+  const blockH = fontPx * 2 + gap;
+  const textTop = h * 0.34 - blockH * 0.5;
   const cx = w * 0.5;
-  ctx.fillText("ORNG", cx, midY - blockH * 0.28);
-  ctx.fillText("HOTBOX", cx, midY + blockH * 0.28);
+  ctx.lineWidth = Math.max(3, fontPx * 0.08);
 
-  // Threshold → pure black / pure orange (kills AA that shreds slit letters).
-  const img = ctx.getImageData(0, 0, w, h);
-  const d = img.data;
-  const { r, g, b } = SPLASH_ORANGE_RGB;
-  for (let i = 0; i < d.length; i += 4) {
-    if (d[i]! > 40) {
-      d[i] = r;
-      d[i + 1] = g;
-      d[i + 2] = b;
-      d[i + 3] = 255;
-    } else {
-      d[i] = 0;
-      d[i + 1] = 0;
-      d[i + 2] = 0;
-      d[i + 3] = 255;
-    }
+  for (const [label, y] of [
+    ["ORNG", textTop],
+    ["HOTBOX", textTop + fontPx + gap],
+  ] as const) {
+    ctx.strokeText(label, cx, y);
+    ctx.fillText(label, cx, y);
   }
-  ctx.putImageData(img, 0, 0);
 
-  return { width: w, height: h, canvas };
+  const data = ctx.getImageData(0, 0, w, h).data;
+  for (let i = 0, p = 0; i < coverage.length; i += 1, p += 4) {
+    coverage[i] = data[p]! > 40 ? 255 : 0;
+  }
+  return { width: w, height: h, coverage };
 }
 
-export function buildSplashMask(width: number, height: number): SplashGlyph {
-  return buildSplashGlyph(width, height);
+export function buildSplashGlyph(width: number, height: number): SplashMask {
+  return buildSplashMask(width, height);
 }
 
+/**
+ * Paint thin slit field, then thicken only where the glyph covers each column.
+ * Never stretch glyph columns with drawImage — that erases the field.
+ */
 export function drawSplashStripes(
   ctx: CanvasRenderingContext2D,
-  glyph: SplashGlyph,
+  mask: SplashMask,
   _timeSec = 0,
 ): void {
-  const w = glyph.width;
-  const h = glyph.height;
-  const src = glyph.canvas;
+  const { width: w, height: h, coverage } = mask;
 
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.globalAlpha = 1;
@@ -106,53 +108,57 @@ export function drawSplashStripes(
   ctx.fillRect(0, 0, w, h);
   if (w < 8 || h < 8) return;
 
-  // Lock pitch near the reference (~13px @ 720), even on ultrawide screens.
-  const pitch = Math.max(5, Math.min(14, Math.round(w / 70)));
-  const thin = Math.max(1, Math.round(pitch * 0.18));
-  const thick = Math.max(thin + 2, pitch - 2);
+  // Reference: ~13–14px pitch @ 720 → ~55 slits.
+  const pitch = Math.max(5, Math.round(w / 55));
+  const thin = Math.max(1, Math.round(pitch * 0.15));
+  // Letter bars nearly fill the pitch (small black gutters), like the ref.
+  const thick = Math.max(thin + 3, Math.round(pitch * 0.78));
   const { r, g, b } = SPLASH_ORANGE_RGB;
   const invW = 1 / Math.max(1, w - 1);
+  const invH = 1 / Math.max(1, h - 1);
+  const edgeSoftX = 0.1;
+  const edgeSoftY = 0.14;
 
-  // 1) Full-field hairlines — solid neon (reference brightness).
-  ctx.fillStyle = `rgb(${r},${g},${b})`;
-  for (let x = Math.floor(pitch * 0.5); x < w; x += pitch) {
-    if (edgeFade(x * invW, 0.1) < 0.05) continue;
-    ctx.fillRect(x - (thin >> 1), 0, thin, h);
+  for (let i = 0; i < Math.ceil(w / pitch) + 1; i += 1) {
+    const x = Math.floor(i * pitch + pitch * 0.5);
+    if (x < 0 || x >= w) continue;
+    const fadeX = edgeFade(x * invW, edgeSoftX);
+    if (fadeX < 0.04) continue;
+
+    // Thin full-height slit with vertical edge dissolve.
+    const band = Math.max(3, (h / 50) | 0);
+    for (let y0 = 0; y0 < h; y0 += band) {
+      const fadeY = edgeFade((y0 + band * 0.5) * invH, edgeSoftY);
+      const a = 0.9 * fadeX * fadeY;
+      if (a < 0.03) continue;
+      ctx.fillStyle = `rgba(${r},${g},${b},${a})`;
+      ctx.fillRect(x - (thin >> 1), y0, thin, Math.min(band + 1, h - y0));
+    }
+
+    // Thick sharp bars only on glyph coverage runs.
+    let run = -1;
+    const flush = (yEnd: number) => {
+      if (run < 0) return;
+      const y0 = run;
+      const hh = yEnd - y0;
+      run = -1;
+      if (hh < 2) return;
+      const fadeY = edgeFade((y0 + yEnd) * 0.5 * invH, edgeSoftY);
+      const a = fadeX * fadeY;
+      if (a < 0.05) return;
+      ctx.fillStyle = `rgba(${r},${g},${b},${a})`;
+      ctx.fillRect(x - (thick >> 1), y0, thick, hh);
+    };
+
+    for (let y = 0; y < h; y += 1) {
+      if (coverage[y * w + x]! > 0) {
+        if (run < 0) run = y;
+      } else {
+        flush(y);
+      }
+    }
+    flush(h);
   }
-
-  // 2) Letter slits via 1px column stretch.
-  ctx.imageSmoothingEnabled = false;
-  for (let x = Math.floor(pitch * 0.5); x < w; x += pitch) {
-    if (edgeFade(x * invW, 0.1) < 0.05) continue;
-    ctx.drawImage(src, x, 0, 1, h, x - (thick >> 1), 0, thick, h);
-  }
-
-  // 3) Edge dissolve — slits fade before touching the border.
-  const padY = Math.max(16, h * 0.07);
-  const top = ctx.createLinearGradient(0, 0, 0, padY);
-  top.addColorStop(0, "#000");
-  top.addColorStop(1, "rgba(0,0,0,0)");
-  ctx.fillStyle = top;
-  ctx.fillRect(0, 0, w, padY);
-
-  const bot = ctx.createLinearGradient(0, h - padY, 0, h);
-  bot.addColorStop(0, "rgba(0,0,0,0)");
-  bot.addColorStop(1, "#000");
-  ctx.fillStyle = bot;
-  ctx.fillRect(0, h - padY, w, padY);
-
-  const padX = Math.max(20, w * 0.07);
-  const left = ctx.createLinearGradient(0, 0, padX, 0);
-  left.addColorStop(0, "#000");
-  left.addColorStop(1, "rgba(0,0,0,0)");
-  ctx.fillStyle = left;
-  ctx.fillRect(0, 0, padX, h);
-
-  const right = ctx.createLinearGradient(w - padX, 0, w, 0);
-  right.addColorStop(0, "rgba(0,0,0,0)");
-  right.addColorStop(1, "#000");
-  ctx.fillStyle = right;
-  ctx.fillRect(w - padX, 0, padX, h);
 }
 
 export function paintSplash(
@@ -161,5 +167,5 @@ export function paintSplash(
   height: number,
   timeSec = 0,
 ): void {
-  drawSplashStripes(ctx, buildSplashGlyph(width, height), timeSec);
+  drawSplashStripes(ctx, buildSplashMask(width, height), timeSec);
 }

@@ -397,8 +397,9 @@ def render_bar(
 
 
 def _split_16bit(normalized: float) -> tuple[int, int]:
-    value = max(0, min(65535, int(round(normalized * 65535))))
-    return (value >> 8) & 0xFF, value & 0xFF
+    from orng_led.engine.beam_transform import split_16bit
+
+    return split_16bit(normalized)
 
 
 def render_beam(
@@ -408,28 +409,49 @@ def render_beam(
     intent: BeamIntent,
     motion: BeamMotionState,
 ) -> None:
+    from orng_led.engine.beam_transform import (
+        encode_axis_dmx,
+        pan_tilt_role_locals,
+        semantic_to_physical,
+    )
+
     roles = _role_map(profile)
-    lit = intent.dimmer > 0.02
-    pan = motion.pan
-    tilt = motion.tilt
-    if fixture.spatial.pan_invert:
-        pan = 1.0 - pan
-    if fixture.spatial.tilt_invert:
-        tilt = 1.0 - tilt
+    confirmed = bool(fixture.spatial.beam_calibration_confirmed)
+    # Unconfirmed heads may still track pan/tilt, but never emit light on the wire.
+    lit = confirmed and intent.dimmer > 0.02
+    physical_pan, physical_tilt = semantic_to_physical(
+        fixture.spatial, pan=motion.pan, tilt=motion.tilt
+    )
+    role_locals = pan_tilt_role_locals(profile)
+    pan_enc = encode_axis_dmx(physical_pan, has_fine=role_locals["pan_fine"] is not None)
+    tilt_enc = encode_axis_dmx(physical_tilt, has_fine=role_locals["tilt_fine"] is not None)
 
-    pan_hi, pan_lo = _split_16bit(pan)
-    tilt_hi, tilt_lo = _split_16bit(tilt)
-
-    for role, value in (
-        (ChannelRole.PAN_COARSE, pan_hi),
-        (ChannelRole.PAN_FINE, pan_lo),
-        (ChannelRole.TILT_COARSE, tilt_hi),
-        (ChannelRole.TILT_FINE, tilt_lo),
+    for role, byte_value in (
+        (ChannelRole.PAN_COARSE, pan_enc.coarse),
+        (ChannelRole.PAN_FINE, pan_enc.fine),
+        (ChannelRole.TILT_COARSE, tilt_enc.coarse),
+        (ChannelRole.TILT_FINE, tilt_enc.fine),
     ):
+        if byte_value is None:
+            continue
         entries = roles.get(role)
         if not entries:
             continue
-        _write_local(frame, fixture, entries[0].local, value)
+        _write_local(frame, fixture, entries[0].local, int(byte_value))
+
+    if not confirmed:
+        # Keep motion channels only; force light-related roles to safe zero / closed.
+        _apply_service_channels(
+            frame,
+            fixture,
+            profile,
+            roles,
+            lit=False,
+            shutter_open=False,
+            strobe_level=0.0,
+        )
+        _apply_fixed_and_unused(frame, fixture, profile)
+        return
 
     color = intent.color.scaled(intent.dimmer)
     _write_role(frame, fixture, roles, ChannelRole.DIMMER, intent.dimmer)

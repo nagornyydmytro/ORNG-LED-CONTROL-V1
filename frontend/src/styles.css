@@ -1317,6 +1317,52 @@ select {
   gap: var(--s-3);
 }
 
+.beam-cal-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: var(--s-4);
+  width: 100%;
+}
+
+.beam-card {
+  width: 100%;
+}
+
+.beam-card__roles {
+  width: 100%;
+}
+
+.beam-card__slider {
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.beam-card__slider input[type="number"] {
+  width: 5.5em;
+}
+
+.beam-card__status--ok {
+  color: var(--ok);
+}
+
+.beam-card__status--error {
+  color: var(--danger);
+}
+
+.beam-card__test {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  padding-top: var(--s-3);
+  border-top: 1px solid var(--line);
+  width: 100%;
+}
+
+.beam-card__dmx {
+  width: 100%;
+}
+
 .list {
   display: flex;
   flex-direction: column;

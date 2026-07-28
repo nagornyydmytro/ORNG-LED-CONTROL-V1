@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, inject, onMounted, reactive, ref, watch } from "vue";
+import { computed, inject, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { RouterLink } from "vue-router";
 import {
   fetchAppConfig,
@@ -10,13 +10,15 @@ import {
   saveLayout,
   savePatch,
   setupPost,
+  beamCalibrationEnd,
   validatePatch,
 } from "../api/setup";
 import { fetchStageLayout, postCommand, activateArtNet, deactivateArtNet, armOutput, disarmOutput, fetchArmBlockers } from "../api/client";
 import HardwareBadge from "../components/setup/HardwareBadge.vue";
+import BeamCalibrationCard from "../components/setup/BeamCalibrationCard.vue";
 import StageSimulator from "../components/simulator/StageSimulator.vue";
 import { APP_STATE_KEY } from "../composables/appStateKey";
-import type { StageLayout } from "../vite-env";
+import type { BeamCalibrationBeamView, StageLayout } from "../vite-env";
 
 const appState = inject(APP_STATE_KEY, null);
 
@@ -59,9 +61,43 @@ const fixtures = computed(() => {
   return Array.isArray(list) ? (list as Record<string, unknown>[]) : [];
 });
 
+/** Beam Left / Beam Right cards, ordered left → right (falls back to fixture id). */
+const beamFixturesOrdered = computed(() => {
+  const beams = fixtures.value.filter((fx) => fx.kind === "beam");
+  const sideOrder = (fx: Record<string, unknown>): number => {
+    const side = String((fx.spatial as Record<string, unknown> | undefined)?.side ?? "");
+    if (side === "left") return 0;
+    if (side === "right") return 1;
+    return 2;
+  };
+  return [...beams].sort((a, b) => {
+    const diff = sideOrder(a) - sideOrder(b);
+    if (diff !== 0) return diff;
+    return String(a.id).localeCompare(String(b.id));
+  });
+});
+
+const beamCalibrationState = computed(() => appState?.state.value?.beam_calibration ?? null);
+const beamSession = computed(() => beamCalibrationState.value?.session ?? null);
+
+function beamStateFor(fixtureId: string): BeamCalibrationBeamView | null {
+  return (
+    beamCalibrationState.value?.beams.find((entry) => entry.fixture_id === fixtureId) ?? null
+  );
+}
+
+async function endBeamCalibrationIfActive() {
+  if (!beamSession.value?.active) return;
+  try {
+    await beamCalibrationEnd();
+    await appState?.refreshRest?.();
+  } catch {
+    // best-effort safety stop when leaving the step / page
+  }
+}
+
 const calibration = reactive({
   barInvertNotes: "Фізична орієнтація сегментів Bars — PENDING HARDWARE",
-  beamNotes: "Pan/tilt home, invert і робочі межі — PENDING HARDWARE",
 });
 
 const artnetBusy = ref(false);
@@ -351,7 +387,10 @@ function updateSpatial(fixtureId: string, field: string, value: boolean) {
   patch.value = { ...patch.value!, fixtures: list };
 }
 
-watch(step, async (next) => {
+watch(step, async (next, previous) => {
+  if (previous === 7 && next !== 7) {
+    await endBeamCalibrationIfActive();
+  }
   if (next === 9) {
     readiness.value = await fetchReadiness();
   }
@@ -359,6 +398,10 @@ watch(step, async (next) => {
 
 onMounted(() => {
   void loadAll();
+});
+
+onBeforeUnmount(() => {
+  void endBeamCalibrationIfActive();
 });
 </script>
 
@@ -827,18 +870,18 @@ onMounted(() => {
           {{ calibration.barInvertNotes }}
         </p>
         <p class="hint">
-          {{ calibration.beamNotes }}
+          Pan/Tilt у пресетах задаються відносно сцени. Інверсія, offset і безпечні межі
+          застосовуються окремо для кожної фізичної голови.
         </p>
+
+        <h3>Bars — invert_segments</h3>
         <div
-          v-for="fx in fixtures.filter((f) => f.kind === 'bar' || f.kind === 'beam')"
+          v-for="fx in fixtures.filter((f) => f.kind === 'bar')"
           :key="String(fx.id)"
           class="table-row"
         >
           <strong>{{ fx.label }}</strong>
-          <label
-            v-if="fx.kind === 'bar'"
-            class="check"
-          >
+          <label class="check">
             <input
               type="checkbox"
               :checked="Boolean((fx.spatial as Record<string, unknown>).invert_segments)"
@@ -846,24 +889,6 @@ onMounted(() => {
             >
             invert_segments (draft)
           </label>
-          <template v-else>
-            <label class="check">
-              <input
-                type="checkbox"
-                :checked="Boolean((fx.spatial as Record<string, unknown>).pan_invert)"
-                @change="updateSpatial(String(fx.id), 'pan_invert', ($event.target as HTMLInputElement).checked)"
-              >
-              pan_invert (draft)
-            </label>
-            <label class="check">
-              <input
-                type="checkbox"
-                :checked="Boolean((fx.spatial as Record<string, unknown>).tilt_invert)"
-                @change="updateSpatial(String(fx.id), 'tilt_invert', ($event.target as HTMLInputElement).checked)"
-              >
-              tilt_invert (draft)
-            </label>
-          </template>
         </div>
         <button
           type="button"
@@ -873,6 +898,17 @@ onMounted(() => {
         >
           Зберегти draft spatial flags
         </button>
+
+        <h3>Beam Heads — калібрування Pan/Tilt</h3>
+        <div class="beam-cal-grid">
+          <BeamCalibrationCard
+            v-for="fx in beamFixturesOrdered"
+            :key="String(fx.id)"
+            :fixture="{ id: String(fx.id), label: String(fx.label), spatial: fx.spatial as Record<string, unknown> }"
+            :beam-state="beamStateFor(String(fx.id))"
+            :session="beamSession"
+          />
+        </div>
       </div>
 
       <!-- 9 Tests -->

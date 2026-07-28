@@ -75,8 +75,31 @@ class Engine:
             self.active_preset_id = base.id
         for fixture in self.show.patch.fixtures:
             if fixture.kind is FixtureKind.BEAM and fixture.id not in self.beam_motion:
-                self.beam_motion[fixture.id] = BeamMotionState()
+                self.beam_motion[fixture.id] = BeamMotionState(
+                    pan=float(fixture.spatial.home_pan),
+                    tilt=float(fixture.spatial.home_tilt),
+                )
         self.overlays.master_brightness = self.show.app.master_brightness
+
+    def beam_limits_for(self, fixture_id: str) -> BeamMotionLimits:
+        fixture = next((fx for fx in self.show.patch.fixtures if fx.id == fixture_id), None)
+        if fixture is None:
+            return self.beam_limits
+        return BeamMotionLimits(
+            max_pan_speed=float(fixture.spatial.max_pan_speed),
+            max_tilt_speed=float(fixture.spatial.max_tilt_speed),
+        )
+
+    def reset_beam_motion_to_home(self, fixture_id: str | None = None) -> None:
+        for fixture in self.show.patch.fixtures:
+            if fixture.kind is not FixtureKind.BEAM:
+                continue
+            if fixture_id is not None and fixture.id != fixture_id:
+                continue
+            self.beam_motion[fixture.id] = BeamMotionState(
+                pan=float(fixture.spatial.home_pan),
+                tilt=float(fixture.spatial.home_tilt),
+            )
 
     @property
     def active_preset(self) -> PresetProgram:
@@ -261,8 +284,13 @@ class Engine:
         for fixture_id, intent in stage.fixtures.items():
             if not isinstance(intent, BeamIntent):
                 continue
-            state = self.beam_motion.setdefault(fixture_id, BeamMotionState())
-            step_beam(state, intent.pan, intent.tilt, dt_s, self.beam_limits)
+            fixture = next((fx for fx in self.show.patch.fixtures if fx.id == fixture_id), None)
+            home_pan = float(fixture.spatial.home_pan) if fixture is not None else 0.5
+            home_tilt = float(fixture.spatial.home_tilt) if fixture is not None else 0.5
+            state = self.beam_motion.setdefault(
+                fixture_id, BeamMotionState(pan=home_pan, tilt=home_tilt)
+            )
+            step_beam(state, intent.pan, intent.tilt, dt_s, self.beam_limits_for(fixture_id))
 
     def render_at(self, time_s: float, *, dt_s: float = 0.0) -> EngineSnapshot:
         """Render a deterministic frame for an absolute clock time."""

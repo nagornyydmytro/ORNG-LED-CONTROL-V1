@@ -41,6 +41,7 @@ from orng_led.output.contract import OutputError
 from orng_led.output.controller import OutputController
 from orng_led.presets.models import PresetDocument
 from orng_led.presets.store import PresetStore
+from orng_led.setup.beam_calibration import BeamCalibrationTestSession
 from orng_led.setup.raw_tester import RawTesterSession
 from orng_led.simulator.decode import decode_simulator_view
 
@@ -69,6 +70,7 @@ class AppRuntime:
     max_idempotency_keys: int = 256
     preview_speed: float = 1.0
     raw_tester: RawTesterSession = field(default_factory=RawTesterSession)
+    beam_calibration: BeamCalibrationTestSession = field(default_factory=BeamCalibrationTestSession)
     config_dir: Path = field(default_factory=default_config_dir)
     preset_store: PresetStore = field(default_factory=PresetStore)
     input_dispatcher: InputDispatcher | None = None
@@ -153,7 +155,9 @@ class AppRuntime:
         return snapshot
 
     def _source_frame(self, snap: EngineSnapshot | None = None) -> list[int]:
-        """Prepared source before wire gating (Raw session or engine output)."""
+        """Prepared source before wire gating (Raw / beam cal / engine)."""
+        if self.beam_calibration.active:
+            return list(self.beam_calibration.frame)
         if self.raw_tester.active:
             return list(self.raw_tester.frame)
         if snap is not None:
@@ -161,6 +165,8 @@ class AppRuntime:
         return list(self.engine.render_at(self.engine.clock.time(), dt_s=0.0).frame)
 
     def _source_owner(self, source: list[int]) -> str:
+        if self.beam_calibration.active:
+            return "beam_calibration_test"
         if self.raw_tester.active:
             return "raw_tester"
         if any(int(value) for value in source):
@@ -171,9 +177,12 @@ class AppRuntime:
         """Frame fed into output before wire policy.
 
         Raw tester values are visible as source while Blackout holds the wire at
-        zero via ``from_raw=True``. Engine frames already apply Blackout to the
-        preset base and keep Live Effects.
+        zero via ``from_raw=True``. Beam calibration publishes pan/tilt under
+        Blackout (light still gated in the session renderer). Engine frames
+        already apply Blackout to the preset base and keep Live Effects.
         """
+        if self.beam_calibration.active:
+            return list(self.beam_calibration.frame)
         if self.raw_tester.active:
             return list(self.raw_tester.frame)
         if snap is not None:
@@ -184,11 +193,14 @@ class AppRuntime:
         """Actual outbound frame after arm / Raw-under-Blackout wire policy."""
         return self.output.wire_frame(
             self._source_frame(snap),
-            from_raw=self.raw_tester.active,
+            from_raw=self.raw_tester.active and not self.beam_calibration.active,
         )
 
     def _publish_frame(self, frame: list[int], *, from_raw: bool | None = None) -> None:
-        raw = self.raw_tester.active if from_raw is None else from_raw
+        if from_raw is None:
+            raw = self.raw_tester.active and not self.beam_calibration.active
+        else:
+            raw = from_raw
         try:
             self.output.publish(frame, from_raw=raw)
         except OutputError:
@@ -198,7 +210,10 @@ class AppRuntime:
         snap = self.engine.render_at(self.engine.clock.time(), dt_s=0.0)
         out = self.output.status()
         source = self._source_frame(snap)
-        wire = self.output.wire_frame(source, from_raw=self.raw_tester.active)
+        wire = self.output.wire_frame(
+            source,
+            from_raw=self.raw_tester.active and not self.beam_calibration.active,
+        )
         source_sum = int(sum(source))
         source_nonzero = int(sum(1 for value in source if value))
         wire_sum = int(sum(wire))
@@ -250,7 +265,102 @@ class AppRuntime:
             raw_tester=self.raw_tester.as_dict(),
             preset_editor_preview=self._editor_preview_state(source=source, wire=wire),
             live_effects=self._live_effects_state(source=source, wire=wire),
+            beam_calibration=self._beam_calibration_state(source=source, wire=wire),
         )
+
+    def _beam_calibration_state(
+        self,
+        *,
+        source: list[int] | None = None,
+        wire: list[int] | None = None,
+    ) -> dict[str, object]:
+        from orng_led.config.models import FixtureKind
+        from orng_led.engine.beam_transform import (
+            encode_fixture_pan_tilt,
+            pan_tilt_role_locals,
+            semantic_to_physical,
+        )
+        from orng_led.setup.beam_calibration import visible_beam_blockers
+
+        src = source if source is not None else self._source_frame()
+        wr = wire if wire is not None else self._wire_frame()
+        beams: list[dict[str, object]] = []
+        for fixture in self.show.patch.fixtures:
+            if fixture.kind is not FixtureKind.BEAM:
+                continue
+            placement = self.show.layout.placement_for(fixture.id)
+            profile = self.show.profile_for(fixture)
+            motion = self.engine.beam_motion.get(fixture.id)
+            semantic_pan = float(motion.pan) if motion else float(fixture.spatial.home_pan)
+            semantic_tilt = float(motion.tilt) if motion else float(fixture.spatial.home_tilt)
+            if self.beam_calibration.active and self.beam_calibration.fixture_id == fixture.id:
+                semantic_pan = float(self.beam_calibration.semantic_pan)
+                semantic_tilt = float(self.beam_calibration.semantic_tilt)
+            physical_pan, physical_tilt = semantic_to_physical(
+                fixture.spatial, pan=semantic_pan, tilt=semantic_tilt
+            )
+            roles = pan_tilt_role_locals(profile)
+            encoded = encode_fixture_pan_tilt(
+                fixture, profile, semantic_pan=semantic_pan, semantic_tilt=semantic_tilt
+            )
+            confirmed = bool(fixture.spatial.beam_calibration_confirmed)
+            blocker = None
+            if not confirmed:
+                blocker = "Не відкалібровано — фізичний світ Beam заблоковано"
+            beams.append(
+                {
+                    "fixture_id": fixture.id,
+                    "label": fixture.label,
+                    "side": fixture.spatial.side.value,
+                    "start_address": fixture.start_address,
+                    "mount": placement.mount.value if placement else None,
+                    "calibration_confirmed": confirmed,
+                    "pan_invert": fixture.spatial.pan_invert,
+                    "tilt_invert": fixture.spatial.tilt_invert,
+                    "pan_offset": fixture.spatial.pan_offset,
+                    "tilt_offset": fixture.spatial.tilt_offset,
+                    "pan_min": fixture.spatial.pan_min,
+                    "pan_max": fixture.spatial.pan_max,
+                    "tilt_min": fixture.spatial.tilt_min,
+                    "tilt_max": fixture.spatial.tilt_max,
+                    "home_pan": fixture.spatial.home_pan,
+                    "home_tilt": fixture.spatial.home_tilt,
+                    "max_pan_speed": fixture.spatial.max_pan_speed,
+                    "max_tilt_speed": fixture.spatial.max_tilt_speed,
+                    "notes": fixture.spatial.beam_calibration_notes,
+                    "semantic_pan": semantic_pan,
+                    "semantic_tilt": semantic_tilt,
+                    "physical_pan": physical_pan,
+                    "physical_tilt": physical_tilt,
+                    "roles": roles,
+                    "encoded": {
+                        "pan_coarse": encoded["pan"].coarse,  # type: ignore[union-attr]
+                        "pan_fine": encoded["pan"].fine,  # type: ignore[union-attr]
+                        "tilt_coarse": encoded["tilt"].coarse,  # type: ignore[union-attr]
+                        "tilt_fine": encoded["tilt"].fine,  # type: ignore[union-attr]
+                        "pan_16bit": encoded["pan"].value_16bit,  # type: ignore[union-attr]
+                        "tilt_16bit": encoded["tilt"].value_16bit,  # type: ignore[union-attr]
+                    },
+                    "physical_output_blocker": blocker,
+                }
+            )
+        session = self.beam_calibration.as_dict()
+        if self.beam_calibration.active and self.beam_calibration.fixture_id:
+            fx = next(
+                (f for f in self.show.patch.fixtures if f.id == self.beam_calibration.fixture_id),
+                None,
+            )
+            if fx is not None:
+                session["visible_beam_blockers"] = visible_beam_blockers(
+                    self.show, fx, blackout=self.engine.overlays.blackout
+                )
+        return {
+            "session": session,
+            "beams": beams,
+            "source_nonzero_channels": int(sum(1 for value in src if value)),
+            "wire_nonzero_channels": int(sum(1 for value in wr if value)),
+            "source_owner": self._source_owner(src),
+        }
 
     def _composed_stage_now(self):
         """Rebuild the composed StageIntent used for coverage / debug (no beam step)."""
@@ -485,6 +595,8 @@ class AppRuntime:
         cached = self._idempotent(client_command_id)
         if cached is not None:
             return cached, True
+        if self.beam_calibration.active:
+            self.end_beam_calibration_test()
         self.output.disarm()
         state = self.build_state()
         self._remember(client_command_id, state)
@@ -506,6 +618,8 @@ class AppRuntime:
 
     def enter_raw_tester(self) -> AppStateResponse:
         """Start Raw as prepared source. Does not activate Art-Net, Arm, or clear Blackout."""
+        if self.beam_calibration.active:
+            self.end_beam_calibration_test()
         self.raw_tester.enter()
         self._publish_frame(self._source_frame())
         self.sequence += 1
@@ -595,6 +709,8 @@ class AppRuntime:
 
     def begin_fixture_channel_test(self, fixture_id: str) -> AppStateResponse:
         """Start Raw-backed single-fixture channel testing without touching Art-Net/Arm."""
+        if self.beam_calibration.active:
+            self.end_beam_calibration_test()
         fixture = next((fx for fx in self.show.patch.fixtures if fx.id == fixture_id), None)
         if fixture is None:
             raise KeyError(f"Unknown fixture {fixture_id!r}")
@@ -641,6 +757,169 @@ class AppRuntime:
 
     def end_fixture_channel_test(self) -> AppStateResponse:
         return self.exit_raw_tester()
+
+    def begin_beam_calibration_test(
+        self,
+        fixture_id: str,
+        *,
+        confirmed: bool = False,
+    ) -> AppStateResponse:
+        from orng_led.setup.beam_calibration import begin_blockers
+
+        if not confirmed:
+            raise ValueError(
+                "Початок калібрування Beam потребує явного підтвердження "
+                "(невідомий напрямок Pan/Tilt може викликати рух)"
+            )
+        blockers = begin_blockers(self.show, fixture_id)
+        if blockers:
+            raise ValueError(blockers[0])
+        if self.beam_calibration.active and self.beam_calibration.fixture_id != fixture_id:
+            raise ValueError(
+                "Вже активне калібрування іншої голови — спочатку зупиніть поточний тест"
+            )
+        if self.raw_tester.active:
+            self.exit_raw_tester()
+        fixture = next(fx for fx in self.show.patch.fixtures if fx.id == fixture_id)
+        # Start with a fully zeroed footprint — no auto home / sweep / light.
+        from orng_led.engine.frame import empty_frame
+
+        self.beam_calibration = BeamCalibrationTestSession(
+            active=True,
+            fixture_id=fixture_id,
+            semantic_pan=float(fixture.spatial.home_pan),
+            semantic_tilt=float(fixture.spatial.home_tilt),
+            frame=empty_frame(),
+        )
+        self._publish_frame(self.beam_calibration.frame, from_raw=False)
+        self.sequence += 1
+        return self.build_state()
+
+    def set_beam_calibration_position(
+        self,
+        *,
+        pan: float | None = None,
+        tilt: float | None = None,
+    ) -> AppStateResponse:
+        from orng_led.engine.beam_transform import clamp01
+        from orng_led.setup.beam_calibration import render_calibration_frame
+
+        if not self.beam_calibration.active:
+            raise ValueError("Калібрування Beam не активне")
+        if pan is not None:
+            self.beam_calibration.semantic_pan = clamp01(pan)
+        if tilt is not None:
+            self.beam_calibration.semantic_tilt = clamp01(tilt)
+        frame = render_calibration_frame(
+            self.show,
+            self.beam_calibration,
+            blackout=self.engine.overlays.blackout,
+        )
+        self._publish_frame(frame, from_raw=False)
+        self.sequence += 1
+        return self.build_state()
+
+    def set_beam_calibration_visible(
+        self,
+        *,
+        enabled: bool,
+        confirmed: bool = False,
+    ) -> AppStateResponse:
+        from orng_led.setup.beam_calibration import (
+            render_calibration_frame,
+            visible_beam_blockers,
+        )
+
+        if not self.beam_calibration.active or not self.beam_calibration.fixture_id:
+            raise ValueError("Калібрування Beam не активне")
+        fixture = next(
+            fx for fx in self.show.patch.fixtures if fx.id == self.beam_calibration.fixture_id
+        )
+        if enabled:
+            blockers = visible_beam_blockers(
+                self.show, fixture, blackout=self.engine.overlays.blackout
+            )
+            if blockers:
+                raise ValueError(blockers[0])
+            if not confirmed:
+                raise ValueError(
+                    "Видимий промінь потребує окремого підтвердження (мінімальна яскравість)"
+                )
+            self.beam_calibration.visible_beam_requested = True
+            self.beam_calibration.visible_beam_confirmed = True
+        else:
+            self.beam_calibration.visible_beam_requested = False
+            self.beam_calibration.visible_beam_confirmed = False
+        frame = render_calibration_frame(
+            self.show,
+            self.beam_calibration,
+            blackout=self.engine.overlays.blackout,
+        )
+        self._publish_frame(frame, from_raw=False)
+        self.sequence += 1
+        return self.build_state()
+
+    def beam_calibration_go_home(self) -> AppStateResponse:
+        if not self.beam_calibration.active or not self.beam_calibration.fixture_id:
+            raise ValueError("Калібрування Beam не активне")
+        fixture = next(
+            fx for fx in self.show.patch.fixtures if fx.id == self.beam_calibration.fixture_id
+        )
+        return self.set_beam_calibration_position(
+            pan=float(fixture.spatial.home_pan),
+            tilt=float(fixture.spatial.home_tilt),
+        )
+
+    def end_beam_calibration_test(self) -> AppStateResponse:
+        from orng_led.engine.frame import empty_frame
+
+        fixture_id = self.beam_calibration.fixture_id
+        # Force light off and clear footprint before dropping the session.
+        if fixture_id:
+            fixture = next((fx for fx in self.show.patch.fixtures if fx.id == fixture_id), None)
+            if fixture is not None:
+                profile = self.show.profile_for(fixture)
+                frame = empty_frame()
+                for local in range(1, profile.footprint + 1):
+                    from orng_led.config.validation import global_channel
+
+                    frame[global_channel(fixture.start_address, local) - 1] = 0
+                self.beam_calibration.frame = frame
+                self.beam_calibration.visible_beam_requested = False
+                self.beam_calibration.visible_beam_confirmed = False
+                self._publish_frame(frame, from_raw=False)
+        self.beam_calibration = BeamCalibrationTestSession()
+        self._publish_frame(self._published_frame(), from_raw=False)
+        self.sequence += 1
+        return self.build_state()
+
+    def save_beam_calibration(self, fixture_id: str, spatial_update: dict) -> AppStateResponse:
+        """Persist per-head Beam calibration into patch.yaml and hot-reload."""
+        from orng_led.config.models import FixtureKind, SpatialPlacement
+        from orng_led.config.validation import global_channel
+        from orng_led.engine.frame import empty_frame
+
+        fixture = next((fx for fx in self.show.patch.fixtures if fx.id == fixture_id), None)
+        if fixture is None or fixture.kind is not FixtureKind.BEAM:
+            raise KeyError(f"Unknown beam fixture {fixture_id!r}")
+        # Clear old footprint before applying new transform.
+        profile = self.show.profile_for(fixture)
+        clear = empty_frame()
+        for local in range(1, profile.footprint + 1):
+            clear[global_channel(fixture.start_address, local) - 1] = 0
+        self._publish_frame(clear, from_raw=False)
+
+        current = fixture.spatial.model_dump(mode="json")
+        current.update(spatial_update)
+        new_spatial = SpatialPlacement.model_validate(current)
+        fixtures = []
+        for fx in self.show.patch.fixtures:
+            if fx.id == fixture_id:
+                fixtures.append(fx.model_copy(update={"spatial": new_spatial}))
+            else:
+                fixtures.append(fx)
+        patch = self.show.patch.model_copy(update={"fixtures": fixtures})
+        return self.save_patch(patch.model_dump(mode="json"), reset_beam_motion_id=fixture_id)
 
     def channel_role_catalog(self) -> list[dict[str, str]]:
         from orng_led.config.models import ChannelRole
@@ -793,7 +1072,12 @@ class AppRuntime:
         self.output.use_mock()
         return self.build_state()
 
-    def save_patch(self, data: dict) -> AppStateResponse:
+    def save_patch(
+        self,
+        data: dict,
+        *,
+        reset_beam_motion_id: str | None = None,
+    ) -> AppStateResponse:
         patch = parse_model(PatchDocument, data, source="patch.yaml")
         errors = collect_patch_errors(patch, self.show.profiles)
         if errors:
@@ -809,6 +1093,10 @@ class AppRuntime:
         save_model(self.config_dir / "patch.yaml", patch)
         self.show = self.show.model_copy(update={"patch": patch})
         self.engine.show = self.show
+        if reset_beam_motion_id:
+            self.engine.reset_beam_motion_to_home(reset_beam_motion_id)
+        self._publish_frame(self._published_frame())
+        self.sequence += 1
         return self.build_state()
 
     def save_profile(self, data: dict) -> AppStateResponse:
@@ -840,6 +1128,8 @@ class AppRuntime:
         return self.build_state()
 
     def reload_from_disk(self) -> AppStateResponse:
+        if self.beam_calibration.active:
+            self.end_beam_calibration_test()
         if self.raw_tester.active:
             self.exit_raw_tester()
         loaded = load_show_config(self.config_dir)
@@ -1295,6 +1585,8 @@ class AppRuntime:
         if self.raw_tester.active:
             # Editor preview must own the engine base path, not Raw channels.
             self.exit_raw_tester()
+        if self.beam_calibration.active:
+            self.end_beam_calibration_test()
 
         if not self.engine.editor_preview_active:
             self._editor_preview_meta = {
@@ -1338,6 +1630,8 @@ class AppRuntime:
 
     def on_ws_disconnect(self) -> None:
         # Losing the controlling socket must clear held actions, not stop the show.
+        if self.beam_calibration.active:
+            self.end_beam_calibration_test()
         self.output.on_disconnect()
         if self.input_dispatcher is not None:
             self.input_dispatcher.debouncer.clear()
@@ -1369,6 +1663,8 @@ class AppRuntime:
         if self.engine.editor_preview_active:
             self.engine.stop_editor_preview()
             self._editor_preview_meta = {}
+        if self.beam_calibration.active:
+            self.end_beam_calibration_test()
         if self.raw_tester.active:
             self.exit_raw_tester()
         task = self._loop_task

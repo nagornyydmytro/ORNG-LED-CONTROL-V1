@@ -42,8 +42,8 @@ const layout: StageLayout = {
     placement("par_2", "par", 0.37, 0.865),
     placement("par_3", "par", 0.63, 0.865),
     placement("par_4", "par", 0.74, 0.745),
-    placement("beam_left", "beam", 0.4, 0.255),
-    placement("beam_right", "beam", 0.6, 0.255),
+    placement("beam_left", "beam", 0.4, 0.255, { mount: "ceiling" }),
+    placement("beam_right", "beam", 0.6, 0.255, { mount: "ceiling" }),
     placement("bar_1", "bar", 0.33, 0.525, {
       orientation: "vertical" as const,
       width: 0.017,

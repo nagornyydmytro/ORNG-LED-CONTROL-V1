@@ -260,6 +260,18 @@ function drawBeam(
   ctx.strokeRect(-radius, -radius * 0.9, radius * 2, radius * 1.8);
   ctx.restore();
 
+  // Ceiling-mounted rig: a small base plate above the head reads as a
+  // hanging fixture (base up, head down) instead of a floor/truss unit.
+  if (placement.mount === "ceiling") {
+    const baseW = radius * 2.2;
+    const baseH = radius * 0.6;
+    ctx.fillStyle = "rgba(70, 74, 84, 0.95)";
+    ctx.fillRect(head.x - baseW / 2, head.y - radius - baseH, baseW, baseH);
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.18)";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(head.x - baseW / 2, head.y - radius - baseH, baseW, baseH);
+  }
+
   ctx.beginPath();
   ctx.arc(head.x, head.y, radius * 0.55, 0, Math.PI * 2);
   ctx.fillStyle = level > 0.02 ? css(colour, 0.35 + 0.65 * level) : "rgba(70, 74, 84, 0.9)";

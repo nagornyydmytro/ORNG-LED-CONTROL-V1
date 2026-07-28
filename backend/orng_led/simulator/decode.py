@@ -51,6 +51,8 @@ class BeamFixtureView(StrictView):
     order: int | None = None
     pan: float
     tilt: float
+    physical_pan: float = 0.5
+    physical_tilt: float = 0.5
     dimmer: float
     shutter_open: bool
     r: float = 0.0
@@ -63,6 +65,9 @@ class BeamFixtureView(StrictView):
     hit_x: float = 0.5
     hit_z: float = 0.5
     throw: float = 0.0
+    mount: str = "truss"
+    calibration_confirmed: bool = False
+    calibration_blocker: str | None = None
 
 
 class SimulatorView(StrictView):
@@ -180,28 +185,31 @@ def decode_simulator_view(show: ShowConfig, frame: list[int]) -> SimulatorView:
             )
 
         elif fixture.kind is FixtureKind.BEAM:
+            from orng_led.engine.beam_transform import (
+                decode_axis_dmx,
+                physical_to_semantic,
+            )
+
             pan_c = _role_locals(channels, ChannelRole.PAN_COARSE)
             pan_f = _role_locals(channels, ChannelRole.PAN_FINE)
             tilt_c = _role_locals(channels, ChannelRole.TILT_COARSE)
             tilt_f = _role_locals(channels, ChannelRole.TILT_FINE)
             shutter = _role_locals(channels, ChannelRole.SHUTTER)
 
-            pan_hi = _read(frame, start, pan_c[0][0]) if pan_c else 0
-            pan_lo = _read(frame, start, pan_f[0][0]) if pan_f else 0
-            tilt_hi = _read(frame, start, tilt_c[0][0]) if tilt_c else 0
-            tilt_lo = _read(frame, start, tilt_f[0][0]) if tilt_f else 0
-            pan = ((pan_hi << 8) | pan_lo) / 65535.0
-            tilt = ((tilt_hi << 8) | tilt_lo) / 65535.0
-            if fixture.spatial.pan_invert:
-                pan = 1.0 - pan
-            if fixture.spatial.tilt_invert:
-                tilt = 1.0 - tilt
+            pan_coarse = _read(frame, start, pan_c[0][0]) if pan_c else 0
+            pan_fine = _read(frame, start, pan_f[0][0]) if pan_f else None
+            tilt_coarse = _read(frame, start, tilt_c[0][0]) if tilt_c else 0
+            tilt_fine = _read(frame, start, tilt_f[0][0]) if tilt_f else None
+            physical_pan = decode_axis_dmx(pan_coarse, pan_fine if pan_f else None)
+            physical_tilt = decode_axis_dmx(tilt_coarse, tilt_fine if tilt_f else None)
+            pan, tilt = physical_to_semantic(fixture.spatial, pan=physical_pan, tilt=physical_tilt)
             shutter_level = _u8(frame, start, shutter[0][0] if shutter else None)
 
             placement = show.layout.placement_for(fixture.id)
             origin_x = placement.x if placement else 0.5
             origin_y = (1.0 - placement.y) if placement else 0.75
             origin_z = placement.z if placement else 0.85
+            mount = placement.mount.value if placement is not None else "truss"
             vector = beam_vector(
                 pan=pan,
                 tilt=tilt,
@@ -218,11 +226,12 @@ def decode_simulator_view(show: ShowConfig, frame: list[int]) -> SimulatorView:
                 channels, ChannelRole.WHOLE_COLOR
             )
             if dimmer > 0.02 and r + g + b < 0.05 and color_wheel:
-                # Palette/wheel heads: show semantic white when dimmer is up.
                 r = g = b = dimmer
-            # If shutter is unmapped but dimmer is active, treat as open for visualization.
             if not shutter and dimmer > 0.02:
                 shutter_level = 1.0
+
+            confirmed = bool(fixture.spatial.beam_calibration_confirmed)
+            blocker = None if confirmed else "Не відкалібровано — фізичний світ Beam заблоковано"
 
             beams.append(
                 BeamFixtureView(
@@ -233,6 +242,8 @@ def decode_simulator_view(show: ShowConfig, frame: list[int]) -> SimulatorView:
                     order=fixture.spatial.order,
                     pan=pan,
                     tilt=tilt,
+                    physical_pan=physical_pan,
+                    physical_tilt=physical_tilt,
                     dimmer=dimmer,
                     shutter_open=shutter_level > 0.05 or dimmer > 0.02,
                     r=r,
@@ -245,6 +256,9 @@ def decode_simulator_view(show: ShowConfig, frame: list[int]) -> SimulatorView:
                     hit_x=vector.hit_x,
                     hit_z=vector.hit_z,
                     throw=vector.throw,
+                    mount=mount,
+                    calibration_confirmed=confirmed,
+                    calibration_blocker=blocker,
                 )
             )
 

@@ -31,6 +31,67 @@ const samplePatch = {
       groups: ["par"],
       spatial: { side: "left", ring: "outer", face: false, order: 1 },
     },
+    {
+      id: "bar_1",
+      profile_id: "bar_provisional",
+      label: "Bar 1",
+      start_address: 10,
+      kind: "bar",
+      groups: ["bar"],
+      spatial: { side: "left", ring: "outer", face: false, order: 1, invert_segments: false },
+    },
+    {
+      id: "beam_left",
+      profile_id: "beam_provisional",
+      label: "Beam Left",
+      start_address: 20,
+      kind: "beam",
+      groups: ["beam"],
+      spatial: {
+        side: "left",
+        ring: "none",
+        face: false,
+        pan_invert: false,
+        tilt_invert: false,
+        pan_offset: 0,
+        tilt_offset: 0,
+        pan_min: 0,
+        pan_max: 1,
+        tilt_min: 0,
+        tilt_max: 1,
+        home_pan: 0.5,
+        home_tilt: 0.5,
+        max_pan_speed: 0.35,
+        max_tilt_speed: 0.25,
+        beam_calibration_confirmed: false,
+      },
+    },
+    {
+      id: "beam_right",
+      profile_id: "beam_provisional",
+      label: "Beam Right",
+      start_address: 30,
+      kind: "beam",
+      groups: ["beam"],
+      spatial: {
+        side: "right",
+        ring: "none",
+        face: false,
+        pan_invert: false,
+        tilt_invert: false,
+        pan_offset: 0,
+        tilt_offset: 0,
+        pan_min: 0,
+        pan_max: 1,
+        tilt_min: 0,
+        tilt_max: 1,
+        home_pan: 0.5,
+        home_tilt: 0.5,
+        max_pan_speed: 0.35,
+        max_tilt_speed: 0.25,
+        beam_calibration_confirmed: false,
+      },
+    },
   ],
 };
 
@@ -42,6 +103,27 @@ const sampleProfiles = {
     footprint: 7,
     hardware_verified: false,
     channels: [{ local: 1, role: "dimmer" }],
+  },
+  bar_provisional: {
+    id: "bar_provisional",
+    label: "Bar",
+    kind: "bar",
+    footprint: 9,
+    hardware_verified: false,
+    channels: [{ local: 1, role: "dimmer" }],
+  },
+  beam_provisional: {
+    id: "beam_provisional",
+    label: "Beam",
+    kind: "beam",
+    footprint: 8,
+    hardware_verified: false,
+    channels: [
+      { local: 1, role: "pan_coarse" },
+      { local: 2, role: "pan_fine" },
+      { local: 3, role: "tilt_coarse" },
+      { local: 4, role: "tilt_fine" },
+    ],
   },
 };
 
@@ -243,6 +325,30 @@ describe("SetupView wizard", () => {
     expect(wrapper.text()).toContain("Raw DMX tester");
     expect(wrapper.text()).toContain("Вийти та скинути в нулі");
     expect(wrapper.text()).toContain("Підготовлений source-кадр");
+  });
+
+  it("shows Beam Left / Beam Right calibration cards on step 8 (not draft checkboxes)", async () => {
+    const wrapper = mountSetup();
+    await flushPromises();
+    const steps = wrapper.findAll(".wizard-step");
+    await steps[7].trigger("click");
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("8. Калібрація Bars / Beam");
+    expect(wrapper.text()).toContain("Beam Left");
+    expect(wrapper.text()).toContain("Beam Right");
+    expect(wrapper.text()).toContain("pan_invert");
+    expect(wrapper.text()).toContain("tilt_invert");
+    expect(wrapper.text()).not.toContain("pan_invert (draft)");
+    expect(wrapper.text()).not.toContain("tilt_invert (draft)");
+    // Bar invert_segments UI stays as-is.
+    expect(wrapper.text()).toContain("invert_segments (draft)");
+    // Synced slider+number fields for offsets / home are present.
+    expect(wrapper.text()).toContain("Pan offset");
+    expect(wrapper.text()).toContain("Home Pan");
+    expect(wrapper.text()).toContain("Home Tilt");
+    expect(wrapper.text()).toContain("Не відкалібровано");
+    expect(wrapper.text()).toContain("Почати калібрування руху");
   });
 
   it("keeps Raw session across 6→1→6 without calling exit", async () => {

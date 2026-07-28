@@ -161,6 +161,44 @@ export const DEFAULT_CHANNEL_PALETTE: Record<(typeof PALETTE_KEYS)[number], numb
   purple: 112,
 };
 
+export async function beamCalibrationBegin(
+  fixtureId: string,
+  confirmed: boolean,
+): Promise<CommandAck> {
+  return setupPost("beam-calibration/begin", { fixture_id: fixtureId, confirmed });
+}
+
+export async function beamCalibrationSet(
+  position: { pan?: number; tilt?: number },
+): Promise<CommandAck> {
+  const body: Record<string, unknown> = {};
+  if (position.pan !== undefined) body.pan = position.pan;
+  if (position.tilt !== undefined) body.tilt = position.tilt;
+  return setupPost("beam-calibration/set", body);
+}
+
+export async function beamCalibrationVisible(
+  enabled: boolean,
+  confirmed: boolean,
+): Promise<CommandAck> {
+  return setupPost("beam-calibration/visible", { enabled, confirmed });
+}
+
+export async function beamCalibrationHome(): Promise<CommandAck> {
+  return setupPost("beam-calibration/home");
+}
+
+export async function beamCalibrationEnd(): Promise<CommandAck> {
+  return setupPost("beam-calibration/end");
+}
+
+export async function beamCalibrationSave(
+  fixtureId: string,
+  payload: Record<string, unknown>,
+): Promise<CommandAck> {
+  return setupPost("beam-calibration/save", { fixture_id: fixtureId, ...payload });
+}
+
 export async function fetchChannelRoles(): Promise<ChannelRoleOption[]> {
   try {
     const body = await parseJson<{ roles: ChannelRoleOption[] }>(

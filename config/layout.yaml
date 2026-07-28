@@ -106,7 +106,8 @@ placements:
     aim_z: -0.84
     zone: bottom_par_row
 
-  # Moving heads: top centre pair, Left on the left, Right on the right.
+  # Moving heads: ceiling-mounted (base up, head hanging down).
+  # mount=ceiling does NOT imply pan/tilt invert — calibrate per head in Setup step 8.
   - fixture_id: beam_left
     kind: beam
     x: 0.40
@@ -115,11 +116,14 @@ placements:
     width: 0.05
     height: 0.062
     orientation: point
-    mount: truss
+    mount: ceiling
     aim_x: -0.15
     aim_y: -0.95
     aim_z: -0.27
     zone: top_center
+    notes: >
+      Стельовий підвіс: основа зверху, голова звисає вниз.
+      Ліва з боку глядача. Invert/offset/limits — PENDING HARDWARE.
   - fixture_id: beam_right
     kind: beam
     x: 0.60
@@ -128,11 +132,14 @@ placements:
     width: 0.05
     height: 0.062
     orientation: point
-    mount: truss
+    mount: ceiling
     aim_x: 0.15
     aim_y: -0.95
     aim_z: -0.27
     zone: top_center
+    notes: >
+      Стельовий підвіс: основа зверху, голова звисає вниз.
+      Права з боку глядача. Invert/offset/limits — PENDING HARDWARE.
 
   # Four vertical Bars in one horizontal centre row.
   - fixture_id: bar_1

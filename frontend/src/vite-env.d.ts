@@ -48,7 +48,7 @@ export interface OutputState {
   source_nonzero_channels?: number;
   wire_frame_sum?: number;
   wire_nonzero_channels?: number;
-  source_owner?: "raw_tester" | "engine" | "none";
+  source_owner?: "raw_tester" | "engine" | "none" | "beam_calibration_test";
 }
 
 export interface ParFixtureView {
@@ -88,6 +88,9 @@ export interface BeamFixtureView {
   order?: number | null;
   pan: number;
   tilt: number;
+  /** Physical (post-calibration) normalized pan/tilt actually on the wire. */
+  physical_pan?: number;
+  physical_tilt?: number;
   dimmer: number;
   shutter_open: boolean;
   r: number;
@@ -100,6 +103,78 @@ export interface BeamFixtureView {
   hit_x: number;
   hit_z: number;
   throw: number;
+  /** Physical rig mount from layout.yaml (e.g. "ceiling", "truss"). */
+  mount?: string;
+  /** Whether beam_calibration_confirmed is set for this head. */
+  calibration_confirmed?: boolean;
+  /** Human-readable reason the physical Beam output is blocked, if any. */
+  calibration_blocker?: string | null;
+}
+
+export interface BeamCalibrationRoles {
+  pan_coarse: number | null;
+  pan_fine: number | null;
+  tilt_coarse: number | null;
+  tilt_fine: number | null;
+}
+
+export interface BeamCalibrationEncoded {
+  pan_coarse: number;
+  pan_fine: number | null;
+  tilt_coarse: number;
+  tilt_fine: number | null;
+  pan_16bit: number | null;
+  tilt_16bit: number | null;
+}
+
+export interface BeamCalibrationBeamView {
+  fixture_id: string;
+  label: string;
+  side: string;
+  start_address: number;
+  mount: string | null;
+  calibration_confirmed: boolean;
+  pan_invert: boolean;
+  tilt_invert: boolean;
+  pan_offset: number;
+  tilt_offset: number;
+  pan_min: number;
+  pan_max: number;
+  tilt_min: number;
+  tilt_max: number;
+  home_pan: number;
+  home_tilt: number;
+  max_pan_speed: number;
+  max_tilt_speed: number;
+  notes: string | null;
+  semantic_pan: number;
+  semantic_tilt: number;
+  physical_pan: number;
+  physical_tilt: number;
+  roles: BeamCalibrationRoles;
+  encoded: BeamCalibrationEncoded;
+  physical_output_blocker: string | null;
+}
+
+export interface BeamCalibrationSessionView {
+  active: boolean;
+  fixture_id: string | null;
+  semantic_pan: number;
+  semantic_tilt: number;
+  visible_beam_requested: boolean;
+  visible_beam_confirmed: boolean;
+  visible_beam_on: boolean;
+  nonzero_channels: number;
+  last_error: string | null;
+  visible_beam_blockers?: string[];
+}
+
+export interface BeamCalibrationState {
+  session: BeamCalibrationSessionView;
+  beams: BeamCalibrationBeamView[];
+  source_nonzero_channels: number;
+  wire_nonzero_channels: number;
+  source_owner: string;
 }
 
 export interface StagePlacement {
@@ -167,6 +242,7 @@ export interface AppState {
   } | null;
   preset_editor_preview?: PresetEditorPreviewState | null;
   live_effects?: LiveEffectsState | null;
+  beam_calibration?: BeamCalibrationState | null;
 }
 
 export interface PresetEditorPreviewState {

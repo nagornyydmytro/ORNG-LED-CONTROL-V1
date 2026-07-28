@@ -174,8 +174,10 @@ Beam Left → Bar 1 → Bar 2 → Bar 3 → Bar 4 → верхний правы�
 PAR. Пересечение линий на эскизе — только пересечение кабелей на рисунке.
 
 Эскиз фиксирует расстановку и топологию. Он **не** подтверждает DMX-адреса,
-карты каналов, пределы Pan/Tilt и физическую ориентацию Beam: эти параметры
-остаются `PENDING HARDWARE`, а `hardware_verified` — `false`.
+карты каналов, пределы Pan/Tilt и физическую калибровку Beam: эти параметры
+остаются `PENDING HARDWARE`, а `hardware_verified` — `false`. Обе головы
+зафиксированы как ceiling-mounted (`mount: ceiling`); invert/offset/limits/home
+калибруются индивидуально в Setup → шаг 8 и не выводятся из mount автоматически.
 
 ## 4. Предварительный DMX patch
 
@@ -529,7 +531,8 @@ GPIO adapter — отдельный будущий аппаратный этап
 - физические стартовые адреса;
 - channel modes;
 - ориентацию Bars;
-- Beam limits/invert/home/speed;
+- физическую калибровку Beam (invert/offset/home/limits/speed на объекте;
+  программная поддержка ceiling + per-head calibration уже есть);
 - реальные цвета, shutter, dimmer, strobe и reset ranges;
 - сценическую доводку пресетов;
 - Raspberry Pi и GPIO.

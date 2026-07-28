@@ -11,6 +11,10 @@ from orng_led.api.schemas import (
     ActivateArtNetCommand,
     AppStateResponse,
     ArmOutputCommand,
+    BeamCalibrationBeginCommand,
+    BeamCalibrationPositionCommand,
+    BeamCalibrationSaveCommand,
+    BeamCalibrationVisibleCommand,
     BlackoutCommand,
     ColorHitCommand,
     CommandAck,
@@ -334,6 +338,85 @@ def build_api_router() -> APIRouter:
     async def fixture_test_end(request: Request) -> CommandAck:
         runtime = get_runtime(request)
         state = runtime.end_fixture_channel_test()
+        await runtime.broadcast_state()
+        return CommandAck(state=state)
+
+    @router.post("/setup/beam-calibration/begin", response_model=CommandAck)
+    async def beam_cal_begin(
+        body: BeamCalibrationBeginCommand,
+        request: Request,
+    ) -> CommandAck:
+        runtime = get_runtime(request)
+        try:
+            state = runtime.begin_beam_calibration_test(
+                body.fixture_id,
+                confirmed=body.confirmed,
+            )
+        except (KeyError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        await runtime.broadcast_state()
+        return CommandAck(state=state)
+
+    @router.post("/setup/beam-calibration/set", response_model=CommandAck)
+    async def beam_cal_set(
+        body: BeamCalibrationPositionCommand,
+        request: Request,
+    ) -> CommandAck:
+        runtime = get_runtime(request)
+        try:
+            state = runtime.set_beam_calibration_position(pan=body.pan, tilt=body.tilt)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        await runtime.broadcast_state()
+        return CommandAck(state=state)
+
+    @router.post("/setup/beam-calibration/visible", response_model=CommandAck)
+    async def beam_cal_visible(
+        body: BeamCalibrationVisibleCommand,
+        request: Request,
+    ) -> CommandAck:
+        runtime = get_runtime(request)
+        try:
+            state = runtime.set_beam_calibration_visible(
+                enabled=body.enabled,
+                confirmed=body.confirmed,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        await runtime.broadcast_state()
+        return CommandAck(state=state)
+
+    @router.post("/setup/beam-calibration/home", response_model=CommandAck)
+    async def beam_cal_home(request: Request) -> CommandAck:
+        runtime = get_runtime(request)
+        try:
+            state = runtime.beam_calibration_go_home()
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        await runtime.broadcast_state()
+        return CommandAck(state=state)
+
+    @router.post("/setup/beam-calibration/end", response_model=CommandAck)
+    async def beam_cal_end(request: Request) -> CommandAck:
+        runtime = get_runtime(request)
+        state = runtime.end_beam_calibration_test()
+        await runtime.broadcast_state()
+        return CommandAck(state=state)
+
+    @router.post("/setup/beam-calibration/save", response_model=CommandAck)
+    async def beam_cal_save(
+        body: BeamCalibrationSaveCommand,
+        request: Request,
+    ) -> CommandAck:
+        runtime = get_runtime(request)
+        try:
+            state = runtime.save_beam_calibration(body.fixture_id, body.spatial_update())
+        except (KeyError, ValueError) as exc:
+            from orng_led.config.models import ConfigError
+
+            if isinstance(exc, ConfigError):
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         await runtime.broadcast_state()
         return CommandAck(state=state)
 

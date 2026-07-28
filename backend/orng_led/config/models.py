@@ -232,6 +232,8 @@ class FixtureProfile(StrictModel):
 
 
 class SpatialPlacement(StrictModel):
+    """Per-fixture spatial + Beam orientation calibration (instance-level)."""
+
     side: Side
     ring: Ring = Ring.NONE
     face: bool = False
@@ -239,7 +241,33 @@ class SpatialPlacement(StrictModel):
     invert_segments: bool = False
     pan_invert: bool = False
     tilt_invert: bool = False
+    # Beam calibration (defaults preserve prior Mock behaviour).
+    pan_offset: Annotated[float, Field(ge=-0.5, le=0.5)] = 0.0
+    tilt_offset: Annotated[float, Field(ge=-0.5, le=0.5)] = 0.0
+    pan_min: Annotated[float, Field(ge=0.0, le=1.0)] = 0.0
+    pan_max: Annotated[float, Field(ge=0.0, le=1.0)] = 1.0
+    tilt_min: Annotated[float, Field(ge=0.0, le=1.0)] = 0.0
+    tilt_max: Annotated[float, Field(ge=0.0, le=1.0)] = 1.0
+    home_pan: Annotated[float, Field(ge=0.0, le=1.0)] = 0.5
+    home_tilt: Annotated[float, Field(ge=0.0, le=1.0)] = 0.5
+    max_pan_speed: Annotated[float, Field(gt=0.0, le=2.0)] = 0.35
+    max_tilt_speed: Annotated[float, Field(gt=0.0, le=2.0)] = 0.25
+    beam_calibration_confirmed: bool = False
+    beam_calibration_notes: str | None = None
     notes: str | None = None
+
+    @model_validator(mode="after")
+    def _validate_beam_ranges(self) -> SpatialPlacement:
+        if self.pan_min >= self.pan_max:
+            raise ConfigError(
+                f"pan_min must be < pan_max (got pan_min={self.pan_min}, pan_max={self.pan_max})"
+            )
+        if self.tilt_min >= self.tilt_max:
+            raise ConfigError(
+                f"tilt_min must be < tilt_max "
+                f"(got tilt_min={self.tilt_min}, tilt_max={self.tilt_max})"
+            )
+        return self
 
 
 class FixtureInstance(StrictModel):
@@ -333,6 +361,12 @@ class PatchDocument(StrictModel):
     @classmethod
     def _check_schema(cls, value: int) -> int:
         return require_supported_schema_version(value)
+
+    def fixture(self, fixture_id: str) -> FixtureInstance:
+        for fixture in self.fixtures:
+            if fixture.id == fixture_id:
+                return fixture
+        raise KeyError(f"Unknown fixture {fixture_id!r}")
 
 
 class ArtNetSettings(StrictModel):

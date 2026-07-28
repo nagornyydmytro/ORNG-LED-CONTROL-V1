@@ -48,7 +48,7 @@ class OutputState(ApiModel):
     source_nonzero_channels: int = 0
     wire_frame_sum: int = 0
     wire_nonzero_channels: int = 0
-    source_owner: Literal["raw_tester", "engine", "none"] = "none"
+    source_owner: Literal["raw_tester", "engine", "none", "beam_calibration_test"] = "none"
 
 
 class ActivateArtNetCommand(ApiModel):
@@ -104,6 +104,7 @@ class AppStateResponse(ApiModel):
     raw_tester: dict[str, Any] | None = None
     preset_editor_preview: dict[str, Any] | None = None
     live_effects: dict[str, Any] | None = None
+    beam_calibration: dict[str, Any] | None = None
 
 
 class PreviewSpeedCommand(ApiModel):
@@ -292,6 +293,47 @@ class ColorHitCommand(ApiModel):
 
 class SweepHitCommand(ColorHitCommand):
     pass
+
+
+class BeamCalibrationBeginCommand(ApiModel):
+    fixture_id: Annotated[str, Field(min_length=1)]
+    confirmed: bool = False
+    client_command_id: str | None = None
+
+
+class BeamCalibrationPositionCommand(ApiModel):
+    pan: Annotated[float, Field(ge=0.0, le=1.0)] | None = None
+    tilt: Annotated[float, Field(ge=0.0, le=1.0)] | None = None
+    client_command_id: str | None = None
+
+
+class BeamCalibrationVisibleCommand(ApiModel):
+    enabled: bool
+    confirmed: bool = False
+    client_command_id: str | None = None
+
+
+class BeamCalibrationSaveCommand(ApiModel):
+    fixture_id: Annotated[str, Field(min_length=1)]
+    pan_invert: bool | None = None
+    tilt_invert: bool | None = None
+    pan_offset: Annotated[float, Field(ge=-0.5, le=0.5)] | None = None
+    tilt_offset: Annotated[float, Field(ge=-0.5, le=0.5)] | None = None
+    pan_min: Annotated[float, Field(ge=0.0, le=1.0)] | None = None
+    pan_max: Annotated[float, Field(ge=0.0, le=1.0)] | None = None
+    tilt_min: Annotated[float, Field(ge=0.0, le=1.0)] | None = None
+    tilt_max: Annotated[float, Field(ge=0.0, le=1.0)] | None = None
+    home_pan: Annotated[float, Field(ge=0.0, le=1.0)] | None = None
+    home_tilt: Annotated[float, Field(ge=0.0, le=1.0)] | None = None
+    max_pan_speed: Annotated[float, Field(gt=0.0, le=2.0)] | None = None
+    max_tilt_speed: Annotated[float, Field(gt=0.0, le=2.0)] | None = None
+    beam_calibration_confirmed: bool | None = None
+    beam_calibration_notes: str | None = None
+    client_command_id: str | None = None
+
+    def spatial_update(self) -> dict[str, object]:
+        data = self.model_dump(exclude_none=True, exclude={"fixture_id", "client_command_id"})
+        return data
 
 
 class FailsafeCommand(ApiModel):

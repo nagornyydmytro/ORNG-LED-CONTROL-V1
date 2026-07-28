@@ -54,7 +54,8 @@ def test_beams_sit_on_top_centre_left_and_right() -> None:
 
     assert left.x < 0.5 < right.x
     assert abs((left.x + right.x) / 2 - 0.5) < 0.01
-    assert left.mount is MountPosition.TRUSS
+    assert left.mount is MountPosition.CEILING
+    assert right.mount is MountPosition.CEILING
     # Beams above the Bars, Bars above the bottom PAR row.
     assert max(left.y, right.y) < min(bar.y for bar in bars)
     assert max(bar.y for bar in bars) < min(par.y for par in bottom_pars)

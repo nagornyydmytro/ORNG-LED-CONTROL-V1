@@ -170,6 +170,15 @@ def test_color_wheel_white_open_uses_saved_value(tmp_path) -> None:
         control_values={"open": 200, "closed": 0},
     )
     show.profiles["beam_13ch"] = profile.model_copy(update={"channels": channels})
+    show.patch.fixtures = [
+        fx.model_copy(
+            update={"spatial": fx.spatial.model_copy(update={"beam_calibration_confirmed": True})}
+        )
+        if fx.id == beam.id
+        else fx
+        for fx in show.patch.fixtures
+    ]
+    beam = next(fx for fx in show.patch.fixtures if fx.id == beam.id)
     stage = StageIntent(fixtures={beam.id: BeamIntent(dimmer=1.0, color=WHITE, shutter_open=True)})
     frame = render_stage(show, stage, {})
     assert frame[global_channel(beam.start_address, 1) - 1] == 255

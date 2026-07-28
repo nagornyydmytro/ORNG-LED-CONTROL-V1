@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, inject, onMounted, onUnmounted, reactive, ref, watch } from "vue";
+import { computed, inject, onMounted, reactive, ref, watch } from "vue";
 import {
   fetchAppConfig,
   fetchLayout,
@@ -51,8 +51,6 @@ const stageLayout = ref<StageLayout | null>(null);
 const selectedProfileId = ref("par_7ch_provisional");
 const rawChannel = ref(1);
 const rawValue = ref(0);
-const rawActive = ref(false);
-const rawNonzero = ref(0);
 
 const artnet = computed(() => {
   const cfg = app.value?.artnet as Record<string, unknown> | undefined;
@@ -76,6 +74,31 @@ const armBlockers = ref<string[]>([]);
 
 const runtimeOutput = computed(() => appState?.output.value ?? null);
 const runtimeEngine = computed(() => appState?.engine.value ?? null);
+
+/** Authoritative Raw session from backend AppState (not local-only refs). */
+const rawSession = computed(() => appState?.state.value?.raw_tester ?? null);
+const rawActive = computed(() => Boolean(rawSession.value?.active));
+const rawNonzero = computed(() => Number(rawSession.value?.nonzero_channels ?? 0));
+const rawPreparedChannels = computed(() => {
+  const prepared = (
+    rawSession.value as { prepared_channels?: Array<{ channel: number; value: number }> } | null
+  )?.prepared_channels;
+  if (Array.isArray(prepared) && prepared.length > 0) {
+    return prepared;
+  }
+  const frame = rawSession.value?.frame;
+  if (!Array.isArray(frame)) return [] as Array<{ channel: number; value: number }>;
+  return frame
+    .map((value, index) => ({ channel: index + 1, value: Number(value) }))
+    .filter((entry) => entry.value > 0);
+});
+
+const sourceOwnerLabel = computed(() => {
+  const owner = runtimeOutput.value?.source_owner ?? "none";
+  if (owner === "raw_tester") return "RAW";
+  if (owner === "engine") return "Engine";
+  return "none";
+});
 
 const canEnableArm = computed(() => {
   const out = runtimeOutput.value;
@@ -294,51 +317,46 @@ async function persistLayout() {
 }
 
 async function enterRaw() {
-  const ack = await setupPost("raw-tester/enter");
-  rawActive.value = Boolean(ack.state.raw_tester?.active);
-  rawNonzero.value = Number(ack.state.raw_tester?.nonzero_channels ?? 0);
-  setStatus("Raw tester активний (починає з нулів, Mock only)");
+  await setupPost("raw-tester/enter");
+  await appState?.refreshRest?.();
+  setStatus("Raw tester активний (підготовлений source; не вмикає Art-Net / Arm)");
 }
 
 async function exitRaw() {
-  const ack = await setupPost("raw-tester/exit");
-  rawActive.value = Boolean(ack.state.raw_tester?.active);
-  rawNonzero.value = 0;
-  setStatus("Raw tester вимкнено, тестові значення скинуто в 0");
+  await setupPost("raw-tester/exit");
+  await appState?.refreshRest?.();
+  setStatus("Raw tester вимкнено: Blackout + нулі, підготовлений source очищено");
 }
 
 async function rawBlackout() {
-  const ack = await setupPost("raw-tester/blackout");
-  rawActive.value = Boolean(ack.state.raw_tester?.active);
-  rawNonzero.value = Number(ack.state.raw_tester?.nonzero_channels ?? 0);
-  setStatus("Raw Blackout");
+  await setupPost("raw-tester/blackout");
+  await appState?.refreshRest?.();
+  setStatus("Raw Blackout (канали обнулено, сесія лишилась активною)");
 }
 
 async function setRawChannel() {
-  const ack = await setupPost("raw-tester/set", {
+  await setupPost("raw-tester/set", {
     channel: rawChannel.value,
     value: rawValue.value,
   });
-  rawActive.value = Boolean(ack.state.raw_tester?.active);
-  rawNonzero.value = Number(ack.state.raw_tester?.nonzero_channels ?? 0);
+  await appState?.refreshRest?.();
 }
 
 async function identifyFixture(id: string) {
-  const ack = await setupPost("identify-fixture", { fixture_id: id, level: 200 });
-  rawActive.value = Boolean(ack.state.raw_tester?.active);
-  rawNonzero.value = Number(ack.state.raw_tester?.nonzero_channels ?? 0);
+  await setupPost("identify-fixture", { fixture_id: id, level: 200 });
+  await appState?.refreshRest?.();
   setStatus(`Identify ${id}`);
 }
 
 async function identifyGroup(group: string) {
-  const ack = await setupPost("identify-group", { group, level: 180 });
-  rawActive.value = Boolean(ack.state.raw_tester?.active);
-  rawNonzero.value = Number(ack.state.raw_tester?.nonzero_channels ?? 0);
+  await setupPost("identify-group", { group, level: 180 });
+  await appState?.refreshRest?.();
   setStatus(`Identify group ${group}`);
 }
 
 async function toggleBlackout(enabled: boolean) {
   await postCommand("blackout", { enabled });
+  await appState?.refreshRest?.();
   setStatus(enabled ? "Blackout увімкнено" : "Blackout вимкнено");
 }
 
@@ -370,10 +388,7 @@ function updateSpatial(fixtureId: string, field: string, value: boolean) {
   patch.value = { ...patch.value!, fixtures: list };
 }
 
-watch(step, async (next, prev) => {
-  if (prev === 5 && next !== 5 && rawActive.value) {
-    await exitRaw();
-  }
+watch(step, async (next) => {
   if (next === 9) {
     readiness.value = await fetchReadiness();
   }
@@ -381,12 +396,6 @@ watch(step, async (next, prev) => {
 
 onMounted(() => {
   void loadAll();
-});
-
-onUnmounted(() => {
-  if (rawActive.value) {
-    void setupPost("raw-tester/exit").catch(() => undefined);
-  }
 });
 </script>
 
@@ -497,16 +506,16 @@ onUnmounted(() => {
               <strong>{{ runtimeEngine?.blackout ? "увімкнено" : "вимкнено" }}</strong>
             </li>
             <li>
-              <span>source frame_sum / nonzero</span>
+              <span>Source {{ sourceOwnerLabel }}</span>
               <strong>
-                {{ runtimeOutput?.source_frame_sum ?? 0 }} /
+                Σ{{ runtimeOutput?.source_frame_sum ?? 0 }} /
                 {{ runtimeOutput?.source_nonzero_channels ?? 0 }}
               </strong>
             </li>
             <li>
-              <span>wire frame_sum / nonzero</span>
+              <span>Wire</span>
               <strong>
-                {{ runtimeOutput?.wire_frame_sum ?? runtimeOutput?.frame_sum ?? 0 }} /
+                Σ{{ runtimeOutput?.wire_frame_sum ?? runtimeOutput?.frame_sum ?? 0 }} /
                 {{ runtimeOutput?.wire_nonzero_channels ?? runtimeOutput?.nonzero_channels ?? 0 }}
               </strong>
             </li>
@@ -767,8 +776,9 @@ onUnmounted(() => {
       <div v-show="step === 5">
         <h2>6. Raw DMX tester</h2>
         <p class="hint">
-          Починає з нулів, Mock only, Blackout миттєвий, вихід скидає значення.
-          Art-Net не вмикається.
+          Підготовлений source-кадр. Не вмикає Art-Net, UDP чи Arm і не знімає
+          Blackout. Сесія зберігається між кроками майстра, поки не натиснуто
+          «Вийти та скинути в нулі».
         </p>
         <div class="row-actions">
           <button
@@ -785,7 +795,7 @@ onUnmounted(() => {
             :disabled="!rawActive"
             @click="exitRaw"
           >
-            Вийти (zero)
+            Вийти та скинути в нулі
           </button>
           <button
             type="button"
@@ -826,6 +836,23 @@ onUnmounted(() => {
         <p>
           Статус: {{ rawActive ? "активний" : "вимкнений" }} · nonzero
           {{ rawNonzero }}
+        </p>
+        <ul
+          v-if="rawPreparedChannels.length"
+          class="raw-prepared"
+        >
+          <li
+            v-for="entry in rawPreparedChannels"
+            :key="entry.channel"
+          >
+            CH {{ entry.channel }} = {{ entry.value }}
+          </li>
+        </ul>
+        <p
+          v-else
+          class="hint"
+        >
+          Підготовлених ненульових каналів немає.
         </p>
       </div>
 
@@ -955,7 +982,7 @@ onUnmounted(() => {
             class="action-btn"
             @click="exitRaw"
           >
-            Скинути raw / нулі
+            Вийти та скинути в нулі
           </button>
         </div>
       </div>
@@ -975,13 +1002,13 @@ onUnmounted(() => {
           <li>Мережа Art-Net: {{ readiness.artnet_network_enabled }}</li>
           <li>Blackout: {{ readiness.blackout }}</li>
           <li>
-            source frame_sum / nonzero:
-            {{ readiness.source_frame_sum ?? 0 }} /
+            Source {{ readiness.source_owner === "raw_tester" ? "RAW" : readiness.source_owner === "engine" ? "Engine" : "none" }}:
+            Σ{{ readiness.source_frame_sum ?? 0 }} /
             {{ readiness.source_nonzero_channels ?? 0 }}
           </li>
           <li>
-            wire frame_sum / nonzero:
-            {{ readiness.wire_frame_sum ?? readiness.frame_sum }} /
+            Wire:
+            Σ{{ readiness.wire_frame_sum ?? readiness.frame_sum }} /
             {{ readiness.wire_nonzero_channels ?? readiness.nonzero_channels }}
           </li>
           <li>Patch OK: {{ readiness.patch_ok }}</li>

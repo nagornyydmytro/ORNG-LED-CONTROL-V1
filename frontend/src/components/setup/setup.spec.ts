@@ -139,8 +139,8 @@ describe("SetupView wizard", () => {
     await flushPromises();
     expect(wrapper.text()).toContain("Увімкнути Arm");
     expect(wrapper.text()).toContain("Вимкнути Arm");
-    expect(wrapper.text()).toContain("source frame_sum / nonzero");
-    expect(wrapper.text()).toContain("wire frame_sum / nonzero");
+    expect(wrapper.text()).toContain("Source none");
+    expect(wrapper.text()).toContain("Wire");
     expect(wrapper.text()).toContain("Runtime має бути Art-Net");
 
     const enableArm = wrapper
@@ -223,6 +223,79 @@ describe("SetupView wizard", () => {
     await steps[5].trigger("click");
     await flushPromises();
     expect(wrapper.text()).toContain("Raw DMX tester");
-    expect(wrapper.text()).toContain("Починає з нулів");
+    expect(wrapper.text()).toContain("Вийти та скинути в нулі");
+    expect(wrapper.text()).toContain("Підготовлений source-кадр");
+  });
+
+  it("keeps Raw session across 6→1→6 without calling exit", async () => {
+    const fetchMock = vi.mocked(fetch);
+    const appState = {
+      output: {
+        value: {
+          transport: "mock",
+          udp_active: false,
+          network_allowed: false,
+          armed: false,
+          source_owner: "raw_tester",
+          source_frame_sum: 319,
+          source_nonzero_channels: 2,
+          wire_frame_sum: 0,
+          wire_nonzero_channels: 0,
+          frame_sum: 0,
+          nonzero_channels: 0,
+        },
+      },
+      engine: { value: { blackout: true } },
+      state: {
+        value: {
+          raw_tester: {
+            active: true,
+            nonzero_channels: 2,
+            frame: [64, 255, ...Array(510).fill(0)],
+            prepared_channels: [
+              { channel: 1, value: 64 },
+              { channel: 2, value: 255 },
+            ],
+            universe_size: 512,
+          },
+        },
+      },
+      connection: { value: "online" },
+      liveView: () => null,
+      liveFrame: null,
+      refreshRest: vi.fn(async () => undefined),
+      setPreviewSpeed: vi.fn(),
+    };
+    const wrapper = mount(SetupView, {
+      global: {
+        stubs: { StageSimulator: true },
+        provide: { [APP_STATE_KEY]: appState },
+      },
+    });
+    await flushPromises();
+
+    const steps = wrapper.findAll(".wizard-step");
+    await steps[5].trigger("click");
+    await flushPromises();
+    expect(wrapper.text()).toContain("CH 1 = 64");
+    expect(wrapper.text()).toContain("CH 2 = 255");
+    expect(wrapper.text()).toContain("активний");
+
+    const callsBeforeNav = fetchMock.mock.calls.length;
+    await steps[0].trigger("click");
+    await flushPromises();
+    expect(wrapper.text()).toContain("Source RAW");
+    expect(wrapper.text()).toContain("Σ319 / 2");
+    expect(wrapper.text()).toContain("Σ0 / 0");
+
+    await steps[5].trigger("click");
+    await flushPromises();
+    expect(wrapper.text()).toContain("CH 1 = 64");
+    expect(wrapper.text()).toContain("CH 2 = 255");
+
+    const exitCalls = fetchMock.mock.calls
+      .slice(callsBeforeNav)
+      .filter(([url]) => String(url).includes("/api/setup/raw-tester/exit"));
+    expect(exitCalls).toHaveLength(0);
   });
 });

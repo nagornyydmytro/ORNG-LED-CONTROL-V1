@@ -125,16 +125,20 @@ class OutputController:
         self,
         *,
         published_frame: list[int],
-        raw_tester_active: bool,
+        raw_tester_active: bool = False,
     ) -> list[str]:
-        """Human-readable reasons why Art-Net must not be activated yet."""
+        """Human-readable reasons why Art-Net must not be activated yet.
+
+        A prepared Raw tester session is allowed: Blackout + wire policy keep
+        the outbound frame at zeros. ``raw_tester_active`` is accepted for
+        call-site compatibility and does not block activation.
+        """
+        del raw_tester_active  # prepared Raw source is allowed under Blackout
         blockers: list[str] = []
         if self.armed:
             blockers.append("Вивід уже armed — спочатку disarm / поверніть Mock")
         if not self.engine.overlays.blackout:
             blockers.append("Blackout має бути увімкнений")
-        if raw_tester_active:
-            blockers.append("Raw tester має бути вимкнений")
         if any(int(value) for value in published_frame):
             blockers.append("Поточний кадр не нульовий (frame_sum > 0)")
         if not self.target_ip:

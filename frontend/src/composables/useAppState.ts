@@ -51,9 +51,12 @@ function controlSignature(state: AppState): string {
     o.source_nonzero_channels,
     o.wire_frame_sum,
     o.wire_nonzero_channels,
+    o.source_owner,
     o.last_error,
     state.preview_speed,
     state.raw_tester?.active,
+    state.raw_tester?.nonzero_channels,
+    JSON.stringify(state.raw_tester?.prepared_channels ?? []),
   ].join("|");
 }
 

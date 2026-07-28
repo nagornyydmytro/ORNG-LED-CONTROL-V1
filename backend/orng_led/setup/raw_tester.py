@@ -1,4 +1,4 @@
-"""Raw DMX tester session for setup (Mock-only, always starts/ends at zero)."""
+"""Raw DMX tester session for setup (prepared source; never arms Art-Net)."""
 
 from __future__ import annotations
 
@@ -46,10 +46,19 @@ class RawTesterSession:
     def nonzero_channels(self) -> int:
         return sum(1 for value in self.frame if value > 0)
 
+    @property
+    def prepared_channels(self) -> list[dict[str, int]]:
+        return [
+            {"channel": index + 1, "value": int(value)}
+            for index, value in enumerate(self.frame)
+            if int(value) > 0
+        ]
+
     def as_dict(self) -> dict:
         return {
             "active": self.active,
             "nonzero_channels": self.nonzero_channels,
             "frame": list(self.frame) if self.active else None,
+            "prepared_channels": self.prepared_channels if self.active else [],
             "universe_size": DMX_UNIVERSE_SIZE,
         }

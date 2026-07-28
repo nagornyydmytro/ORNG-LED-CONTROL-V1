@@ -82,8 +82,9 @@ def test_arm_with_prepared_nonzero_source_keeps_wire_zero() -> None:
     assert state.output.nonzero_channels == 0
 
     _activate_network(runtime, sock)
-    # Soft-exit preserves prepared Raw values as source; wire stays zero.
+    # Raw session stays active with prepared values; wire stays zero.
     state = runtime.build_state()
+    assert state.raw_tester["active"] is True
     assert state.output.source_nonzero_channels == 2
     assert state.output.wire_nonzero_channels == 0
     assert state.engine.blackout is True

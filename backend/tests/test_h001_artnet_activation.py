@@ -76,13 +76,13 @@ def test_activation_blocked_without_target_ip() -> None:
     assert runtime.output.transport_kind is TransportKind.MOCK
 
 
-def test_activation_blocked_when_raw_tester_active() -> None:
+def test_activation_allows_prepared_raw_tester() -> None:
     runtime = _runtime()
     blockers = runtime.output.activation_blockers(
         published_frame=empty_frame(),
         raw_tester_active=True,
     )
-    assert any("Raw tester" in item for item in blockers)
+    assert not any("Raw tester" in item for item in blockers)
 
 
 def test_activation_requires_confirmation() -> None:

@@ -1151,6 +1151,16 @@ select {
   gap: 0.25rem;
 }
 
+.raw-prepared {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
 .wizard-nav {
   display: flex;
   align-items: center;

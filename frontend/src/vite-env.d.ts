@@ -48,6 +48,7 @@ export interface OutputState {
   source_nonzero_channels?: number;
   wire_frame_sum?: number;
   wire_nonzero_channels?: number;
+  source_owner?: "raw_tester" | "engine" | "none";
 }
 
 export interface ParFixtureView {
@@ -161,6 +162,7 @@ export interface AppState {
     active: boolean;
     nonzero_channels: number;
     frame: number[] | null;
+    prepared_channels?: Array<{ channel: number; value: number }>;
     universe_size: number;
   } | null;
 }

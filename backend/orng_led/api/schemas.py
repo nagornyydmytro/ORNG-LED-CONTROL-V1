@@ -48,6 +48,7 @@ class OutputState(ApiModel):
     source_nonzero_channels: int = 0
     wire_frame_sum: int = 0
     wire_nonzero_channels: int = 0
+    source_owner: Literal["raw_tester", "engine", "none"] = "none"
 
 
 class ActivateArtNetCommand(ApiModel):

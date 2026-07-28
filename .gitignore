@@ -39,6 +39,9 @@ secrets/
 *.pem
 *.key
 
+# Local config backups (scripts/backup-config.ps1)
+backups/
+
 # Local runtime state and user configuration overrides
 config/local.yaml
 config/*.local.yaml

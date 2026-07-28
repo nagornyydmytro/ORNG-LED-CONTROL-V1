@@ -1,0 +1,13 @@
+# Example / reference copy of config/app.yaml for clean HOME installs.
+# Active runtime config lives in config/app.yaml (versioned fixtures).
+# Copy fields carefully; never set output_armed: true or hardware_verified: true at HOME.
+schema_version: 1
+transport: mock
+output_armed: false
+master_brightness: 1.0
+artnet:
+  target_ip: null
+  universe: 0
+  fps: 30
+  udp_port: 6454
+  hardware_verified: false

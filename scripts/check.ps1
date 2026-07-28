@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-  Runs formatter/lint/typecheck/test commands for the scaffold.
+  Runs formatter/lint/typecheck/test commands for HOME acceptance.
 #>
 [CmdletBinding()]
 param(
@@ -27,16 +27,6 @@ Write-Host "== backend ruff lint =="
 & $Python -m ruff check (Join-Path $RepoRoot "backend")
 if ($LASTEXITCODE -ne 0) { throw "ruff check failed" }
 
-Write-Host "== backend pytest =="
-Push-Location (Join-Path $RepoRoot "backend")
-try {
-    & $Python -m pytest -q
-    if ($LASTEXITCODE -ne 0) { throw "pytest failed" }
-}
-finally {
-    Pop-Location
-}
-
 Write-Host "== frontend typecheck =="
 Push-Location (Join-Path $RepoRoot "frontend")
 try {
@@ -56,6 +46,17 @@ try {
     Write-Host "== frontend production build =="
     & npm run build
     if ($LASTEXITCODE -ne 0) { throw "frontend build failed" }
+}
+finally {
+    Pop-Location
+}
+
+# Pytest after frontend build so SPA integration smoke can see frontend/dist.
+Write-Host "== backend pytest =="
+Push-Location (Join-Path $RepoRoot "backend")
+try {
+    & $Python -m pytest -q
+    if ($LASTEXITCODE -ne 0) { throw "pytest failed" }
 }
 finally {
     Pop-Location

@@ -27,7 +27,32 @@ if (-not (Test-Path (Join-Path $FrontendDir "node_modules"))) {
     throw "Frontend dependencies missing. Run .\scripts\bootstrap.ps1 first."
 }
 
+function Test-PortInUse {
+    param([int]$BindPort)
+    try {
+        $listeners = Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue |
+            Where-Object { $_.LocalPort -eq $BindPort }
+        return [bool]$listeners
+    }
+    catch {
+        $lines = netstat -ano | Select-String -Pattern ":$BindPort\s+.*LISTENING"
+        return [bool]$lines
+    }
+}
+
+if (Test-PortInUse -BindPort $ApiPort) {
+    Write-Host "ERROR: API port $ApiPort is already in use." -ForegroundColor Red
+    Write-Host "Stop the existing process before starting run-dev.ps1." -ForegroundColor Yellow
+    exit 3
+}
+if (Test-PortInUse -BindPort $VitePort) {
+    Write-Host "ERROR: Vite port $VitePort is already in use." -ForegroundColor Red
+    Write-Host "Stop the existing process before starting run-dev.ps1." -ForegroundColor Yellow
+    exit 3
+}
+
 Write-Host "Starting API on http://${ApiHost}:${ApiPort}/api/health"
+Write-Host "Dev UI will be on http://${ViteHost}:${VitePort}/ (not the API port)."
 $api = Start-Process -FilePath $Python -ArgumentList @(
     "-m", "uvicorn", "orng_led.main:app",
     "--host", $ApiHost,
@@ -40,7 +65,7 @@ Write-Host "Starting Vite on http://${ViteHost}:${VitePort}/"
 $vite = Start-Process -FilePath "powershell.exe" -ArgumentList @(
     "-NoProfile",
     "-Command",
-    "Set-Location '$FrontendDir'; $viteCmd"
+    "Set-Location -LiteralPath '$FrontendDir'; $viteCmd"
 ) -PassThru -NoNewWindow
 
 Write-Host "Press Ctrl+C to stop both processes."

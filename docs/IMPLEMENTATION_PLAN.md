@@ -70,8 +70,8 @@
 | L009 | Setup and calibration wizard | DONE | `02f414c` | PASS — см. `L009 — Результаты проверок` |
 | L010 | Preset editor | DONE | `9151dbf` | PASS — см. `L010 — Результаты проверок` |
 | L011 | Ten complete presets | DONE | `15f8053` | PASS — см. `L011 — Результаты проверок` |
-| L012 | Input adapter and 16-button mapping | DONE | hash в отчёте L012, запись в L013 | PASS — см. `L012 — Результаты проверок` |
-| L013 | Integration, Windows scripts and HOME acceptance | PENDING | — | — |
+| L012 | Input adapter and 16-button mapping | DONE | `b10f4e0` | PASS — см. `L012 — Результаты проверок` |
+| L013 | Integration, Windows scripts and HOME acceptance | DONE | hash в отчёте L013, запись в финальный ledger | PASS — см. `L013 — Результаты проверок` |
 | H001+ | Real hardware acceptance | PENDING HARDWARE | — | — |
 
 ## 3. HOME PLAN
@@ -705,7 +705,7 @@ Verification:
 #### L012 — Результаты проверок
 
 Статус: `DONE`. Дата: `2026-07-28`. Ветка: `main`.
-Commit hash текущего этапа сообщается в отчёте и записывается следующим запросом.
+Commit: `b10f4e0d4963c423262554cbf78ca885952cb623` (`b10f4e0`).
 
 | Проверка | Результат |
 |---|---|
@@ -719,7 +719,7 @@ Commit hash текущего этапа сообщается в отчёте и 
 | Frontend input constants/API tests | PASS — 3 passed |
 | Backend regression (`pytest`) | PASS — 138 passed |
 | Frontend vitest / typecheck / lint / build | PASS — 18 passed |
-| L013 integration/scripts не начат | PASS |
+| L013 integration/scripts не начат на момент L012 | PASS |
 
 ### L013 — Integration, Windows scripts and HOME acceptance
 
@@ -758,6 +758,40 @@ Verification:
 - integration/e2e smoke;
 - Windows startup smoke;
 - проверка всех статусов hardware boundary.
+
+#### L013 — Результаты проверок
+
+Статус: `DONE`. Дата: `2026-07-28`. Ветка: `main`.
+Commit hash текущего этапа сообщается в отчёте и записывается финальным ledger.
+
+Корректирующий HOME commit (не Lxxx): `34bb2ba2e35edd3f858c78cb954ce11379a814f7`
+(`34bb2ba`) — `fix: complete HOME acceptance corrections`.
+
+| Проверка | Результат |
+|---|---|
+| L012 hash записан (`b10f4e0`) | PASS |
+| `scripts/bootstrap.ps1` / `run.ps1` / `run-dev.ps1` / `check.ps1` | PASS |
+| `scripts/backup-config.ps1` + `config/examples/app.yaml.example` | PASS |
+| Port-busy диагностика в `run.ps1` / `run-dev.ps1` | PASS |
+| SPA assets 404 (не HTML-as-JS) | PASS |
+| Deep-link `/`, `/presets`, `/setup`, `/settings` | PASS |
+| Mock + disarmed + startup blackout / zero frame | PASS |
+| Integration smoke (`test_l013_integration.py`) | PASS |
+| Backend pytest / ruff check / format --check | PASS — 150 passed; ruff clean |
+| Frontend vitest / typecheck / lint / build | PASS — 19 passed |
+| Clean-flow install без чужих `.venv`/`node_modules`/`dist` | PASS — bootstrap+check+uvicorn :8013 Mock |
+| `docs/HOME_ACCEPTANCE_REPORT.md` | PASS |
+| Реальный Art-Net / UDP / discovery | PASS — не выполнялись |
+| `hardware_verified` / `hardware_tuned` | PASS — остаются `false` |
+| H001+ | PENDING HARDWARE |
+
+Зафиксированные особенности:
+
+- после L012 выполнен отдельный corrective commit `34bb2ba` с HOME-дефектами
+  (SPA toast provide, blackout>raw, transitions, groups, preview_speed, UA UI);
+- hash L012 в ledger — исторический stage-commit `b10f4e0`, не corrective;
+- финальная строка `HOME PLAN COMPLETE` и полный hash L013 — в отдельном
+  docs-only ledger commit после push L013.
 
 ## 4. Hardware plan
 

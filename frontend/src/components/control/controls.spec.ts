@@ -52,21 +52,35 @@ describe("StrobeButton", () => {
 });
 
 describe("PresetPad", () => {
-  it("renders ten large preset buttons and marks availability", async () => {
+  it("renders Без пресету plus ten preset buttons and marks availability", async () => {
     const wrapper = mount(PresetPad, {
       props: {
         activeId: "P05",
-        availableIds: new Set(["P05"]),
+        availableIds: new Set(["NONE", "P05"]),
       },
     });
     const buttons = wrapper.findAll("button.preset-btn");
-    expect(buttons).toHaveLength(10);
-    expect(buttons[4].classes()).toContain("active");
-    expect(buttons[4].attributes("disabled")).toBeUndefined();
-    expect(buttons[0].attributes("disabled")).toBeDefined();
+    expect(buttons).toHaveLength(11);
+    expect(wrapper.text()).toContain("Без пресету");
+    expect(buttons[0].text()).toContain("NONE");
+    expect(buttons[5].classes()).toContain("active");
+    expect(buttons[5].attributes("disabled")).toBeUndefined();
+    expect(buttons[1].attributes("disabled")).toBeDefined();
 
-    await buttons[4].trigger("click");
+    await buttons[5].trigger("click");
     expect(wrapper.emitted("select")?.[0]).toEqual(["P05"]);
+  });
+
+  it("marks Без пресету active when activeId is NONE", () => {
+    const wrapper = mount(PresetPad, {
+      props: {
+        activeId: "NONE",
+        availableIds: new Set(["NONE", "P01"]),
+      },
+    });
+    const noneBtn = wrapper.findAll("button.preset-btn")[0];
+    expect(noneBtn.classes()).toContain("active");
+    expect(noneBtn.attributes("aria-pressed")).toBe("true");
   });
 
   it("uses compact grid class for narrow viewports via stylesheet contract", () => {
@@ -75,7 +89,7 @@ describe("PresetPad", () => {
     const wrapper = mount(PresetPad, {
       props: {
         activeId: null,
-        availableIds: new Set(["P05"]),
+        availableIds: new Set(["NONE", "P05"]),
       },
     });
     expect(wrapper.find(".preset-pad").exists()).toBe(true);

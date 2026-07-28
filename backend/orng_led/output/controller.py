@@ -242,25 +242,24 @@ class OutputController:
             )
         return []
 
-    def wire_frame(self, frame: list[int]) -> list[int]:
-        """Outbound safety: nonzero only when armed=true AND Blackout=false.
+    def wire_frame(self, frame: list[int], *, from_raw: bool = False) -> list[int]:
+        """Outbound safety: Art-Net nonzero only when armed.
 
-        On Art-Net this always applies. On Mock, Blackout still forces zeros so
-        the local recorder cannot disagree with the engine blackout state.
+        Blackout no longer blanks Live Effects at the wire: the engine zeroes
+        the preset base and then composes Live FX on top. Raw-tester sources
+        still stay dark while Blackout is on (``from_raw=True``).
         """
         if len(frame) != DMX_UNIVERSE_SIZE:
             raise OutputError(f"Frame length must be {DMX_UNIVERSE_SIZE}")
-        if self.transport.kind is TransportKind.ARTNET:
-            if not self.armed or self.engine.overlays.blackout:
-                return empty_frame()
-            return list(frame)
-        if self.engine.overlays.blackout:
+        if from_raw and self.engine.overlays.blackout:
+            return empty_frame()
+        if self.transport.kind is TransportKind.ARTNET and not self.armed:
             return empty_frame()
         return list(frame)
 
-    def publish(self, frame: list[int]) -> None:
+    def publish(self, frame: list[int], *, from_raw: bool = False) -> None:
         """Send a frame according to safety rules."""
-        outbound = self.wire_frame(frame)
+        outbound = self.wire_frame(frame, from_raw=from_raw)
 
         try:
             self.transport.send_frame(outbound)

@@ -8,7 +8,7 @@ from orng_led.config.models import FixtureKind, ShowConfig
 from orng_led.config.schema import DMX_UNIVERSE_SIZE
 from orng_led.engine.beam import BeamMotionLimits, BeamMotionState, step_beam
 from orng_led.engine.clock import FRAME_DT, FakeClock
-from orng_led.engine.frame import assert_frame_bounds, empty_frame
+from orng_led.engine.frame import assert_frame_bounds
 from orng_led.engine.intents import BarIntent, BeamIntent, ParIntent, Rgbw, StageIntent
 from orng_led.engine.layers import (
     COLOR_HIT_DURATION_S,
@@ -24,7 +24,9 @@ from orng_led.engine.layers import (
 from orng_led.engine.presets import (
     CYCLE_DURATION_S,
     EPISODE_DURATION_S,
+    NONE_PRESET_ID,
     BasePulsePreset,
+    NonePresetProgram,
     PresetProgram,
     cycle_position,
 )
@@ -80,11 +82,37 @@ class Engine:
             raise KeyError(f"Unknown preset {self.active_preset_id!r}") from exc
 
     def select_preset(self, preset_id: str, *, reset_clock: bool = True) -> None:
+        if preset_id == NONE_PRESET_ID:
+            self.presets[NONE_PRESET_ID] = NonePresetProgram()
         if preset_id not in self.presets:
             raise KeyError(f"Unknown preset {preset_id!r}")
         self.active_preset_id = preset_id
         if reset_clock:
             self.preset_elapsed_s = 0.0
+
+    def seek_episode(self, episode_index: int) -> None:
+        """Jump to the start of ``episode_index``; auto-continue afterwards."""
+        if self.active_preset_id == NONE_PRESET_ID:
+            raise ValueError("Cannot seek episodes while «Без пресету» is selected")
+        preset = self.active_preset
+        if hasattr(preset, "episode_count"):
+            count = max(1, int(preset.episode_count))
+        elif hasattr(preset, "document"):
+            count = max(1, len(preset.document.episodes))
+        else:
+            count = 10
+        index = max(0, min(int(episode_index), count - 1))
+        duration = EPISODE_DURATION_S
+        if hasattr(preset, "document") and preset.document.episodes:
+            # Use the selected episode's configured duration for offset of prior ones.
+            elapsed = 0.0
+            for i, episode in enumerate(preset.document.episodes):
+                if i >= index:
+                    break
+                elapsed += float(episode.duration_s)
+            self.preset_elapsed_s = elapsed
+            return
+        self.preset_elapsed_s = float(index) * duration
 
     def trigger_white_hit(self) -> None:
         now = self.clock.time()
@@ -221,34 +249,47 @@ class Engine:
         """Render a deterministic frame for an absolute clock time."""
         self._expire_overlays(time_s)
         preset = self.active_preset
-        base = preset.evaluate(self.preset_elapsed_s, self.show)
+        if self.active_preset_id == NONE_PRESET_ID:
+            base = StageIntent()
+        else:
+            base = preset.evaluate(self.preset_elapsed_s, self.show)
+
+        # Blackout zeroes the preset/base look only. Live Effects still compose
+        # on top and can produce light while Blackout remains engaged.
+        if self.overlays.blackout:
+            base = StageIntent()
+
         composed = compose_layers(base, self.show, self.overlays, time_s)
         self._advance_beams(composed, dt_s)
-
-        if self.overlays.blackout:
-            frame = empty_frame()
-        else:
-            frame = render_stage(self.show, composed, self.beam_motion)
+        frame = render_stage(self.show, composed, self.beam_motion)
 
         assert_frame_bounds(frame)
-        position_fn = getattr(preset, "cycle_position", None)
-        if callable(position_fn):
-            pos = position_fn(self.preset_elapsed_s)
-            cycle_len = float(
-                getattr(preset, "total_duration_s", CYCLE_DURATION_S) or CYCLE_DURATION_S
-            )
-            preset_time = self.preset_elapsed_s % cycle_len
-            if hasattr(preset, "episode_count"):
-                episode_count = int(preset.episode_count)
-            elif hasattr(preset, "document"):
-                episode_count = len(preset.document.episodes)
-            else:
-                episode_count = 10
+        if self.active_preset_id == NONE_PRESET_ID:
+            from orng_led.engine.presets import CyclePosition as _CP
+
+            pos = _CP(0.0, 0, 0.0, 0.0)
+            cycle_len = 0.0
+            preset_time = 0.0
+            episode_count = 0
         else:
-            pos = cycle_position(self.preset_elapsed_s)
-            cycle_len = CYCLE_DURATION_S
-            preset_time = self.preset_elapsed_s % CYCLE_DURATION_S
-            episode_count = 10
+            position_fn = getattr(preset, "cycle_position", None)
+            if callable(position_fn):
+                pos = position_fn(self.preset_elapsed_s)
+                cycle_len = float(
+                    getattr(preset, "total_duration_s", CYCLE_DURATION_S) or CYCLE_DURATION_S
+                )
+                preset_time = self.preset_elapsed_s % cycle_len if cycle_len else 0.0
+                if hasattr(preset, "episode_count"):
+                    episode_count = int(preset.episode_count)
+                elif hasattr(preset, "document"):
+                    episode_count = len(preset.document.episodes)
+                else:
+                    episode_count = 10
+            else:
+                pos = cycle_position(self.preset_elapsed_s)
+                cycle_len = CYCLE_DURATION_S
+                preset_time = self.preset_elapsed_s % CYCLE_DURATION_S
+                episode_count = 10
         white_hit_active = (
             self.overlays.white_hit_until is not None and time_s < self.overlays.white_hit_until
         )
@@ -291,8 +332,9 @@ class Engine:
         if wall < 0:
             raise ValueError("wall_dt_s must be >= 0")
         now = self.clock.advance(wall)
-        # Preset clock always advances, including during blackout.
-        self.preset_elapsed_s += dt_s
+        # Preset clock advances except for «Без пресету».
+        if self.active_preset_id != NONE_PRESET_ID:
+            self.preset_elapsed_s += dt_s
         return self.render_at(now, dt_s=dt_s)
 
     def frame_at_preset_time(self, preset_time_s: float) -> list[int]:

@@ -96,13 +96,19 @@ class AppRuntime:
             config_dir=root,
             preset_store=store,
         )
+        runtime.refresh_presets()
         runtime.input_dispatcher = InputDispatcher(runtime=runtime)
         return runtime
 
     def refresh_presets(self) -> None:
-        self.engine.presets = self.preset_store.programs()
-        if self.engine.active_preset_id not in self.engine.presets:
-            fallback = next(iter(self.engine.presets))
+        from orng_led.engine.presets import NONE_PRESET_ID, NonePresetProgram
+
+        programs = self.preset_store.programs()
+        programs[NONE_PRESET_ID] = NonePresetProgram()
+        previous = self.engine.active_preset_id
+        self.engine.presets = programs
+        if previous not in self.engine.presets:
+            fallback = next(pid for pid in self.engine.presets if pid != NONE_PRESET_ID)
             self.engine.select_preset(fallback, reset_clock=True)
 
     async def start(self) -> None:
@@ -145,22 +151,12 @@ class AppRuntime:
         return snapshot
 
     def _source_frame(self, snap: EngineSnapshot | None = None) -> list[int]:
-        """Prepared source frame before Blackout / arm wire gating.
-
-        Active Raw tester owns the source. Otherwise the show look is rendered
-        without Blackout so Engine source counters remain meaningful.
-        """
+        """Prepared source before wire gating (Raw session or engine output)."""
         if self.raw_tester.active:
             return list(self.raw_tester.frame)
-        if snap is not None and not self.engine.overlays.blackout:
+        if snap is not None:
             return list(snap.frame)
-        was_blackout = self.engine.overlays.blackout
-        try:
-            self.engine.overlays.blackout = False
-            rendered = self.engine.render_at(self.engine.clock.time(), dt_s=0.0)
-            return list(rendered.frame)
-        finally:
-            self.engine.overlays.blackout = was_blackout
+        return list(self.engine.render_at(self.engine.clock.time(), dt_s=0.0).frame)
 
     def _source_owner(self, source: list[int]) -> str:
         if self.raw_tester.active:
@@ -170,11 +166,12 @@ class AppRuntime:
         return "none"
 
     def _published_frame(self, snap: EngineSnapshot | None = None) -> list[int]:
-        """Blackout always wins over raw tester / identify / show layers."""
-        from orng_led.engine.frame import empty_frame
+        """Frame fed into output before wire policy.
 
-        if self.engine.overlays.blackout:
-            return empty_frame()
+        Raw tester values are visible as source while Blackout holds the wire at
+        zero via ``from_raw=True``. Engine frames already apply Blackout to the
+        preset base and keep Live Effects.
+        """
         if self.raw_tester.active:
             return list(self.raw_tester.frame)
         if snap is not None:
@@ -182,23 +179,24 @@ class AppRuntime:
         return list(self.engine.render_at(self.engine.clock.time(), dt_s=0.0).frame)
 
     def _wire_frame(self, snap: EngineSnapshot | None = None) -> list[int]:
-        """Actual outbound frame after arm / Blackout wire policy."""
-        return self.output.wire_frame(self._source_frame(snap))
+        """Actual outbound frame after arm / Raw-under-Blackout wire policy."""
+        return self.output.wire_frame(
+            self._source_frame(snap),
+            from_raw=self.raw_tester.active,
+        )
 
-    def _publish_frame(self, frame: list[int]) -> None:
-        # Always publish: Art-Net wire policy forces zeros while disarmed /
-        # blacked out, and Mock keeps the local recorder in sync.
+    def _publish_frame(self, frame: list[int], *, from_raw: bool | None = None) -> None:
+        raw = self.raw_tester.active if from_raw is None else from_raw
         try:
-            self.output.publish(frame)
+            self.output.publish(frame, from_raw=raw)
         except OutputError:
-            # Fault already recorded on controller; engine keeps running.
             pass
 
     def build_state(self) -> AppStateResponse:
         snap = self.engine.render_at(self.engine.clock.time(), dt_s=0.0)
         out = self.output.status()
         source = self._source_frame(snap)
-        wire = self.output.wire_frame(source)
+        wire = self.output.wire_frame(source, from_raw=self.raw_tester.active)
         source_sum = int(sum(source))
         source_nonzero = int(sum(1 for value in source if value))
         wire_sum = int(sum(wire))
@@ -251,10 +249,11 @@ class AppRuntime:
         )
 
     def artnet_activation_blockers(self) -> list[str]:
-        frame = self._published_frame()
+        # Use wire frame so prepared Raw under Blackout does not block activation.
+        frame = self._wire_frame()
         return self.output.activation_blockers(
             published_frame=frame,
-            raw_tester_active=self.raw_tester.active,
+            raw_tester_active=False,
         )
 
     def activate_artnet_network(
@@ -440,18 +439,28 @@ class AppRuntime:
                 if ch.role is role:
                     channels[global_channel(fixture.start_address, ch.local)] = value
 
-        # One safe, unmistakable identify colour (cyan) for every RGB fixture,
-        # so it can never be confused with a preset look or the brand accent.
+        # Prefer cyan when RGB roles exist. If only dimmer+red are mapped
+        # (hardware-confirmed PAR), raise those so identify stays Mock-visible.
         set_role(ChannelRole.DIMMER, level)
-        set_role(ChannelRole.RED, 0)
-        set_role(ChannelRole.GREEN, level)
-        set_role(ChannelRole.BLUE, level)
+        has_green = any(ch.role is ChannelRole.GREEN for ch in profile.channels)
+        has_blue = any(ch.role is ChannelRole.BLUE for ch in profile.channels)
+        if has_green and has_blue:
+            set_role(ChannelRole.RED, 0)
+            set_role(ChannelRole.GREEN, level)
+            set_role(ChannelRole.BLUE, level)
+        else:
+            set_role(ChannelRole.RED, level)
         if fixture.kind in (FixtureKind.PAR, FixtureKind.FACE_PAR):
             set_role(ChannelRole.WHITE, 0)
         elif fixture.kind is FixtureKind.BAR:
             for ch in profile.channels:
                 if ch.role is ChannelRole.SEGMENT:
                     channels[global_channel(fixture.start_address, ch.local)] = level
+                elif ch.role in (ChannelRole.SEGMENT_COLOR, ChannelRole.WHOLE_COLOR):
+                    table = ch.palette or {}
+                    channels[global_channel(fixture.start_address, ch.local)] = int(
+                        table.get("cyan", table.get("blue", 48))
+                    )
         elif fixture.kind is FixtureKind.BEAM:
             set_role(ChannelRole.SHUTTER, 255)
             set_role(ChannelRole.COLOR, 0)
@@ -459,6 +468,129 @@ class AppRuntime:
             set_role(ChannelRole.PAN_COARSE, 128)
             set_role(ChannelRole.TILT_COARSE, 128)
         return channels
+
+    def begin_fixture_channel_test(self, fixture_id: str) -> AppStateResponse:
+        """Start Raw-backed single-fixture channel testing without touching Art-Net/Arm."""
+        fixture = next((fx for fx in self.show.patch.fixtures if fx.id == fixture_id), None)
+        if fixture is None:
+            raise KeyError(f"Unknown fixture {fixture_id!r}")
+        if not self.raw_tester.active:
+            self.raw_tester.enter()
+        else:
+            self.raw_tester.blackout()
+        self._publish_frame(self.raw_tester.frame, from_raw=True)
+        self.sequence += 1
+        return self.build_state()
+
+    def set_fixture_local_channel(
+        self,
+        fixture_id: str,
+        local: int,
+        value: int,
+    ) -> AppStateResponse:
+        fixture = next((fx for fx in self.show.patch.fixtures if fx.id == fixture_id), None)
+        if fixture is None:
+            raise KeyError(f"Unknown fixture {fixture_id!r}")
+        profile = self.show.profile_for(fixture)
+        if local < 1 or local > profile.footprint:
+            raise ValueError(f"Local channel {local} outside footprint {profile.footprint}")
+        if not self.raw_tester.active:
+            self.begin_fixture_channel_test(fixture_id)
+        global_channel = fixture.start_address + local - 1
+        self.raw_tester.set_channel(global_channel, value)
+        self._publish_frame(self.raw_tester.frame, from_raw=True)
+        self.sequence += 1
+        return self.build_state()
+
+    def reset_fixture_channel_test(self, fixture_id: str) -> AppStateResponse:
+        fixture = next((fx for fx in self.show.patch.fixtures if fx.id == fixture_id), None)
+        if fixture is None:
+            raise KeyError(f"Unknown fixture {fixture_id!r}")
+        if not self.raw_tester.active:
+            self.begin_fixture_channel_test(fixture_id)
+        profile = self.show.profile_for(fixture)
+        for local in range(1, profile.footprint + 1):
+            self.raw_tester.set_channel(fixture.start_address + local - 1, 0)
+        self._publish_frame(self.raw_tester.frame, from_raw=True)
+        self.sequence += 1
+        return self.build_state()
+
+    def end_fixture_channel_test(self) -> AppStateResponse:
+        return self.exit_raw_tester()
+
+    def channel_role_catalog(self) -> list[dict[str, str]]:
+        from orng_led.config.models import ChannelRole
+
+        labels = {
+            ChannelRole.UNUSED: "Не використовується / завжди 0",
+            ChannelRole.DIMMER: "Master Dimmer",
+            ChannelRole.RED: "Red",
+            ChannelRole.GREEN: "Green",
+            ChannelRole.BLUE: "Blue",
+            ChannelRole.WHITE: "White",
+            ChannelRole.AMBER: "Amber",
+            ChannelRole.UV: "UV",
+            ChannelRole.STROBE: "Strobe",
+            ChannelRole.STROBE_SPEED: "Strobe Speed",
+            ChannelRole.PROGRAM: "Program / Effect",
+            ChannelRole.EFFECT_SPEED: "Effect Speed",
+            ChannelRole.DIRECTION_MODE: "Direction / Mode",
+            ChannelRole.WHOLE_COLOR: "Whole Fixture Color / Palette",
+            ChannelRole.SEGMENT_COLOR: "Segment Color",
+            ChannelRole.SEGMENT: "Segment Level",
+            ChannelRole.PAN_COARSE: "Pan",
+            ChannelRole.PAN_FINE: "Pan Fine",
+            ChannelRole.TILT_COARSE: "Tilt",
+            ChannelRole.TILT_FINE: "Tilt Fine",
+            ChannelRole.MOVEMENT_SPEED: "Movement Speed",
+            ChannelRole.COLOR: "Color Wheel",
+            ChannelRole.GOBO: "Gobo",
+            ChannelRole.GOBO_ROTATION: "Gobo Rotation",
+            ChannelRole.PRISM: "Prism",
+            ChannelRole.PRISM_ROTATION: "Prism Rotation",
+            ChannelRole.FOCUS: "Focus",
+            ChannelRole.ZOOM: "Zoom",
+            ChannelRole.RESET: "Reset",
+            ChannelRole.FIXED: "Фіксоване значення",
+            ChannelRole.SHUTTER: "Shutter",
+            ChannelRole.MACRO: "Program / Effect (macro)",
+            ChannelRole.SPEED: "Effect Speed (legacy)",
+            ChannelRole.UNKNOWN: "Не використовується / завжди 0",
+        }
+        order = [
+            ChannelRole.UNUSED,
+            ChannelRole.DIMMER,
+            ChannelRole.RED,
+            ChannelRole.GREEN,
+            ChannelRole.BLUE,
+            ChannelRole.WHITE,
+            ChannelRole.AMBER,
+            ChannelRole.UV,
+            ChannelRole.STROBE,
+            ChannelRole.STROBE_SPEED,
+            ChannelRole.PROGRAM,
+            ChannelRole.EFFECT_SPEED,
+            ChannelRole.DIRECTION_MODE,
+            ChannelRole.WHOLE_COLOR,
+            ChannelRole.SEGMENT_COLOR,
+            ChannelRole.SEGMENT,
+            ChannelRole.PAN_COARSE,
+            ChannelRole.PAN_FINE,
+            ChannelRole.TILT_COARSE,
+            ChannelRole.TILT_FINE,
+            ChannelRole.MOVEMENT_SPEED,
+            ChannelRole.COLOR,
+            ChannelRole.GOBO,
+            ChannelRole.GOBO_ROTATION,
+            ChannelRole.PRISM,
+            ChannelRole.PRISM_ROTATION,
+            ChannelRole.FOCUS,
+            ChannelRole.ZOOM,
+            ChannelRole.RESET,
+            ChannelRole.FIXED,
+            ChannelRole.SHUTTER,
+        ]
+        return [{"role": role.value, "label": labels[role]} for role in order]
 
     def identify_fixture(self, fixture_id: str, level: int = 200) -> AppStateResponse:
         fixture = next((fx for fx in self.show.patch.fixtures if fx.id == fixture_id), None)
@@ -663,10 +795,31 @@ class AppRuntime:
         reset_clock: bool = True,
         client_command_id: str | None = None,
     ) -> tuple[AppStateResponse, bool]:
+        from orng_led.engine.presets import NONE_PRESET_ID, NonePresetProgram
+
         cached = self._idempotent(client_command_id)
         if cached is not None:
             return cached, True
+        if preset_id == NONE_PRESET_ID:
+            self.engine.presets[NONE_PRESET_ID] = NonePresetProgram()
         self.engine.select_preset(preset_id, reset_clock=reset_clock)
+        state = self.build_state()
+        self._remember(client_command_id, state)
+        return state, False
+
+    def apply_seek_episode(
+        self,
+        episode_index: int,
+        *,
+        client_command_id: str | None = None,
+    ) -> tuple[AppStateResponse, bool]:
+        cached = self._idempotent(client_command_id)
+        if cached is not None:
+            return cached, True
+        self.engine.seek_episode(episode_index)
+        # Publish immediately so the new episode is on the wire/source now.
+        self._publish_frame(self._published_frame())
+        self.sequence += 1
         state = self.build_state()
         self._remember(client_command_id, state)
         return state, False

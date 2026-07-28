@@ -733,11 +733,81 @@ select {
 
 .presets-view,
 .setup-view,
+.channels-view,
 .control-view {
   display: flex;
   flex-direction: column;
   gap: var(--s-4);
   min-width: 0;
+}
+
+.channels-actions {
+  margin-bottom: var(--s-3);
+}
+
+.channel-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+
+.channel-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--bg-0);
+}
+
+.channel-row__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s-2);
+}
+
+.channel-row__ch {
+  font-size: 14px;
+}
+
+.channel-row__map {
+  font-size: 12px;
+  color: var(--orng);
+}
+
+.channel-row__assign {
+  font-size: 12px;
+  color: var(--text-faint);
+  margin-left: auto;
+}
+
+.channel-row__controls,
+.channel-row__extra {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--s-3);
+}
+
+.channel-row__controls .field {
+  flex: 1 1 140px;
+  min-width: 120px;
+}
+
+.palette-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: var(--s-2);
+  margin-top: var(--s-2);
+}
+
+.episode-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  margin-bottom: var(--s-3);
 }
 
 .presets-grid {

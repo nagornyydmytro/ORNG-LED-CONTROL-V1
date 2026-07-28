@@ -46,7 +46,7 @@ fixtures:
       face: false
       order: 4
   - id: beam_right
-    profile_id: beam_32ch_provisional
+    profile_id: beam_13ch
     label: Beam Right
     start_address: 29
     kind: beam
@@ -57,7 +57,7 @@ fixtures:
       face: false
       order: 1
   - id: beam_left
-    profile_id: beam_32ch_provisional
+    profile_id: beam_13ch
     label: Beam Left
     start_address: 61
     kind: beam
@@ -68,7 +68,7 @@ fixtures:
       face: false
       order: 2
   - id: bar_1
-    profile_id: bar_16ch_provisional
+    profile_id: bar_15ch
     label: Bar 1
     start_address: 93
     kind: bar
@@ -80,7 +80,7 @@ fixtures:
       order: 1
       invert_segments: false
   - id: bar_2
-    profile_id: bar_16ch_provisional
+    profile_id: bar_15ch
     label: Bar 2
     start_address: 109
     kind: bar
@@ -92,7 +92,7 @@ fixtures:
       order: 2
       invert_segments: false
   - id: bar_3
-    profile_id: bar_16ch_provisional
+    profile_id: bar_15ch
     label: Bar 3
     start_address: 125
     kind: bar
@@ -104,7 +104,7 @@ fixtures:
       order: 3
       invert_segments: false
   - id: bar_4
-    profile_id: bar_16ch_provisional
+    profile_id: bar_15ch
     label: Bar 4
     start_address: 141
     kind: bar

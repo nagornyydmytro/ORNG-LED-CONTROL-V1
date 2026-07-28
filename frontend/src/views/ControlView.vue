@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import { computed, inject, onMounted, ref } from "vue";
+import { computed, inject, onMounted, ref, watch } from "vue";
 import BlackoutButton from "../components/control/BlackoutButton.vue";
 import LiveFxPanel from "../components/control/LiveFxPanel.vue";
 import PresetPad from "../components/control/PresetPad.vue";
 import StatusBar from "../components/control/StatusBar.vue";
 import StageSimulator from "../components/simulator/StageSimulator.vue";
 import { fetchStageLayout } from "../api/client";
+import { getPreset, type EpisodeCard, type PresetDocument } from "../api/presets";
 import { APP_STATE_KEY } from "../composables/appStateKey";
+import { formatClock, paletteCss } from "../lib/presets";
 import type { StageLayout } from "../vite-env";
 
 const api = inject(APP_STATE_KEY);
@@ -24,6 +26,7 @@ const {
   liveView,
   liveFrame,
   selectPreset,
+  seekEpisode,
   whiteHit,
   strobePress,
   strobeRelease,
@@ -39,6 +42,44 @@ const {
 
 const layout = ref<StageLayout | null>(null);
 const offline = computed(() => connection.value === "offline");
+const activePresetId = computed(() => engine.value?.preset_id ?? null);
+const isNonePreset = computed(() => !activePresetId.value || activePresetId.value === "NONE");
+
+const presetDoc = ref<PresetDocument | null>(null);
+const episodes = computed<EpisodeCard[]>(() => presetDoc.value?.episodes ?? []);
+
+const currentEpisode = computed(() => {
+  const index = engine.value?.episode_index ?? 0;
+  return episodes.value[index] ?? null;
+});
+
+const episodeTimeLabel = computed(() => {
+  const t = engine.value?.episode_time_s ?? 0;
+  return formatClock(t);
+});
+
+const currentEpisodeTitle = computed(() => {
+  const index = engine.value?.episode_index ?? 0;
+  const ep = currentEpisode.value;
+  if (!ep) return `Епізод ${index + 1}`;
+  return `Епізод ${index + 1} · ${ep.effect} · ${ep.palette}`;
+});
+
+watch(
+  activePresetId,
+  async (id) => {
+    if (!id || id === "NONE") {
+      presetDoc.value = null;
+      return;
+    }
+    try {
+      presetDoc.value = await getPreset(id);
+    } catch {
+      presetDoc.value = null;
+    }
+  },
+  { immediate: true },
+);
 
 onMounted(async () => {
   try {
@@ -54,6 +95,19 @@ function onFaceBrightness(value: number) {
 
 function onToggleFace() {
   void setFace(!(engine.value?.face_on ?? false), engine.value?.face_brightness);
+}
+
+function goPrevEpisode() {
+  const index = engine.value?.episode_index ?? 0;
+  if (index <= 0) return;
+  void seekEpisode(index - 1);
+}
+
+function goNextEpisode() {
+  const index = engine.value?.episode_index ?? 0;
+  const count = episodes.value.length || engine.value?.episode_count || 0;
+  if (index >= count - 1) return;
+  void seekEpisode(index + 1);
 }
 </script>
 
@@ -128,6 +182,70 @@ function onToggleFace() {
             :disabled="offline"
             @select="selectPreset"
           />
+        </section>
+
+        <section
+          class="card"
+          aria-label="Епізоди"
+        >
+          <header class="card__head">
+            <h2>Епізоди</h2>
+            <p
+              v-if="isNonePreset"
+              class="card__sub"
+            >
+              Пресет не вибрано
+            </p>
+            <p
+              v-else
+              class="card__sub"
+            >
+              {{ currentEpisodeTitle }} · {{ episodeTimeLabel }}
+            </p>
+          </header>
+
+          <template v-if="!isNonePreset">
+            <div class="episode-nav">
+              <button
+                type="button"
+                class="action-btn"
+                :disabled="offline || (engine?.episode_index ?? 0) <= 0"
+                @click="goPrevEpisode"
+              >
+                ← Попередній
+              </button>
+              <button
+                type="button"
+                class="action-btn"
+                :disabled="
+                  offline ||
+                    (engine?.episode_index ?? 0) >=
+                    (episodes.length || engine?.episode_count || 1) - 1
+                "
+                @click="goNextEpisode"
+              >
+                Наступний →
+              </button>
+            </div>
+            <div
+              v-if="episodes.length"
+              class="episode-strip"
+            >
+              <button
+                v-for="(ep, index) in episodes"
+                :key="ep.id"
+                type="button"
+                class="episode-chip"
+                :class="{ active: index === (engine?.episode_index ?? 0) }"
+                :style="{ '--chip': paletteCss(ep.palette) }"
+                :disabled="offline"
+                @click="seekEpisode(index)"
+              >
+                <span class="episode-chip__n">{{ index + 1 }}</span>
+                <span class="episode-chip__palette">{{ ep.palette }}</span>
+              </button>
+            </div>
+          </template>
         </section>
 
         <LiveFxPanel

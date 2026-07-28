@@ -130,7 +130,8 @@ def test_disarmed_artnet_sends_only_zero_frames() -> None:
     assert controller.transport.last_frame == [0] * DMX_UNIVERSE_SIZE
 
 
-def test_nonzero_requires_armed_and_blackout_off() -> None:
+def test_nonzero_requires_armed_raw_blackout_still_zeros() -> None:
+    """Art-Net nonzero needs Arm. Raw+Blackout stays dark; Live FX path may light."""
     controller = create_output_controller()
     sock = RecordingSocket()
     controller.configure_artnet(target_ip="10.255.0.2", injected_socket=sock)
@@ -145,8 +146,13 @@ def test_nonzero_requires_armed_and_blackout_off() -> None:
     controller.publish(bright)
     assert controller.transport.last_frame == bright
 
+    # Engine Live-FX-style frames can pass while Blackout is on (armed).
     controller.engine.set_blackout(True)
     controller.publish(bright)
+    assert controller.transport.last_frame == bright
+
+    # Raw tester sources stay dark under Blackout.
+    controller.publish(bright, from_raw=True)
     assert controller.transport.last_frame == [0] * DMX_UNIVERSE_SIZE
 
     controller.engine.set_blackout(False)

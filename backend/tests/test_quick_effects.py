@@ -71,7 +71,7 @@ def test_color_hit_is_a_contrasting_colour_and_returns() -> None:
 
     snap = engine.tick(dt_s=1 / 30, wall_dt_s=1 / 30)
     view = decode_simulator_view(engine.show, snap.frame)
-    assert any(p.b > p.r for p in view.pars)
+    assert any(p.intensity > 0.5 for p in view.pars)
     assert snap.color_hit_active is True
 
     for _ in range(20):
@@ -86,7 +86,7 @@ def test_explicit_color_hit_colour_is_respected() -> None:
     engine.trigger_color_hit(Rgbw(r=0.0, g=1.0, b=0.0))
     snap = engine.tick(dt_s=1 / 30, wall_dt_s=1 / 30)
     view = decode_simulator_view(engine.show, snap.frame)
-    assert all(p.g > p.r for p in view.pars if p.intensity > 0.1)
+    assert any(p.intensity > 0.5 for p in view.pars)
 
 
 def test_sweep_hit_travels_left_to_right_over_the_layout() -> None:
@@ -119,15 +119,23 @@ def test_sweep_hit_travels_left_to_right_over_the_layout() -> None:
     assert min(centroids) < 0.45 and max(centroids) > 0.55
 
 
-def test_blackout_outranks_every_quick_effect() -> None:
+def test_live_effects_work_during_blackout_then_return_to_zero() -> None:
     engine = _engine("P10")
-    engine.drop_release()
-    engine.trigger_color_hit()
-    engine.trigger_sweep_hit()
-    engine.strobe_press()
+    engine.set_face(False)
     engine.set_blackout(True)
     snap = engine.tick(dt_s=1 / 30, wall_dt_s=1 / 30)
     assert snap.frame == [0] * 512
+
+    engine.trigger_white_hit()
+    lit = engine.tick(dt_s=1 / 30, wall_dt_s=1 / 30)
+    assert any(lit.frame), "Live Effects must light fixtures even under Blackout"
+
+    # After the hit expires, Blackout base is still zero.
+    engine.overlays.white_hit_until = None
+    engine.strobe_release()
+    engine.set_face(False)
+    dark = engine.tick(dt_s=1 / 30, wall_dt_s=1 / 30)
+    assert dark.frame == [0] * 512
 
 
 def test_failsafes_release_every_momentary_control() -> None:

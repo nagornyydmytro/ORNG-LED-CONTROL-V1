@@ -138,6 +138,17 @@ def decode_simulator_view(show: ShowConfig, frame: list[int]) -> SimulatorView:
                 if fixture.spatial.invert_segments:
                     idx = 7 - idx
                 segments[idx] = level
+            for local, segment_index in _role_locals(channels, ChannelRole.SEGMENT_COLOR):
+                if segment_index is None:
+                    continue
+                level = _u8(frame, start, local)
+                idx = segment_index - 1
+                if fixture.spatial.invert_segments:
+                    idx = 7 - idx
+                if level > 0:
+                    # Encoded palette values are not linear RGB; treat any
+                    # non-zero as a fully-lit segment for stage visualization.
+                    segments[idx] = max(segments[idx], 1.0)
             bars.append(
                 BarFixtureView(
                     id=fixture.id,

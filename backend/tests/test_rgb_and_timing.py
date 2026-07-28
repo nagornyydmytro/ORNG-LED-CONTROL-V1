@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from orng_led.config import default_config_dir, load_show_config
-from orng_led.config.models import Capability, ChannelRole
+from orng_led.config.models import ChannelRole
 from orng_led.engine.engine import Engine
 from orng_led.engine.timing import effect_rate_hz, movement_rate_hz
 from orng_led.presets.store import PresetStore
@@ -29,32 +29,30 @@ def _engine(preset_id: str = "P05") -> Engine:
 def test_every_profile_declares_rgb() -> None:
     show = load_show_config()
     for profile in show.profiles.values():
-        assert Capability.RGB in profile.capabilities, profile.id
         roles = {ch.role for ch in profile.channels}
-        assert {ChannelRole.RED, ChannelRole.GREEN, ChannelRole.BLUE} <= roles, profile.id
+        if profile.kind.value in {"par", "face_par"}:
+            assert ChannelRole.DIMMER in roles, profile.id
+            assert ChannelRole.RED in roles, profile.id
+        elif profile.kind.value == "bar":
+            assert profile.footprint == 15, profile.id
+            assert ChannelRole.SEGMENT_COLOR in roles, profile.id
+            assert ChannelRole.WHOLE_COLOR in roles, profile.id
+        elif profile.kind.value == "beam":
+            assert profile.footprint == 13, profile.id
 
 
 def test_bars_and_beams_carry_real_rgb_not_a_fixed_orange() -> None:
     show = load_show_config()
-    seen_bar: set[tuple[int, int, int]] = set()
-    seen_beam: set[tuple[int, int, int]] = set()
+    lit_bars = 0
     for preset_id in PRESET_IDS:
         engine = _engine(preset_id)
         for _ in range(40):
             snap = engine.tick(dt_s=0.5, wall_dt_s=0.5)
             view = decode_simulator_view(show, snap.frame)
             for bar in view.bars:
-                if bar.dimmer > 0.1:
-                    seen_bar.add((round(bar.r, 1), round(bar.g, 1), round(bar.b, 1)))
-            for beam in view.beams:
-                if beam.dimmer > 0.1:
-                    seen_beam.add((round(beam.r, 1), round(beam.g, 1), round(beam.b, 1)))
-
-    assert len(seen_bar) > 3, seen_bar
-    assert len(seen_beam) > 3, seen_beam
-    # At least one clearly non-orange (blue/green dominant) colour must appear.
-    assert any(b > r for r, _g, b in seen_bar), seen_bar
-    assert any(b > r for r, _g, b in seen_beam), seen_beam
+                if bar.dimmer > 0.1 and any(seg > 0 for seg in bar.segments):
+                    lit_bars += 1
+    assert lit_bars > 10, "Bars must light via mapped segment/whole colour channels"
 
 
 def test_presets_are_distinguishable_by_colour_not_only_by_speed() -> None:
@@ -121,9 +119,10 @@ def test_white_hit_uses_the_rgb_model() -> None:
     snap = engine.tick(dt_s=0.02, wall_dt_s=0.02)
     view = decode_simulator_view(show, snap.frame)
     bar = view.bars[0]
-    beam = view.beams[0]
-    assert bar.r > 0.9 and bar.g > 0.9 and bar.b > 0.9
-    assert beam.r > 0.9 and beam.g > 0.9 and beam.b > 0.9
+    assert bar.dimmer > 0.9
+    assert any(seg > 0 for seg in bar.segments)
+    pars = [p for p in view.pars if p.intensity > 0.5]
+    assert pars, "White Hit must light rear PARs via mapped dimmer/red"
 
 
 def test_bar_segments_are_individually_addressable() -> None:

@@ -19,6 +19,8 @@ from orng_led.api.schemas import (
     DropCommand,
     FaceCommand,
     FailsafeCommand,
+    FixtureChannelTestCommand,
+    FixtureChannelTestSetCommand,
     HealthResponse,
     IdentifyFixtureCommand,
     IdentifyGroupCommand,
@@ -39,6 +41,7 @@ from orng_led.api.schemas import (
     SaveLayoutRequest,
     SavePatchRequest,
     SaveProfileRequest,
+    SeekEpisodeCommand,
     SelectPresetCommand,
     StrobeCommand,
     SweepHitCommand,
@@ -231,6 +234,79 @@ def build_api_router() -> APIRouter:
         if not replay:
             await runtime.broadcast_state()
         return CommandAck(state=state, idempotent_replay=replay)
+
+    @router.post("/commands/seek-episode", response_model=CommandAck)
+    async def seek_episode(body: SeekEpisodeCommand, request: Request) -> CommandAck:
+        runtime = get_runtime(request)
+        try:
+            state, replay = runtime.apply_seek_episode(
+                body.episode_index,
+                client_command_id=body.client_command_id,
+            )
+        except (KeyError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if not replay:
+            await runtime.broadcast_state()
+        return CommandAck(state=state, idempotent_replay=replay)
+
+    @router.get("/setup/channel-roles")
+    def channel_roles(request: Request) -> dict:
+        runtime = get_runtime(request)
+        return {"roles": runtime.channel_role_catalog()}
+
+    @router.post("/setup/fixture-channel-test/begin", response_model=CommandAck)
+    async def fixture_test_begin(
+        body: FixtureChannelTestCommand,
+        request: Request,
+    ) -> CommandAck:
+        runtime = get_runtime(request)
+        if not body.fixture_id:
+            raise HTTPException(status_code=400, detail="fixture_id required")
+        try:
+            state = runtime.begin_fixture_channel_test(body.fixture_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        await runtime.broadcast_state()
+        return CommandAck(state=state)
+
+    @router.post("/setup/fixture-channel-test/set", response_model=CommandAck)
+    async def fixture_test_set(
+        body: FixtureChannelTestSetCommand,
+        request: Request,
+    ) -> CommandAck:
+        runtime = get_runtime(request)
+        try:
+            state = runtime.set_fixture_local_channel(
+                body.fixture_id,
+                body.local,
+                body.value,
+            )
+        except (KeyError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        await runtime.broadcast_state()
+        return CommandAck(state=state)
+
+    @router.post("/setup/fixture-channel-test/reset", response_model=CommandAck)
+    async def fixture_test_reset(
+        body: FixtureChannelTestCommand,
+        request: Request,
+    ) -> CommandAck:
+        runtime = get_runtime(request)
+        if not body.fixture_id:
+            raise HTTPException(status_code=400, detail="fixture_id required")
+        try:
+            state = runtime.reset_fixture_channel_test(body.fixture_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        await runtime.broadcast_state()
+        return CommandAck(state=state)
+
+    @router.post("/setup/fixture-channel-test/end", response_model=CommandAck)
+    async def fixture_test_end(request: Request) -> CommandAck:
+        runtime = get_runtime(request)
+        state = runtime.end_fixture_channel_test()
+        await runtime.broadcast_state()
+        return CommandAck(state=state)
 
     @router.post("/commands/white-hit", response_model=CommandAck)
     async def white_hit(body: WhiteHitCommand, request: Request) -> CommandAck:

@@ -99,4 +99,80 @@ export async function setupPost(path: string, body: Record<string, unknown> = {}
   );
 }
 
+export interface ChannelRoleOption {
+  role: string;
+  label: string;
+}
+
+/** Fallback catalog if GET /api/setup/channel-roles is unavailable. */
+export const FALLBACK_CHANNEL_ROLES: ChannelRoleOption[] = [
+  { role: "unused", label: "Не використовується / завжди 0" },
+  { role: "dimmer", label: "Master Dimmer" },
+  { role: "red", label: "Red" },
+  { role: "green", label: "Green" },
+  { role: "blue", label: "Blue" },
+  { role: "white", label: "White" },
+  { role: "amber", label: "Amber" },
+  { role: "uv", label: "UV" },
+  { role: "strobe", label: "Strobe" },
+  { role: "strobe_speed", label: "Strobe Speed" },
+  { role: "program", label: "Program / Effect" },
+  { role: "effect_speed", label: "Effect Speed" },
+  { role: "direction_mode", label: "Direction / Mode" },
+  { role: "whole_color", label: "Whole Fixture Color / Palette" },
+  { role: "segment_color", label: "Segment Color" },
+  { role: "segment", label: "Segment Level" },
+  { role: "pan_coarse", label: "Pan" },
+  { role: "pan_fine", label: "Pan Fine" },
+  { role: "tilt_coarse", label: "Tilt" },
+  { role: "tilt_fine", label: "Tilt Fine" },
+  { role: "movement_speed", label: "Movement Speed" },
+  { role: "color", label: "Color Wheel" },
+  { role: "gobo", label: "Gobo" },
+  { role: "gobo_rotation", label: "Gobo Rotation" },
+  { role: "prism", label: "Prism" },
+  { role: "prism_rotation", label: "Prism Rotation" },
+  { role: "focus", label: "Focus" },
+  { role: "zoom", label: "Zoom" },
+  { role: "reset", label: "Reset" },
+  { role: "fixed", label: "Фіксоване значення" },
+  { role: "shutter", label: "Shutter" },
+];
+
+export const PALETTE_KEYS = [
+  "off",
+  "red",
+  "green",
+  "blue",
+  "white",
+  "amber",
+  "cyan",
+  "purple",
+] as const;
+
+export const DEFAULT_CHANNEL_PALETTE: Record<(typeof PALETTE_KEYS)[number], number> = {
+  off: 0,
+  red: 16,
+  green: 32,
+  blue: 48,
+  white: 64,
+  amber: 80,
+  cyan: 96,
+  purple: 112,
+};
+
+export async function fetchChannelRoles(): Promise<ChannelRoleOption[]> {
+  try {
+    const body = await parseJson<{ roles: ChannelRoleOption[] }>(
+      await fetch("/api/setup/channel-roles"),
+    );
+    if (Array.isArray(body.roles) && body.roles.length > 0) {
+      return body.roles;
+    }
+  } catch {
+    // fall through
+  }
+  return FALLBACK_CHANNEL_ROLES;
+}
+
 export type { AppState };

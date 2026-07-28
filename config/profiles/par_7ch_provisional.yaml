@@ -1,34 +1,63 @@
 schema_version: 1
 id: par_7ch_provisional
-label: PAR 7ch (provisional)
+label: PAR 7ch
 kind: par
 footprint: 7
 hardware_verified: false
 capabilities:
-  - dimmer
-  - rgb
-  - strobe
-notes: >
-  Provisional channel map. Real mode and ranges are PENDING HARDWARE.
+- dimmer
+- rgb
+- strobe
 channels:
-  - local: 1
-    role: dimmer
-    label: Dimmer
-  - local: 2
-    role: red
-    label: Red
-  - local: 3
-    role: green
-    label: Green
-  - local: 4
-    role: blue
-    label: Blue
-  - local: 5
-    role: white
-    label: White
-  - local: 6
-    role: strobe
-    label: Strobe/shutter (provisional)
-  - local: 7
-    role: unknown
-    label: Mode/macro (provisional)
+- local: 1
+  role: dimmer
+  label: Master Dimmer
+  segment_index: null
+  notes: null
+  fixed_value: null
+  palette: null
+- local: 2
+  role: red
+  label: Red
+  segment_index: null
+  notes: null
+  fixed_value: null
+  palette: null
+- local: 3
+  role: unused
+  label: Не призначено
+  segment_index: null
+  notes: null
+  fixed_value: null
+  palette: null
+- local: 4
+  role: unused
+  label: Не призначено
+  segment_index: null
+  notes: null
+  fixed_value: null
+  palette: null
+- local: 5
+  role: unused
+  label: Не призначено
+  segment_index: null
+  notes: null
+  fixed_value: null
+  palette: null
+- local: 6
+  role: unused
+  label: Не призначено
+  segment_index: null
+  notes: null
+  fixed_value: null
+  palette: null
+- local: 7
+  role: unused
+  label: Не призначено
+  segment_index: null
+  notes: null
+  fixed_value: null
+  palette: null
+segment_count: 0
+notes: CH1 dimmer and CH2 red confirmed on hardware. Remaining channels are assigned
+  via «Налаштування каналів».

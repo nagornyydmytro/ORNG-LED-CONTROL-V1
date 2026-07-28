@@ -46,16 +46,22 @@ def test_simulator_matches_frame_not_parallel_fiction() -> None:
     frame = list(snap.frame)
     view = decode_simulator_view(show, frame)
 
-    # PAR 1 starts at address 1: dimmer local 1, RGB on provisional profile.
+    # PAR 1 starts at address 1: dimmer local 1, red local 2 (hardware-confirmed).
     par1 = next(p for p in view.pars if p.id == "par_1")
     assert abs(par1.intensity - frame[0] / 255.0) < 1e-9
     assert abs(par1.r - frame[1] / 255.0) < 1e-9
 
     bar1 = next(b for b in view.bars if b.id == "bar_1")
-    # Bar 1 start 93 → index 92 dimmer; RGB locals 3..5, segments locals 6..13.
+    # Bar 1 start 93 → index 92 dimmer; segment_color locals 4..11 (no RGB locals).
     assert abs(bar1.dimmer - frame[92] / 255.0) < 1e-9
-    assert abs(bar1.r - frame[94] / 255.0) < 1e-9
-    assert abs(bar1.segments[0] - frame[97] / 255.0) < 1e-9
+    assert bar1.r == 0.0
+    assert bar1.g == 0.0
+    assert bar1.b == 0.0
+    # Encoded segment colour at local 4 → global 96 → index 95.
+    if frame[95] > 0:
+        assert bar1.segments[0] == 1.0
+    else:
+        assert bar1.segments[0] == 0.0
 
 
 def test_beam_sides_are_spatially_distinct() -> None:

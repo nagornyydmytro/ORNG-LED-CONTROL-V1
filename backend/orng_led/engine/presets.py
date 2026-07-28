@@ -12,6 +12,7 @@ from orng_led.engine.intents import BarIntent, BeamIntent, ParIntent, Rgbw, Stag
 EPISODE_COUNT = 10
 EPISODE_DURATION_S = 18.0
 CYCLE_DURATION_S = EPISODE_COUNT * EPISODE_DURATION_S  # 180
+NONE_PRESET_ID = "NONE"
 
 
 class PresetProgram(Protocol):
@@ -34,6 +35,24 @@ def cycle_position(time_s: float) -> CyclePosition:
     episode_time = cycle_time - episode_index * EPISODE_DURATION_S
     progress = episode_time / EPISODE_DURATION_S
     return CyclePosition(cycle_time, episode_index, episode_time, progress)
+
+
+@dataclass
+class NonePresetProgram:
+    """Explicit «Без пресету»: zero base look, no episode clock output."""
+
+    id: str = NONE_PRESET_ID
+    label: str = "Без пресету"
+    episode_count: int = 0
+    total_duration_s: float = 0.0
+
+    def evaluate(self, cycle_time_s: float, show: ShowConfig) -> StageIntent:
+        del cycle_time_s, show
+        return StageIntent()
+
+    def cycle_position(self, time_s: float) -> CyclePosition:
+        del time_s
+        return CyclePosition(0.0, 0, 0.0, 0.0)
 
 
 @dataclass

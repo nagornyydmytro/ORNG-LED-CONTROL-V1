@@ -1,0 +1,56 @@
+schema_version: 1
+id: beam_13ch
+label: Beam Head 13ch
+kind: beam
+footprint: 13
+hardware_verified: false
+capabilities:
+  - dimmer
+  - rgb
+  - pan_tilt
+  - color_wheel
+  - gobo
+  - strobe
+notes: >
+  Full 13-channel Beam Head profile. Dangerous reset/service channels stay
+  unused until the operator assigns them manually. Do not auto-guess reset.
+channels:
+  - local: 1
+    role: unused
+    label: Не призначено
+  - local: 2
+    role: unused
+    label: Не призначено
+  - local: 3
+    role: unused
+    label: Не призначено
+  - local: 4
+    role: unused
+    label: Не призначено
+  - local: 5
+    role: unused
+    label: Не призначено
+  - local: 6
+    role: unused
+    label: Не призначено
+  - local: 7
+    role: unused
+    label: Не призначено
+  - local: 8
+    role: unused
+    label: Не призначено
+  - local: 9
+    role: unused
+    label: Не призначено
+  - local: 10
+    role: unused
+    label: Не призначено
+  - local: 11
+    role: unused
+    label: Не призначено
+  - local: 12
+    role: unused
+    label: Не призначено
+  - local: 13
+    role: unused
+    label: Не призначено

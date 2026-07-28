@@ -80,7 +80,11 @@ export function useAppState(toasts: ToastApi) {
 
   const engine = computed(() => state.value?.engine ?? null);
   const output = computed(() => state.value?.output ?? null);
-  const availableIds = computed(() => new Set(state.value?.presets ?? []));
+  const availableIds = computed(() => {
+    const ids = new Set(state.value?.presets ?? []);
+    ids.add("NONE");
+    return ids;
+  });
 
   function publish() {
     if (publishTimer !== null) {
@@ -214,6 +218,10 @@ export function useAppState(toasts: ToastApi) {
   }
 
   async function selectPreset(presetId: string) {
+    if (presetId === "NONE") {
+      await runCommand("select-preset", { preset_id: "NONE", reset_clock: true });
+      return;
+    }
     if (!availableIds.value.has(presetId)) {
       toasts.push(`Пресет ${presetId} ще не завантажено на сервері`, "error");
       return;
@@ -224,6 +232,10 @@ export function useAppState(toasts: ToastApi) {
       return;
     }
     await dispatchPad(buttonId);
+  }
+
+  async function seekEpisode(episodeIndex: number) {
+    await runCommand("seek-episode", { episode_index: episodeIndex });
   }
 
   async function whiteHit() {
@@ -362,6 +374,7 @@ export function useAppState(toasts: ToastApi) {
     liveView,
     liveFrame,
     selectPreset,
+    seekEpisode,
     whiteHit,
     strobePress,
     strobeRelease,

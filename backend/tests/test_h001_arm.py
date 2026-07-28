@@ -102,7 +102,8 @@ def test_arm_with_prepared_nonzero_source_keeps_wire_zero() -> None:
     assert all(address[0] != VENUE_CONTROLLER_IP for _, address in sock.sent)
 
 
-def test_armed_plus_blackout_always_sends_zeros() -> None:
+def test_armed_plus_blackout_zeros_preset_and_raw() -> None:
+    """Blackout zeroes preset base and Raw wire; Live FX may still light (see mapping tests)."""
     runtime = _runtime()
     sock = RecordingSocket()
     _activate_network(runtime, sock)
@@ -110,11 +111,13 @@ def test_armed_plus_blackout_always_sends_zeros() -> None:
     assert runtime.output.armed is True
     assert runtime.engine.overlays.blackout is True
 
+    # Raw under Blackout stays dark on the wire.
     bright = [0] * 512
     bright[0] = 200
-    runtime.output.publish(bright)
+    runtime.output.publish(bright, from_raw=True)
     assert sock.sent[-1][0][-512:] == bytes(512)
 
+    # Engine tick with Blackout and no Live FX → zero wire.
     runtime.tick(dt_s=0.05)
     assert sock.sent[-1][0][-512:] == bytes(512)
     assert runtime.build_state().output.wire_nonzero_channels == 0

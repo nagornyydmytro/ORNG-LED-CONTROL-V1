@@ -33,27 +33,78 @@ def require_supported_schema_version(version: int) -> int:
 
 
 class ChannelRole(StrEnum):
+    """Semantic DMX channel functions used by the mapping UI and renderer."""
+
+    UNUSED = "unused"
     DIMMER = "dimmer"
     RED = "red"
     GREEN = "green"
     BLUE = "blue"
     WHITE = "white"
+    AMBER = "amber"
+    UV = "uv"
     STROBE = "strobe"
+    STROBE_SPEED = "strobe_speed"
     SHUTTER = "shutter"
-    MACRO = "macro"
-    SPEED = "speed"
-    RESET = "reset"
+    PROGRAM = "program"
+    EFFECT_SPEED = "effect_speed"
+    DIRECTION_MODE = "direction_mode"
+    WHOLE_COLOR = "whole_color"
     SEGMENT = "segment"
+    SEGMENT_COLOR = "segment_color"
     PAN_COARSE = "pan_coarse"
     PAN_FINE = "pan_fine"
     TILT_COARSE = "tilt_coarse"
     TILT_FINE = "tilt_fine"
+    MOVEMENT_SPEED = "movement_speed"
     COLOR = "color"
     GOBO = "gobo"
-    FOCUS = "focus"
+    GOBO_ROTATION = "gobo_rotation"
     PRISM = "prism"
-    MOVEMENT_SPEED = "movement_speed"
+    PRISM_ROTATION = "prism_rotation"
+    FOCUS = "focus"
+    ZOOM = "zoom"
+    RESET = "reset"
+    FIXED = "fixed"
+    # Legacy aliases kept for older YAML / tests.
+    MACRO = "macro"
+    SPEED = "speed"
     UNKNOWN = "unknown"
+
+
+DEFAULT_COLOR_PALETTE: dict[str, int] = {
+    "off": 0,
+    "red": 16,
+    "green": 32,
+    "blue": 48,
+    "white": 64,
+    "amber": 80,
+    "cyan": 96,
+    "purple": 112,
+}
+
+
+class ChannelDefinition(StrictModel):
+    local: Annotated[int, Field(ge=1, le=DMX_CHANNEL_MAX)]
+    role: ChannelRole
+    label: str | None = None
+    segment_index: Annotated[int, Field(ge=1, le=8)] | None = None
+    notes: str | None = None
+    fixed_value: Annotated[int, Field(ge=0, le=255)] | None = None
+    palette: dict[str, int] | None = None
+
+    @field_validator("palette")
+    @classmethod
+    def _palette_bounds(cls, value: dict[str, int] | None) -> dict[str, int] | None:
+        if value is None:
+            return None
+        cleaned: dict[str, int] = {}
+        for key, raw in value.items():
+            number = int(raw)
+            if number < 0 or number > 255:
+                raise ConfigError(f"Palette value for {key!r} must be 0..255")
+            cleaned[str(key)] = number
+        return cleaned
 
 
 class Capability(StrEnum):
@@ -106,14 +157,6 @@ class TransportMode(StrEnum):
     ARTNET = "artnet"
 
 
-class ChannelDefinition(StrictModel):
-    local: Annotated[int, Field(ge=1, le=DMX_CHANNEL_MAX)]
-    role: ChannelRole
-    label: str | None = None
-    segment_index: Annotated[int, Field(ge=1, le=8)] | None = None
-    notes: str | None = None
-
-
 class FixtureProfile(StrictModel):
     schema_version: int = SCHEMA_VERSION
     id: Annotated[str, Field(min_length=1)]
@@ -143,9 +186,16 @@ class FixtureProfile(StrictModel):
                     f"Profile {self.id!r}: local channel {channel.local} exceeds "
                     f"footprint {self.footprint}."
                 )
-            if channel.role is ChannelRole.SEGMENT and channel.segment_index is None:
+            if channel.role in (ChannelRole.SEGMENT, ChannelRole.SEGMENT_COLOR) and (
+                channel.segment_index is None
+            ):
                 raise ConfigError(
-                    f"Profile {self.id!r}: segment channel {channel.local} needs segment_index."
+                    f"Profile {self.id!r}: {channel.role.value} channel {channel.local} "
+                    "needs segment_index."
+                )
+            if channel.role is ChannelRole.FIXED and channel.fixed_value is None:
+                raise ConfigError(
+                    f"Profile {self.id!r}: fixed channel {channel.local} needs fixed_value."
                 )
 
         if Capability.SEGMENTS in self.capabilities and self.segment_count != 8:

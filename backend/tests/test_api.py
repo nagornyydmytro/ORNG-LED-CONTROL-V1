@@ -112,7 +112,18 @@ def test_commands_update_state(client) -> None:
 
     blackout = test_client.post("/api/commands/blackout", json={"enabled": True}).json()
     assert blackout["state"]["engine"]["blackout"] is True
-    assert blackout["state"]["frame"] == [0] * DMX_UNIVERSE_SIZE
+    # Face / strobe / white-hit still compose over a zeroed preset base.
+    assert blackout["state"]["engine"]["face_on"] is True
+    assert blackout["state"]["engine"]["strobe_held"] is True
+    assert any(value > 0 for value in blackout["state"]["frame"])
+
+    test_client.post("/api/commands/face", json={"enabled": False}).json()
+    test_client.post("/api/commands/strobe", json={"action": "release"}).json()
+    # Expire white-hit so only Blackout remains (zero wire with no Live FX).
+    runtime.tick(dt_s=1.0)
+    cleared = runtime.build_state()
+    assert cleared.engine.blackout is True
+    assert cleared.frame == [0] * DMX_UNIVERSE_SIZE
 
     bright = test_client.post(
         "/api/commands/master-brightness",

@@ -210,6 +210,23 @@ class SelectPresetCommand(ApiModel):
     client_command_id: str | None = None
 
 
+class SeekEpisodeCommand(ApiModel):
+    episode_index: Annotated[int, Field(ge=0, le=63)]
+    client_command_id: str | None = None
+
+
+class FixtureChannelTestSetCommand(ApiModel):
+    fixture_id: str
+    local: Annotated[int, Field(ge=1, le=512)]
+    value: Annotated[int, Field(ge=0, le=255)]
+    client_command_id: str | None = None
+
+
+class FixtureChannelTestCommand(ApiModel):
+    fixture_id: str | None = None
+    client_command_id: str | None = None
+
+
 class StrobeCommand(ApiModel):
     action: Literal["press", "release"]
     client_command_id: str | None = None

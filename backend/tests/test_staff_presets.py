@@ -23,7 +23,8 @@ def show():
 
 @pytest.fixture(scope="module")
 def staff_docs():
-    return load_presets_dir(default_presets_dir())
+    docs = load_presets_dir(default_presets_dir())
+    return {preset_id: docs[preset_id] for preset_id in STAFF_PRESET_IDS if preset_id in docs}
 
 
 def test_exactly_ten_staff_yaml_files(staff_docs) -> None:

@@ -19,6 +19,7 @@ const links = [
   { to: "/", label: "Пульт", glyph: "◉" },
   { to: "/presets", label: "Пресети", glyph: "▤" },
   { to: "/setup", label: "Налаштування", glyph: "⚙" },
+  { to: "/channels", label: "Налаштування каналів", glyph: "⑂" },
 ];
 
 function connectionLabel(status: ConnectionStatus): string {

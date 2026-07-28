@@ -1,24 +1,26 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from "vue";
-import {
-  SPLASH_MIN_MS,
-  buildSplashMask,
-  drawSplashStripes,
-  type SplashMask,
-} from "../lib/splashStripes";
+
+/** Full reference sequence length (see public/splash-frames/manifest.json). */
+const FRAME_COUNT = 125;
+const FPS = 30;
+const SPLASH_MIN_MS = Math.ceil((FRAME_COUNT / FPS) * 1000);
 
 const visible = ref(true);
 const canvasRef = ref<HTMLCanvasElement | null>(null);
 
 let raf = 0;
 let hideTimer = 0;
-let cssW = 0;
-let cssH = 0;
-let mask: SplashMask | null = null;
+let frames: HTMLImageElement[] = [];
+let ready = false;
 let painted = false;
 
 const splashT0 = (window as unknown as { __ORNG_SPLASH_T0?: number }).__ORNG_SPLASH_T0;
 const t0 = typeof splashT0 === "number" ? splashT0 : performance.now();
+
+function frameUrl(i: number): string {
+  return `/splash-frames/${String(i).padStart(3, "0")}.jpg`;
+}
 
 function lockApp(): void {
   document.documentElement.classList.add("splash-active");
@@ -31,17 +33,35 @@ function unlockApp(): void {
   document.getElementById("boot-splash")?.remove();
 }
 
-function ensureSize(canvas: HTMLCanvasElement): void {
-  const nextW = Math.max(1, Math.floor(window.innerWidth));
-  const nextH = Math.max(1, Math.floor(window.innerHeight));
-  if (nextW === cssW && nextH === cssH && mask) return;
-  cssW = nextW;
-  cssH = nextH;
-  canvas.width = nextW;
-  canvas.height = nextH;
-  canvas.style.width = "100%";
-  canvas.style.height = "100%";
-  mask = buildSplashMask(nextW, nextH);
+function preloadFrames(): Promise<void> {
+  frames = Array.from({ length: FRAME_COUNT }, (_, i) => {
+    const img = new Image();
+    img.decoding = "async";
+    img.src = frameUrl(i);
+    return img;
+  });
+  return Promise.all(
+    frames.map((img) =>
+      img.decode().catch(() => undefined),
+    ),
+  ).then(() => {
+    ready = frames.some((img) => img.naturalWidth > 0);
+  });
+}
+
+function drawCover(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement,
+  w: number,
+  h: number,
+): void {
+  ctx.fillStyle = "#000000";
+  ctx.fillRect(0, 0, w, h);
+  if (!img.naturalWidth || !img.naturalHeight) return;
+  const scale = Math.max(w / img.naturalWidth, h / img.naturalHeight);
+  const dw = img.naturalWidth * scale;
+  const dh = img.naturalHeight * scale;
+  ctx.drawImage(img, (w - dw) * 0.5, (h - dh) * 0.5, dw, dh);
 }
 
 function frame(now: number) {
@@ -49,14 +69,38 @@ function frame(now: number) {
   if (!canvas || !visible.value) return;
   const ctx = canvas.getContext("2d", { alpha: false });
   if (!ctx) return;
-  ensureSize(canvas);
-  if (mask) {
-    drawSplashStripes(ctx, mask, (now - t0) / 1000);
-    if (!painted) {
-      painted = true;
-      document.getElementById("boot-splash")?.classList.add("boot-splash--done");
-    }
+
+  const w = Math.max(1, Math.floor(window.innerWidth));
+  const h = Math.max(1, Math.floor(window.innerHeight));
+  if (canvas.width !== w || canvas.height !== h) {
+    canvas.width = w;
+    canvas.height = h;
   }
+
+  const elapsed = now - t0;
+  const idx = Math.min(
+    FRAME_COUNT - 1,
+    Math.max(0, Math.floor((elapsed / 1000) * FPS)),
+  );
+  const img = frames[idx];
+  if (img && img.naturalWidth > 0) {
+    drawCover(ctx, img, w, h);
+  } else {
+    ctx.fillStyle = "#000000";
+    ctx.fillRect(0, 0, w, h);
+  }
+
+  if (!painted) {
+    painted = true;
+    document.getElementById("boot-splash")?.classList.add("boot-splash--done");
+  }
+
+  const hold = new URLSearchParams(location.search).has("splashHold");
+  if (!hold && ready && elapsed >= SPLASH_MIN_MS && idx >= FRAME_COUNT - 1) {
+    dismiss();
+    return;
+  }
+
   raf = window.requestAnimationFrame(frame);
 }
 
@@ -68,13 +112,14 @@ function dismiss() {
   unlockApp();
 }
 
-onMounted(() => {
+onMounted(async () => {
   lockApp();
+  await preloadFrames();
   raf = window.requestAnimationFrame(frame);
-  // ?splashHold=1 keeps splash up for visual checks.
-  if (new URLSearchParams(location.search).has("splashHold")) return;
-  const remaining = Math.max(0, SPLASH_MIN_MS - (performance.now() - t0));
-  hideTimer = window.setTimeout(dismiss, remaining);
+  if (!new URLSearchParams(location.search).has("splashHold")) {
+    // Failsafe if decode stalls — never block the app forever.
+    hideTimer = window.setTimeout(dismiss, SPLASH_MIN_MS + 1500);
+  }
 });
 
 onBeforeUnmount(() => {

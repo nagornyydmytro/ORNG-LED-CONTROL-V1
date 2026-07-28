@@ -117,13 +117,13 @@ export function drawSplashStripes(
   const edgeSoftX = 0.1;
   const edgeSoftY = 0.14;
 
-  // Intro: bars scatter then lock onto glyphs (~0.7s).
-  const assemble = smoothstep(0, 0.7, timeSec);
-  // Ongoing morph — COM in the reference oscillates ~2s period.
+  // Intro: bars scatter then lock onto glyphs (~0.85s).
+  const assemble = smoothstep(0, 0.85, timeSec);
+  // Ongoing motion — reference text morphs, but keep ORNG/HOTBOX readable.
   const morph = timeSec * Math.PI; // period ≈ 2s
   // Thickness breath + field flicker.
-  const breath = 0.72 + 0.28 * Math.sin(timeSec * 4.2);
-  const flicker = 0.88 + 0.12 * Math.sin(timeSec * 37.0);
+  const breath = 0.82 + 0.18 * Math.sin(timeSec * 3.6);
+  const flicker = 0.9 + 0.1 * Math.sin(timeSec * 31.0);
   const thick = Math.max(thin + 2, Math.round(thickBase * breath));
 
   const band = Math.max(3, (h / 50) | 0);
@@ -144,19 +144,16 @@ export function drawSplashStripes(
       ctx.fillRect(x - (thin >> 1), y0, thin, Math.min(band + 1, h - y0));
     }
 
-    // Sample glyph with per-slit morph offset (text morphs in place; slits fixed).
-    const sampleShift = Math.round(
-      Math.sin(morph + i * 0.37) * pitch * 3.2 * (0.35 + 0.65 * assemble),
-    );
+    // Per-slit sample warp: strong during assemble, subtle after (readable).
+    const morphAmp = pitch * (2.8 * (1 - assemble) + 0.55 * assemble);
+    const sampleShift = Math.round(Math.sin(morph + i * 0.37) * morphAmp);
     const sx = Math.max(0, Math.min(w - 1, x + sampleShift));
 
     // Vertical wave + intro scatter along each slit.
-    const yWave = Math.sin(timeSec * 3.1 + i * 0.51) * h * 0.018;
+    const yWave =
+      Math.sin(timeSec * 2.8 + i * 0.48) * h * (0.028 * (1 - assemble) + 0.01);
     const scatter =
-      (1 - assemble) *
-      Math.sin(i * 12.989 + 1.7) *
-      h *
-      0.16;
+      (1 - assemble) * Math.sin(i * 12.989 + 1.7) * h * 0.14;
 
     let run = -1;
     const flush = (yEnd: number) => {

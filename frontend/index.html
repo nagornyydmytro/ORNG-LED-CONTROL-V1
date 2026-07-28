@@ -142,10 +142,10 @@
           var thickBase = Math.max(thin + 3, Math.round(pitch * 0.78));
           var invW = 1 / Math.max(1, w - 1);
           var invH = 1 / Math.max(1, h - 1);
-          var assemble = smoothstep(0, 0.7, timeSec);
+          var assemble = smoothstep(0, 0.85, timeSec);
           var morph = timeSec * Math.PI;
-          var breath = 0.72 + 0.28 * Math.sin(timeSec * 4.2);
-          var flicker = 0.88 + 0.12 * Math.sin(timeSec * 37.0);
+          var breath = 0.82 + 0.18 * Math.sin(timeSec * 3.6);
+          var flicker = 0.9 + 0.1 * Math.sin(timeSec * 31.0);
           var thick = Math.max(thin + 2, Math.round(thickBase * breath));
           var band = Math.max(3, (h / 50) | 0);
 
@@ -163,12 +163,12 @@
               ctx.fillRect(x - ((thin / 2) | 0), y0, thin, Math.min(band + 1, h - y0));
             }
 
-            var sampleShift = Math.round(
-              Math.sin(morph + si * 0.37) * pitch * 3.2 * (0.35 + 0.65 * assemble)
-            );
+            var morphAmp = pitch * (2.8 * (1 - assemble) + 0.55 * assemble);
+            var sampleShift = Math.round(Math.sin(morph + si * 0.37) * morphAmp);
             var sx = Math.max(0, Math.min(w - 1, x + sampleShift));
-            var yWave = Math.sin(timeSec * 3.1 + si * 0.51) * h * 0.018;
-            var scatter = (1 - assemble) * Math.sin(si * 12.989 + 1.7) * h * 0.16;
+            var yWave =
+              Math.sin(timeSec * 2.8 + si * 0.48) * h * (0.028 * (1 - assemble) + 0.01);
+            var scatter = (1 - assemble) * Math.sin(si * 12.989 + 1.7) * h * 0.14;
 
             var run = -1;
             function flush(yEnd) {

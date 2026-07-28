@@ -42,8 +42,7 @@ commit после L013 дополняет hash L013 и строку `HOME PLAN C
 | L011 | `15f8053` | DONE |
 | L012 | `b10f4e0` | DONE |
 | Corrective HOME | `34bb2ba` | DONE (не этап Lxxx) |
-| L013 | `c2d06e9744db523d799dc123d54c1a3228126446` (`c2d06e9`) | DONE |
-| Corrective HOME | `34bb2ba2e35edd3f858c78cb954ce11379a814f7` (`34bb2ba`) | DONE (не этап Lxxx) |
+| L013 | `c2d06e9` | DONE |
 
 ## 3. Команды установки и запуска (Windows)
 

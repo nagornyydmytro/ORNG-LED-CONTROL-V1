@@ -808,18 +808,78 @@ Commit: `c2d06e9744db523d799dc123d54c1a3228126446` (`c2d06e9`).
 
 ## 5. Финальный отчёт HOME PLAN
 
-Обязательные разделы:
+Дата фиксации: **2026-07-28**. Ветка: `main`.
+Детали также в `docs/HOME_ACCEPTANCE_REPORT.md`.
 
-- итоговая архитектура;
-- таблица L001–L013 с hash;
-- команды установки и запуска на Windows;
-- backend tests;
-- frontend tests/typecheck/build;
-- integration/e2e;
-- что проверено в симуляторе;
-- полный список `PENDING HARDWARE`;
-- `git status`;
-- push status;
-- известные ограничения;
-- строка `HOME PLAN COMPLETE` только при выполнении всего домашнего scope.
+### Итоговая архитектура
+
+Vue 3 UI → FastAPI (REST + WebSocket + SPA) → один Engine → MockTransport.
+Art-Net адаптер реализован на уровне пакета; HOME runtime не вооружает сеть.
+
+### Таблица L001–L013 (полные hash)
+
+| ID | Commit | Статус |
+|---|---|---|
+| L001 | `180735714a12046f675e1964892cacaa6f4dd64b` | DONE |
+| L002 | `df98ab696656ace7374c7036074b44587183c6c6` | DONE |
+| L003 | `fbaf08a3e6a659a14f34c11e62d353de6e6b9f41` | DONE |
+| L004 | `1c01252b806662a518da55b5794fdf38bb600211` | DONE |
+| L005 | `f1cb34a42ea1be6239bdba96cc50390d3a856259` | DONE |
+| L006 | `ea3fae87eaa0a9fc3bfb426c3379d5cfbc16bb93` | DONE |
+| L007 | `7493e012e93f1c256e890f80bb66fc45e4f65b95` | DONE |
+| L008 | `48687b0a2b84f9ab7abccdf1ba799ec0d9b9595e` | DONE |
+| L009 | `02f414cfd4dd7a3a768e5caf3f483eefa0ecdeba` | DONE |
+| L010 | `9151dbf493971e1823b7d954de47d7f08203b942` | DONE |
+| L011 | `15f805323f3a7a14979988f191661b375fe3ea48` | DONE |
+| L012 | `b10f4e0d4963c423262554cbf78ca885952cb623` | DONE |
+| Corrective | `34bb2ba2e35edd3f858c78cb954ce11379a814f7` | DONE (не Lxxx) |
+| L013 | `c2d06e9744db523d799dc123d54c1a3228126446` | DONE |
+
+### Команды Windows
+
+```powershell
+.\scripts\bootstrap.ps1
+.\scripts\run.ps1
+.\scripts\check.ps1
+.\scripts\backup-config.ps1
+```
+
+UI: `http://127.0.0.1:8000/` · Health: `/api/health`.
+
+### Проверки
+
+- backend pytest: **150 passed**;
+- ruff check / ruff format --check: **PASS**;
+- frontend vitest: **19 passed**;
+- typecheck / lint / production build: **PASS**;
+- integration SPA smoke + clean-flow: **PASS**;
+- Mock / disarmed / startup blackout / no real UDP: **PASS**.
+
+### Симулятор
+
+Просмотрены P01–P10 в Mock; кадр = backend frame; Beam Left/Right по `side`;
+Identify/Raw/Blackout; transitions. Физический цвет/геометрия **не** подтверждены.
+
+### PENDING HARDWARE
+
+- профили каналов PAR/Bar/Beam/Face;
+- ориентация Bars;
+- Beam limits / home / invert;
+- Art-Net IP/universe/поведение контроллера;
+- `hardware_verified: false`;
+- `hardware_tuned: false`;
+- H001+ по `docs/HARDWARE_DAY_CHECKLIST.md`.
+
+### Git / push / ограничения
+
+`origin/main` синхронизирован; `.venv` / `node_modules` / `dist` / secrets не
+коммитятся. GPIO/Raspberry — stub; Cloudflare/auth вне scope; реальный Art-Net
+не включался.
+
+### Заключение
+
+HOME software acceptance завершена. Следующий разрешённый этап — `H001` только
+в заведении с оборудованием.
+
+**HOME PLAN COMPLETE**
 

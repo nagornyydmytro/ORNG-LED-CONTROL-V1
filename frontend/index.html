@@ -80,79 +80,84 @@
           ctx.fillStyle = "#000";
           ctx.fillRect(0, 0, w, h);
 
-          var orange = "#ff3b00";
-          var R = 255, G = 59, B = 0;
-          var pitch = Math.max(4, Math.round(w / 55));
-          var thin = Math.max(1, Math.round(pitch * 0.15));
-          var thick = Math.max(thin + 2, pitch - 1);
+          var R = 255, G = 42, B = 0;
+          var pitch = Math.max(5, Math.min(14, Math.round(w / 70)));
+          var thin = Math.max(1, Math.round(pitch * 0.18));
+          var thick = Math.max(thin + 2, pitch - 2);
 
           var off = document.createElement("canvas");
           off.width = w;
           off.height = h;
-          var o = off.getContext("2d");
+          var o = off.getContext("2d", { willReadFrequently: true });
           if (!o) return;
           o.fillStyle = "#000";
           o.fillRect(0, 0, w, h);
-          o.fillStyle = orange;
+          o.fillStyle = "#fff";
           o.textAlign = "center";
           o.textBaseline = "middle";
-          var fontPx = Math.min(w * 0.36, h * 0.18);
+          var fontPx = Math.min(w * 0.34, h * 0.16);
           function font(sz) {
             return "900 " + sz + 'px Impact,"Arial Black",Arial,sans-serif';
           }
           o.font = font(fontPx);
-          while (fontPx > 36 && o.measureText("HOTBOX").width > w * 0.9) {
+          while (fontPx > 40 && o.measureText("HOTBOX").width > w * 0.9) {
             fontPx -= 2;
             o.font = font(fontPx);
           }
-          var lineGap = fontPx * 0.18;
+          var lineGap = fontPx * 0.16;
           var blockH = fontPx * 2 + lineGap;
           var midY = h * 0.32;
           var cx = w * 0.5;
           o.fillText("ORNG", cx, midY - blockH * 0.28);
           o.fillText("HOTBOX", cx, midY + blockH * 0.28);
 
+          var img = o.getImageData(0, 0, w, h);
+          var d = img.data;
+          for (var i = 0; i < d.length; i += 4) {
+            if (d[i] > 40) {
+              d[i] = R; d[i + 1] = G; d[i + 2] = B; d[i + 3] = 255;
+            } else {
+              d[i] = 0; d[i + 1] = 0; d[i + 2] = 0; d[i + 3] = 255;
+            }
+          }
+          o.putImageData(img, 0, 0);
+
           var invW = 1 / Math.max(1, w - 1);
+          ctx.fillStyle = "rgb(" + R + "," + G + "," + B + ")";
           for (var x = (pitch * 0.5) | 0; x < w; x += pitch) {
-            var fx = edgeFade(x * invW, 0.11);
-            if (fx < 0.04) continue;
-            var grad = ctx.createLinearGradient(0, 0, 0, h);
-            grad.addColorStop(0, "rgba(" + R + "," + G + "," + B + ",0)");
-            grad.addColorStop(0.08, "rgba(" + R + "," + G + "," + B + "," + 0.85 * fx + ")");
-            grad.addColorStop(0.92, "rgba(" + R + "," + G + "," + B + "," + 0.85 * fx + ")");
-            grad.addColorStop(1, "rgba(" + R + "," + G + "," + B + ",0)");
-            ctx.fillStyle = grad;
+            if (edgeFade(x * invW, 0.1) < 0.05) continue;
             ctx.fillRect(x - ((thin / 2) | 0), 0, thin, h);
           }
 
           ctx.imageSmoothingEnabled = false;
           for (var sx = (pitch * 0.5) | 0; sx < w; sx += pitch) {
-            var fxx = edgeFade(sx * invW, 0.11);
-            if (fxx < 0.04) continue;
-            ctx.globalAlpha = fxx;
+            if (edgeFade(sx * invW, 0.1) < 0.05) continue;
             ctx.drawImage(off, sx, 0, 1, h, sx - ((thick / 2) | 0), 0, thick, h);
           }
-          ctx.globalAlpha = 1;
 
-          var edgeWash = ctx.createLinearGradient(0, 0, 0, h);
-          edgeWash.addColorStop(0, "#000");
-          edgeWash.addColorStop(0.08, "rgba(0,0,0,0)");
-          edgeWash.addColorStop(0.92, "rgba(0,0,0,0)");
-          edgeWash.addColorStop(1, "#000");
-          ctx.fillStyle = edgeWash;
-          ctx.fillRect(0, 0, w, h);
+          var padY = Math.max(16, h * 0.07);
+          var top = ctx.createLinearGradient(0, 0, 0, padY);
+          top.addColorStop(0, "#000");
+          top.addColorStop(1, "rgba(0,0,0,0)");
+          ctx.fillStyle = top;
+          ctx.fillRect(0, 0, w, padY);
+          var bot = ctx.createLinearGradient(0, h - padY, 0, h);
+          bot.addColorStop(0, "rgba(0,0,0,0)");
+          bot.addColorStop(1, "#000");
+          ctx.fillStyle = bot;
+          ctx.fillRect(0, h - padY, w, padY);
 
-          var side = Math.max(24, w * 0.08);
-          var left = ctx.createLinearGradient(0, 0, side, 0);
+          var padX = Math.max(20, w * 0.07);
+          var left = ctx.createLinearGradient(0, 0, padX, 0);
           left.addColorStop(0, "#000");
           left.addColorStop(1, "rgba(0,0,0,0)");
           ctx.fillStyle = left;
-          ctx.fillRect(0, 0, side, h);
-          var right = ctx.createLinearGradient(w - side, 0, w, 0);
+          ctx.fillRect(0, 0, padX, h);
+          var right = ctx.createLinearGradient(w - padX, 0, w, 0);
           right.addColorStop(0, "rgba(0,0,0,0)");
           right.addColorStop(1, "#000");
           ctx.fillStyle = right;
-          ctx.fillRect(w - side, 0, side, h);
+          ctx.fillRect(w - padX, 0, padX, h);
         }
 
         paint();

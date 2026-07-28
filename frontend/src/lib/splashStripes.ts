@@ -1,9 +1,9 @@
 /**
- * Full-viewport Klickpin slit splash for ORNG / HOTBOX.
+ * Klickpin slit-scan splash — ORNG / HOTBOX.
  *
- * Locked orange vertical hairlines across the whole screen. Brand text sits
- * behind that grating (same orange) and morphs in place — like the reference
- * kinetic type, not a cropped portrait video and not a side-scroll off-screen.
+ * Full-viewport orange hairlines. Brand type is a modular block grid sampled
+ * through those slits (same color), with a liquid per-column warp like the
+ * reference kinetic typography.
  */
 
 export const SPLASH_MIN_MS = 2800;
@@ -21,9 +21,93 @@ function smoothstep(edge0: number, edge1: number, x: number): number {
   return t * t * (3 - 2 * t);
 }
 
-function fontFor(size: number): string {
-  return `900 ${size}px "Arial Black",Impact,Arial,sans-serif`;
-}
+/**
+ * Modular block glyphs (rows top→bottom). '#' = fill. Matches the reference's
+ * heavy geometric barcode letters far better than Impact/Arial Black.
+ */
+const GLYPHS: Record<string, string[]> = {
+  O: [
+    ".######.",
+    "##....##",
+    "##....##",
+    "##....##",
+    "##....##",
+    "##....##",
+    ".######.",
+  ],
+  R: [
+    "#######.",
+    "##....##",
+    "##....##",
+    "#######.",
+    "##..##..",
+    "##...##.",
+    "##....##",
+  ],
+  N: [
+    "##....##",
+    "###...##",
+    "####..##",
+    "##.##.##",
+    "##..####",
+    "##...###",
+    "##....##",
+  ],
+  G: [
+    ".######.",
+    "##....##",
+    "##......",
+    "##..####",
+    "##....##",
+    "##....##",
+    ".######.",
+  ],
+  H: [
+    "##....##",
+    "##....##",
+    "##....##",
+    "########",
+    "##....##",
+    "##....##",
+    "##....##",
+  ],
+  T: [
+    "########",
+    "########",
+    "...##...",
+    "...##...",
+    "...##...",
+    "...##...",
+    "...##...",
+  ],
+  B: [
+    "#######.",
+    "##....##",
+    "##....##",
+    "#######.",
+    "##....##",
+    "##....##",
+    "#######.",
+  ],
+  X: [
+    "##....##",
+    ".##..##.",
+    "..####..",
+    "...##...",
+    "..####..",
+    ".##..##.",
+    "##....##",
+  ],
+  " ": [
+    "........",
+    "........",
+    "........",
+    "........",
+    "........",
+    "........",
+    "........",
+  ],
+};
 
 export type SplashPainter = {
   width: number;
@@ -32,62 +116,108 @@ export type SplashPainter = {
   resize: (width: number, height: number) => void;
 };
 
-/**
- * Create a painter that owns offscreen text buffers and draws the splash.
- */
+function stampWord(
+  coverage: Uint8Array,
+  w: number,
+  h: number,
+  word: string,
+  originX: number,
+  originY: number,
+  cellW: number,
+  cellH: number,
+  tracking: number,
+): void {
+  let cursor = originX;
+  for (const ch of word) {
+    const g = GLYPHS[ch] ?? GLYPHS[" "]!;
+    const rows = g.length;
+    const cols = g[0]!.length;
+    for (let row = 0; row < rows; row += 1) {
+      const line = g[row]!;
+      for (let col = 0; col < cols; col += 1) {
+        if (line[col] !== "#") continue;
+        const x0 = Math.floor(cursor + col * cellW);
+        const y0 = Math.floor(originY + row * cellH);
+        const x1 = Math.ceil(cursor + (col + 1) * cellW);
+        const y1 = Math.ceil(originY + (row + 1) * cellH);
+        for (let y = Math.max(0, y0); y < Math.min(h, y1); y += 1) {
+          const rowOff = y * w;
+          for (let x = Math.max(0, x0); x < Math.min(w, x1); x += 1) {
+            coverage[rowOff + x] = 255;
+          }
+        }
+      }
+    }
+    cursor += cols * cellW + tracking;
+  }
+}
+
+function buildCoverage(
+  w: number,
+  h: number,
+  timeSec: number,
+): Uint8Array {
+  const coverage = new Uint8Array(w * h);
+
+  // Reference COM drift ~±9% over ~2s; keep brand centered while morphing.
+  const drift = Math.sin(timeSec * Math.PI) * w * 0.08;
+  const scale = 1 + Math.sin(timeSec * 2.2) * 0.08;
+
+  // Block height ≈ 30% of viewport (two lines).
+  const blockH = h * 0.3 * scale;
+  const cellH = blockH / 15; // 7 + gap + 7
+  const cellW = cellH * 0.95;
+  const tracking = cellW * 0.55;
+  const lineGap = cellH * 1.1;
+
+  const wordWidth = (word: string) => {
+    let n = 0;
+    for (const ch of word) n += (GLYPHS[ch] ?? GLYPHS[" "]!)[0]!.length;
+    return n * cellW + (word.length - 1) * tracking;
+  };
+
+  const top = "ORNG";
+  const bot = "HOTBOX";
+  const topW = wordWidth(top);
+  const botW = wordWidth(bot);
+  const originY = h * 0.36 - blockH * 0.5 + Math.sin(timeSec * 1.7) * h * 0.01;
+
+  stampWord(
+    coverage,
+    w,
+    h,
+    top,
+    w * 0.5 - topW * 0.5 + drift,
+    originY,
+    cellW,
+    cellH,
+    tracking,
+  );
+  stampWord(
+    coverage,
+    w,
+    h,
+    bot,
+    w * 0.5 - botW * 0.5 + drift * 0.85,
+    originY + 7 * cellH + lineGap,
+    cellW,
+    cellH,
+    tracking,
+  );
+
+  return coverage;
+}
+
 export function createSplashPainter(
   width: number,
   height: number,
 ): SplashPainter {
   let w = Math.max(1, Math.floor(width));
   let h = Math.max(1, Math.floor(height));
-  const text = document.createElement("canvas");
-  const textCtx = text.getContext("2d", { willReadFrequently: true });
 
   const resize = (nw: number, nh: number) => {
     w = Math.max(1, Math.floor(nw));
     h = Math.max(1, Math.floor(nh));
-    text.width = w;
-    text.height = h;
-  };
-  resize(w, h);
-
-  const paintText = (timeSec: number) => {
-    if (!textCtx) return;
-    textCtx.setTransform(1, 0, 0, 1, 0, 0);
-    textCtx.globalAlpha = 1;
-    textCtx.fillStyle = "#000000";
-    textCtx.fillRect(0, 0, w, h);
-
-    // Reference motion: text stays centered, COM oscillates ~±9% width, ~2s period.
-    const drift = Math.sin(timeSec * Math.PI) * w * 0.09;
-    const scale = 1 + Math.sin(timeSec * 2.15) * 0.07;
-    const shear = Math.sin(timeSec * 1.55) * 0.14;
-
-    textCtx.save();
-    textCtx.translate(w * 0.5 + drift, h * 0.36);
-    textCtx.transform(scale, 0, shear * scale, scale, 0, 0);
-
-    textCtx.fillStyle = "#ffffff";
-    textCtx.strokeStyle = "#ffffff";
-    textCtx.textAlign = "center";
-    textCtx.textBaseline = "middle";
-    textCtx.lineJoin = "round";
-
-    const maxTextW = w * 0.88;
-    let fontPx = Math.min(w * 0.34, h * 0.145);
-    textCtx.font = fontFor(fontPx);
-    while (fontPx > 28 && textCtx.measureText("HOTBOX").width > maxTextW) {
-      fontPx -= 2;
-      textCtx.font = fontFor(fontPx);
-    }
-    textCtx.lineWidth = Math.max(4, fontPx * 0.11);
-    const gap = fontPx * 0.08;
-    textCtx.strokeText("ORNG", 0, -fontPx * 0.55 - gap * 0.5);
-    textCtx.fillText("ORNG", 0, -fontPx * 0.55 - gap * 0.5);
-    textCtx.strokeText("HOTBOX", 0, fontPx * 0.55 + gap * 0.5);
-    textCtx.fillText("HOTBOX", 0, fontPx * 0.55 + gap * 0.5);
-    textCtx.restore();
   };
 
   const roundCapsule = (
@@ -118,22 +248,22 @@ export function createSplashPainter(
     ctx.globalAlpha = 1;
     ctx.fillStyle = "#000000";
     ctx.fillRect(0, 0, w, h);
-    if (!textCtx || w < 8 || h < 8) return;
+    if (w < 8 || h < 8) return;
 
-    paintText(timeSec);
-    const img = textCtx.getImageData(0, 0, w, h);
-    const d = img.data;
+    const base = buildCoverage(w, h, timeSec);
 
-    // Reference geometry @720 → ~14px pitch; lock for wide screens too.
+    // Reference: ~13.5px pitch @ 720, thin ~3px, thick ~10px.
     const pitch = Math.max(5, Math.min(14, Math.round(w / 70)));
-    const thin = Math.max(1, Math.round(pitch * 0.16));
+    const thin = Math.max(2, Math.round(pitch * 0.22));
     const thick = Math.max(thin + 3, Math.round(pitch * 0.78));
     const { r, g, b } = SPLASH_ORANGE_RGB;
     const invW = 1 / Math.max(1, w - 1);
     const invH = 1 / Math.max(1, h - 1);
-    const edgeSoftX = 0.09;
-    const edgeSoftY = 0.11;
-    const band = Math.max(4, (h / 45) | 0);
+    const edgeSoftX = 0.08;
+    const edgeSoftY = 0.1;
+    const band = Math.max(3, (h / 50) | 0);
+    // Liquid warp amplitude — reference letter edges shred vertically.
+    const warpAmp = h * 0.045;
 
     ctx.fillStyle = `rgb(${r},${g},${b})`;
 
@@ -143,7 +273,6 @@ export function createSplashPainter(
       const fadeX = edgeFade(x * invW, edgeSoftX);
       if (fadeX < 0.04) continue;
 
-      // Thin field — full viewport, same orange as letters.
       for (let y0 = 0; y0 < h; y0 += band) {
         const fadeY = edgeFade((y0 + band * 0.5) * invH, edgeSoftY);
         const a = fadeX * fadeY;
@@ -152,7 +281,14 @@ export function createSplashPainter(
         ctx.fillRect(x - (thin >> 1), y0, thin, Math.min(band + 1, h - y0));
       }
 
-      // Thick capsules where the morphing text sits behind this slit.
+      // Per-slit time warp → kinetic typography behind fixed grating.
+      const phase = timeSec * 3.2 + i * 0.41;
+      const yWarp = Math.sin(phase) * warpAmp;
+      const xSample = Math.max(
+        0,
+        Math.min(w - 1, x + Math.round(Math.sin(phase * 0.7) * pitch * 1.2)),
+      );
+
       let run = -1;
       const flush = (yEnd: number) => {
         if (run < 0) return;
@@ -160,15 +296,21 @@ export function createSplashPainter(
         const hh = yEnd - y0;
         run = -1;
         if (hh < 2) return;
-        const fadeY = edgeFade((y0 + yEnd) * 0.5 * invH, edgeSoftY);
+        const drawY = Math.round(y0 + yWarp * 0.35);
+        if (drawY >= h || drawY + hh <= 0) return;
+        const cy = Math.max(0, drawY);
+        const ch = Math.min(h, drawY + hh) - cy;
+        if (ch < 2) return;
+        const fadeY = edgeFade((cy + ch * 0.5) * invH, edgeSoftY);
         const a = fadeX * fadeY;
         if (a < 0.05) return;
         ctx.globalAlpha = a;
-        roundCapsule(ctx, x - (thick >> 1), y0, thick, hh);
+        roundCapsule(ctx, x - (thick >> 1), cy, thick, ch);
       };
 
       for (let y = 0; y < h; y += 1) {
-        const on = d[(y * w + x) * 4]! > 40;
+        const sy = Math.max(0, Math.min(h - 1, Math.round(y - yWarp)));
+        const on = base[sy * w + xSample]! > 0;
         if (on) {
           if (run < 0) run = y;
         } else {

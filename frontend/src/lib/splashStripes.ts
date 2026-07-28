@@ -1,11 +1,11 @@
 /**
- * Klickpin slit-scan splash — vertical barcode typography.
+ * Klickpin slit-scan splash — fixed vertical slits + kinetic typography.
  *
- * Dense thin vertical slits on black; ORNG / HOTBOX appear where those slits
- * thicken. Orange replaces reference red. Slits fade before screen edges.
+ * Reference: locked hairline field; letterforms thicken those slits and morph
+ * in place over time. Orange replaces reference red. Soft edge dissolve.
  */
 
-export const SPLASH_MIN_MS = 1800;
+export const SPLASH_MIN_MS = 2800;
 
 /** Hot orange (reference red → brand orange). */
 export const SPLASH_ORANGE = "#ff4d00";
@@ -57,7 +57,6 @@ export function buildSplashMask(width: number, height: number): SplashMask {
   ctx.textBaseline = "top";
   ctx.lineJoin = "round";
 
-  // Whole block ≈ 30% of screen height, wide like the reference.
   const maxTextW = w * 0.92;
   let fontPx = Math.min(w * 0.36, h * 0.14);
   ctx.font = fontFor(fontPx);
@@ -70,7 +69,6 @@ export function buildSplashMask(width: number, height: number): SplashMask {
   const blockH = fontPx * 2 + gap;
   const textTop = h * 0.36 - blockH * 0.5;
   const cx = w * 0.5;
-  // Fat stroke so slit samples read as solid letter bars.
   ctx.lineWidth = Math.max(4, fontPx * 0.12);
 
   for (const [label, y] of [
@@ -93,13 +91,13 @@ export function buildSplashGlyph(width: number, height: number): SplashMask {
 }
 
 /**
- * Paint thin slit field, then thicken only where the glyph covers each column.
- * Never stretch glyph columns with drawImage — that erases the field.
+ * Paint fixed thin slits, then kinetic thick glyph bars.
+ * timeSec drives morph / assemble / wave (reference text animation).
  */
 export function drawSplashStripes(
   ctx: CanvasRenderingContext2D,
   mask: SplashMask,
-  _timeSec = 0,
+  timeSec = 0,
 ): void {
   const { width: w, height: h, coverage } = mask;
 
@@ -109,35 +107,57 @@ export function drawSplashStripes(
   ctx.fillRect(0, 0, w, h);
   if (w < 8 || h < 8) return;
 
-  // Lock pitch near the reference (~13–14px @ 720). Cap so wide screens
-  // get denser slits — more samples through each letter → readable glyphs.
+  // Reference: slits stay locked (~14px pitch @ 720).
   const pitch = Math.max(5, Math.min(14, Math.round(w / 70)));
-  const thin = Math.max(1, Math.round(pitch * 0.15));
-  // Letter bars nearly fill the pitch (small black gutters), like the ref.
-  const thick = Math.max(thin + 3, Math.round(pitch * 0.78));
+  const thin = Math.max(1, Math.round(pitch * 0.18));
+  const thickBase = Math.max(thin + 3, Math.round(pitch * 0.78));
   const { r, g, b } = SPLASH_ORANGE_RGB;
   const invW = 1 / Math.max(1, w - 1);
   const invH = 1 / Math.max(1, h - 1);
   const edgeSoftX = 0.1;
   const edgeSoftY = 0.14;
 
-  for (let i = 0; i < Math.ceil(w / pitch) + 1; i += 1) {
+  // Intro: bars scatter then lock onto glyphs (~0.7s).
+  const assemble = smoothstep(0, 0.7, timeSec);
+  // Ongoing morph — COM in the reference oscillates ~2s period.
+  const morph = timeSec * Math.PI; // period ≈ 2s
+  // Thickness breath + field flicker.
+  const breath = 0.72 + 0.28 * Math.sin(timeSec * 4.2);
+  const flicker = 0.88 + 0.12 * Math.sin(timeSec * 37.0);
+  const thick = Math.max(thin + 2, Math.round(thickBase * breath));
+
+  const band = Math.max(3, (h / 50) | 0);
+  const slitCount = Math.ceil(w / pitch) + 1;
+
+  for (let i = 0; i < slitCount; i += 1) {
     const x = Math.floor(i * pitch + pitch * 0.5);
     if (x < 0 || x >= w) continue;
     const fadeX = edgeFade(x * invW, edgeSoftX);
     if (fadeX < 0.04) continue;
 
-    // Thin full-height slit with vertical edge dissolve.
-    const band = Math.max(3, (h / 50) | 0);
+    // --- Fixed thin field (always visible) ---
     for (let y0 = 0; y0 < h; y0 += band) {
       const fadeY = edgeFade((y0 + band * 0.5) * invH, edgeSoftY);
-      const a = 0.9 * fadeX * fadeY;
-      if (a < 0.03) continue;
+      const a = fadeX * fadeY * flicker;
+      if (a < 0.04) continue;
       ctx.fillStyle = `rgba(${r},${g},${b},${a})`;
       ctx.fillRect(x - (thin >> 1), y0, thin, Math.min(band + 1, h - y0));
     }
 
-    // Thick sharp bars only on glyph coverage runs.
+    // Sample glyph with per-slit morph offset (text morphs in place; slits fixed).
+    const sampleShift = Math.round(
+      Math.sin(morph + i * 0.37) * pitch * 3.2 * (0.35 + 0.65 * assemble),
+    );
+    const sx = Math.max(0, Math.min(w - 1, x + sampleShift));
+
+    // Vertical wave + intro scatter along each slit.
+    const yWave = Math.sin(timeSec * 3.1 + i * 0.51) * h * 0.018;
+    const scatter =
+      (1 - assemble) *
+      Math.sin(i * 12.989 + 1.7) *
+      h *
+      0.16;
+
     let run = -1;
     const flush = (yEnd: number) => {
       if (run < 0) return;
@@ -145,15 +165,22 @@ export function drawSplashStripes(
       const hh = yEnd - y0;
       run = -1;
       if (hh < 2) return;
-      const fadeY = edgeFade((y0 + yEnd) * 0.5 * invH, edgeSoftY);
-      const a = fadeX * fadeY;
+
+      const drawY = Math.round(y0 + yWave + scatter);
+      if (drawY >= h || drawY + hh <= 0) return;
+      const clippedY = Math.max(0, drawY);
+      const clippedH = Math.min(h, drawY + hh) - clippedY;
+      if (clippedH < 2) return;
+
+      const fadeY = edgeFade((clippedY + clippedH * 0.5) * invH, edgeSoftY);
+      const a = fadeX * fadeY * (0.55 + 0.45 * assemble);
       if (a < 0.05) return;
       ctx.fillStyle = `rgba(${r},${g},${b},${a})`;
-      ctx.fillRect(x - (thick >> 1), y0, thick, hh);
+      ctx.fillRect(x - (thick >> 1), clippedY, thick, clippedH);
     };
 
     for (let y = 0; y < h; y += 1) {
-      if (coverage[y * w + x]! > 0) {
+      if (coverage[y * w + sx]! > 0) {
         if (run < 0) run = y;
       } else {
         flush(y);

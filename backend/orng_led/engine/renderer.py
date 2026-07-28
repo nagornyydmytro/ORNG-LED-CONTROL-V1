@@ -408,9 +408,19 @@ def _enforce_bar_mode_exclusivity(
     *,
     whole: bool,
 ) -> None:
-    """Guarantee segment and whole-bar colour channels are never both active."""
+    """Guarantee segment patterning and whole-fixture palette are never both active.
+
+    Solid ``whole`` looks that are rendered via all eight segment colours still
+    keep ``whole_color`` at 0 (pixel-mode bars ignore the whole palette channel).
+    """
     roles = _role_map(profile)
-    if whole:
+    has_segment_colors = bool(
+        roles.get(ChannelRole.SEGMENT_COLOR) or roles.get(ChannelRole.SEGMENT)
+    )
+    if whole and has_segment_colors:
+        for channel in roles.get(ChannelRole.WHOLE_COLOR, []):
+            _write_local(frame, fixture, channel.local, 0)
+    elif whole:
         for channel in roles.get(ChannelRole.SEGMENT, []):
             _write_local(frame, fixture, channel.local, 0)
         for channel in roles.get(ChannelRole.SEGMENT_COLOR, []):
@@ -443,8 +453,28 @@ def render_bar(
     if invert:
         segments = list(reversed(segments[:8]))
 
-    if intent.whole:
-        # Whole-fixture palette: segments must stay 0.
+    has_segment_colors = bool(
+        roles.get(ChannelRole.SEGMENT_COLOR) or roles.get(ChannelRole.SEGMENT)
+    )
+
+    if intent.whole and has_segment_colors:
+        # Solid one-colour look (static/breathe/pulse): drive all eight segment
+        # palette channels. Pixel-mode LED Bars ignore whole_color while the
+        # strip/mode channel selects segmented strips — writing only whole_color
+        # left the bar dark while chase (segments) worked.
+        for channel in roles.get(ChannelRole.WHOLE_COLOR, []):
+            _write_local(frame, fixture, channel.local, 0)
+        for channel in roles.get(ChannelRole.SEGMENT, []):
+            if channel.segment_index is None:
+                continue
+            _write_local(frame, fixture, channel.local, 1.0 if lit else 0.0)
+        for channel in roles.get(ChannelRole.SEGMENT_COLOR, []):
+            if channel.segment_index is None:
+                continue
+            value = _palette_dmx(channel, intent.color, active=lit)
+            _write_local(frame, fixture, channel.local, value)
+    elif intent.whole:
+        # Profiles without segment roles: fall back to whole-fixture palette.
         for channel in roles.get(ChannelRole.SEGMENT, []):
             _write_local(frame, fixture, channel.local, 0)
         for channel in roles.get(ChannelRole.SEGMENT_COLOR, []):
@@ -453,7 +483,7 @@ def render_bar(
             value = _palette_dmx(channel, intent.color, active=lit)
             _write_local(frame, fixture, channel.local, value)
     else:
-        # Segment mode: whole_color must stay 0 — never leave a stale whole value.
+        # Patterned segment mode: whole_color must stay 0.
         for channel in roles.get(ChannelRole.WHOLE_COLOR, []):
             _write_local(frame, fixture, channel.local, 0)
         for channel in roles.get(ChannelRole.SEGMENT, []):
@@ -468,7 +498,7 @@ def render_bar(
             value = _palette_dmx(channel, intent.color, active=level > 0.05 and lit)
             _write_local(frame, fixture, channel.local, value)
 
-    # Profile FIXED (e.g. strip-select / direction) from the saved mapping only.
+    # Profile FIXED from the saved mapping only; unused stays 0.
     _apply_fixed_and_unused(frame, fixture, profile)
     # Hard exclusivity after every write path.
     _enforce_bar_mode_exclusivity(frame, fixture, profile, whole=intent.whole)

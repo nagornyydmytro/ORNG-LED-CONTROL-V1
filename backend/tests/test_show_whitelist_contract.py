@@ -130,6 +130,7 @@ def test_bar_segment_and_whole_modes_exclusive() -> None:
     bar = next(fx for fx in show.patch.fixtures if fx.kind is FixtureKind.BAR)
     profile = show.profile_for(bar)
     color = Rgbw(r=1, g=0.2, b=0)
+    has_segments = any(ch.role is ChannelRole.SEGMENT_COLOR for ch in profile.channels)
 
     seg_stage = StageIntent(
         fixtures={
@@ -148,13 +149,20 @@ def test_bar_segment_and_whole_modes_exclusive() -> None:
     for channel in profile.channels:
         idx = global_channel(bar.start_address, channel.local) - 1
         if channel.role is ChannelRole.WHOLE_COLOR:
+            # Pixel-mode bars render solid looks via segments; whole_color stays 0.
             assert seg_frame[idx] == 0
-            assert whole_frame[idx] > 0
+            if has_segments:
+                assert whole_frame[idx] == 0
+            else:
+                assert whole_frame[idx] > 0
         if channel.role is ChannelRole.SEGMENT_COLOR and channel.segment_index is not None:
-            # Lit odd segments in segment mode; all zero in whole mode.
             if channel.segment_index % 2 == 1:
                 assert seg_frame[idx] > 0
-            assert whole_frame[idx] == 0
+            if has_segments:
+                # Solid whole look lights every segment.
+                assert whole_frame[idx] > 0
+            else:
+                assert whole_frame[idx] == 0
         if channel.role is ChannelRole.FIXED and channel.fixed_value is not None:
             assert seg_frame[idx] == channel.fixed_value
             assert whole_frame[idx] == channel.fixed_value

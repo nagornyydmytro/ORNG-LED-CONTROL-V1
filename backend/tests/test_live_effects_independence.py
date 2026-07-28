@@ -264,12 +264,15 @@ def test_viz_and_renderer_share_live_effect_targets() -> None:
         }
     )
     frame = render_stage(show, stage, {})
-    # whole_color local 12 → global start+11 (palette white from mapping)
-    whole = frame[global_channel(bar.start_address, 12) - 1]
+    # Solid whole look on pixel-mode bars uses all segment colours, not whole_color.
     profile = show.profile_for(bar)
+    seg_channels = [ch for ch in profile.channels if ch.role.value == "segment_color"]
+    assert len(seg_channels) == 8
+    expected_white = seg_channels[0].palette.get("white", 64) if seg_channels[0].palette else 64
+    for ch in seg_channels:
+        assert frame[global_channel(bar.start_address, ch.local) - 1] == expected_white
     whole_ch = next(ch for ch in profile.channels if ch.role.value == "whole_color")
-    expected_white = whole_ch.palette.get("white", 64) if whole_ch.palette else 64
-    assert whole == expected_white
+    assert frame[global_channel(bar.start_address, whole_ch.local) - 1] == 0
 
 
 def test_program_off_written_when_mapped(tmp_path) -> None:

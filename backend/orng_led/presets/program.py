@@ -248,7 +248,9 @@ def _blend_intent(
         # forced segments to 0 — the wire drove a solid whole-bar look while a
         # later sample of the same episode already looked like a chase.
         if b.whole:
-            segs = (0.0,) * 8
+            # Solid look is rendered via all eight segments — keep them fully on
+            # during the blend so dimmer breathe is visible immediately.
+            segs = (1.0,) * 8
         else:
             # Take the current segment pattern immediately. Lerping from a whole
             # episode's zero segments kept every segment below the renderer's

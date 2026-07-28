@@ -68,22 +68,24 @@ def _palette_values(show, fixture_id: str) -> set[int]:
     return values
 
 
-def _former_strip_locals(show, fixture_id: str) -> list[int]:
-    """Locals that used to be strip/mode select (now unused, must stay 0)."""
-    _, profile = _bar_channels(show, fixture_id)
-    # Local 3 was the former Direction/Mode fixed=236 channel on bar_15ch.
-    return [
-        channel.local
-        for channel in profile.channels
-        if channel.local == 3
-        or (channel.role is ChannelRole.UNUSED and "strip" in (channel.notes or "").lower())
-    ]
-
-
 def _read_local(show, frame, fixture_id: str, local: int) -> int:
     fixture, _ = _bar_channels(show, fixture_id)
     global_ch = global_channel(fixture.start_address, local)
     return int(frame[global_ch - 1])
+
+
+def _assert_ch3_service(show, frame, fixture_id: str) -> None:
+    """CH3 follows the saved mapping: unused→0, fixed→saved fixed_value."""
+    _, profile = _bar_channels(show, fixture_id)
+    ch3 = next(ch for ch in profile.channels if ch.local == 3)
+    value = _read_local(show, frame, fixture_id, 3)
+    if ch3.role is ChannelRole.UNUSED:
+        assert value == 0
+    elif ch3.role is ChannelRole.FIXED and ch3.fixed_value is not None:
+        assert value == int(ch3.fixed_value)
+    else:
+        # Forbidden strip/mode roles must stay scrubbed to 0.
+        assert value == 0
 
 
 def _find_chase_episode(programs) -> tuple[str, int]:
@@ -116,7 +118,7 @@ def _seek_into_episode(engine: Engine, episode_index: int, *, settle_s: float = 
         remaining -= step
 
 
-def test_saved_bar_mapping_has_segments_and_whole_without_required_fixed() -> None:
+def test_saved_bar_mapping_has_segments_and_shared_profile() -> None:
     show = load_show_config()
     bars = [fx for fx in show.patch.fixtures if fx.kind is FixtureKind.BAR]
     assert len(bars) == 4
@@ -128,10 +130,6 @@ def test_saved_bar_mapping_has_segments_and_whole_without_required_fixed() -> No
         assert ChannelRole.DIMMER in roles
         assert ChannelRole.SEGMENT_COLOR in roles
         assert ChannelRole.WHOLE_COLOR in roles
-        # Former strip-select must not keep a fixed service value.
-        ch3 = next(ch for ch in profile.channels if ch.local == 3)
-        assert ch3.role is ChannelRole.UNUSED
-        assert ch3.fixed_value is None
         segs = [ch for ch in profile.channels if ch.role is ChannelRole.SEGMENT_COLOR]
         assert len(segs) == 8
         assert all(ch.palette for ch in segs)
@@ -157,8 +155,7 @@ def test_chase_moves_segment_palette_values_on_all_four_bars() -> None:
             for role in FORBIDDEN_BAR_ROLES:
                 forbidden.extend(_read_role_values(show, frame, fixture.id, role))
             assert whole and whole[0][2] == 0, fixture.id
-            for local in _former_strip_locals(show, fixture.id):
-                assert _read_local(show, frame, fixture.id, local) == 0
+            _assert_ch3_service(show, frame, fixture.id)
             assert all(v == 0 for _, _, v in forbidden)
             palette = _palette_values(show, fixture.id)
             assert all(v in palette for v in segs), (fixture.id, segs, palette)
@@ -188,10 +185,10 @@ def test_pulse_to_chase_transition_never_leaves_whole_color_on() -> None:
             dimmer = _read_role_values(show, frame, fixture.id, ChannelRole.DIMMER)[0][2]
             if dimmer > 20:
                 assert any(v > 0 for v in segs), (fixture.id, dimmer, segs)
-            assert _read_local(show, frame, fixture.id, 3) == 0
+            _assert_ch3_service(show, frame, fixture.id)
 
 
-def test_whole_mode_zeros_segments_segment_mode_zeros_whole() -> None:
+def test_whole_mode_lights_all_segments_keeps_whole_color_zero() -> None:
     show = load_show_config()
     bar = next(fx for fx in show.patch.fixtures if fx.kind is FixtureKind.BAR)
     color = Rgbw(r=1, g=0.2, b=0)
@@ -211,11 +208,31 @@ def test_whole_mode_zeros_segments_segment_mode_zeros_whole() -> None:
     seg_frame = render_stage(show, seg_stage, {}, master=1.0)
     whole_frame = render_stage(show, whole_stage, {}, master=1.0)
     assert _read_role_values(show, seg_frame, bar.id, ChannelRole.WHOLE_COLOR)[0][2] == 0
+    assert _read_role_values(show, whole_frame, bar.id, ChannelRole.WHOLE_COLOR)[0][2] == 0
     assert any(v > 0 for v in _segment_values(show, seg_frame, bar.id))
-    assert all(v == 0 for v in _segment_values(show, whole_frame, bar.id))
-    assert _read_role_values(show, whole_frame, bar.id, ChannelRole.WHOLE_COLOR)[0][2] > 0
-    assert _read_local(show, seg_frame, bar.id, 3) == 0
-    assert _read_local(show, whole_frame, bar.id, 3) == 0
+    assert all(v > 0 for v in _segment_values(show, whole_frame, bar.id))
+    # Patterned mode must not light every segment the same way as solid.
+    assert _segment_values(show, seg_frame, bar.id) != _segment_values(show, whole_frame, bar.id)
+
+
+def test_p02_breathe_modulates_dimmer_with_all_segments_lit() -> None:
+    """P02 ep1 is solid breathe — must not rely on whole_color alone."""
+    show = load_show_config()
+    engine = _engine("P02")
+    engine.seek_episode(0)
+    dimmers: list[int] = []
+    for _ in range(24):
+        frame = engine.tick(dt_s=0.35, wall_dt_s=0.35).frame
+        for fixture in show.patch.fixtures:
+            if fixture.kind is not FixtureKind.BAR:
+                continue
+            assert _read_role_values(show, frame, fixture.id, ChannelRole.WHOLE_COLOR)[0][2] == 0
+            segs = _segment_values(show, frame, fixture.id)
+            dimmer = _read_role_values(show, frame, fixture.id, ChannelRole.DIMMER)[0][2]
+            if dimmer > 15:
+                assert all(v > 0 for v in segs), (fixture.id, dimmer, segs)
+            dimmers.append(dimmer)
+    assert max(dimmers) - min(dimmers) > 20
 
 
 def test_whitelist_zeros_unused_and_blocks_program_roles() -> None:
@@ -228,10 +245,10 @@ def test_whitelist_zeros_unused_and_blocks_program_roles() -> None:
     for fixture in show.patch.fixtures:
         if fixture.kind is not FixtureKind.BAR:
             continue
-        assert _read_local(show, frame, fixture.id, 3) == 0
+        _assert_ch3_service(show, frame, fixture.id)
         clone = list(frame)
         scrub_show_frame(show, clone)
-        assert _read_local(show, clone, fixture.id, 3) == 0
+        _assert_ch3_service(show, clone, fixture.id)
         for role in FORBIDDEN_BAR_ROLES:
             assert all(v == 0 for _, _, v in _read_role_values(show, frame, fixture.id, role))
 
@@ -251,7 +268,7 @@ def test_preview_decode_matches_post_whitelist_segment_pattern() -> None:
         assert whole == 0
 
 
-def test_p01_p10_and_safe_states_keep_former_strip_channel_zero() -> None:
+def test_p01_p10_keep_whole_color_zero_and_ch3_mapping() -> None:
     show = load_show_config()
     for preset_id in (*PRESET_IDS, "NONE"):
         engine = _engine(preset_id if preset_id != "NONE" else "P01")
@@ -262,27 +279,26 @@ def test_p01_p10_and_safe_states_keep_former_strip_channel_zero() -> None:
             for fixture in show.patch.fixtures:
                 if fixture.kind is not FixtureKind.BAR:
                     continue
-                assert _read_local(show, frame, fixture.id, 3) == 0
+                _assert_ch3_service(show, frame, fixture.id)
                 segs = _segment_values(show, frame, fixture.id)
                 whole = _read_role_values(show, frame, fixture.id, ChannelRole.WHOLE_COLOR)[0][2]
-                if whole > 0:
-                    assert all(v == 0 for v in segs), (preset_id, fixture.id)
+                # With segment-capable bars, whole_color stays 0 in both modes.
+                assert whole == 0, (preset_id, fixture.id)
                 if any(v > 0 for v in segs):
                     assert whole == 0, (preset_id, fixture.id)
 
-    # Blackout + Live FX must also keep former strip channel at 0.
     engine = _engine("P05")
     _seek_into_episode(engine, 4, settle_s=3.0)
     engine.trigger_white_hit()
     frame = engine.tick(dt_s=0.05, wall_dt_s=0.05).frame
     for fixture in show.patch.fixtures:
         if fixture.kind is FixtureKind.BAR:
-            assert _read_local(show, frame, fixture.id, 3) == 0
+            _assert_ch3_service(show, frame, fixture.id)
     engine.set_blackout(True)
     frame = engine.tick(dt_s=0.05, wall_dt_s=0.05).frame
     for fixture in show.patch.fixtures:
         if fixture.kind is FixtureKind.BAR:
-            assert _read_local(show, frame, fixture.id, 3) == 0
+            _assert_ch3_service(show, frame, fixture.id)
 
 
 def test_live_fx_does_not_enable_program_or_break_segment_exclusivity() -> None:
@@ -301,7 +317,7 @@ def test_live_fx_does_not_enable_program_or_break_segment_exclusivity() -> None:
         segs = _segment_values(show, frame, fixture.id)
         assert whole == 0
         assert any(v > 0 for v in segs)
-        assert _read_local(show, frame, fixture.id, 3) == 0
+        _assert_ch3_service(show, frame, fixture.id)
         for role in (ChannelRole.PROGRAM, ChannelRole.EFFECT_SPEED):
             vals = _read_role_values(show, frame, fixture.id, role)
             assert all(v == 0 for _, _, v in vals)

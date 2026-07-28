@@ -71,6 +71,8 @@ function dismiss() {
 onMounted(() => {
   lockApp();
   raf = window.requestAnimationFrame(frame);
+  // ?splashHold=1 keeps splash up for visual checks.
+  if (new URLSearchParams(location.search).has("splashHold")) return;
   const remaining = Math.max(0, SPLASH_MIN_MS - (performance.now() - t0));
   hideTimer = window.setTimeout(dismiss, remaining);
 });

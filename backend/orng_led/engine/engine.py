@@ -63,6 +63,8 @@ class Engine:
     overlays: OverlayState = field(default_factory=OverlayState)
     beam_motion: dict[str, BeamMotionState] = field(default_factory=dict)
     beam_limits: BeamMotionLimits = field(default_factory=BeamMotionLimits)
+    # When set, beam interpolates toward this semantic target while no BeamIntent.
+    beam_return_home: set[str] = field(default_factory=set)
     # Temporary single-episode hardware check from the preset editor.
     # Does not replace the pad selection; only the base look source.
     editor_preview_program: PresetProgram | None = None
@@ -280,17 +282,58 @@ class Engine:
         ):
             self.drop_release()
 
-    def _advance_beams(self, stage: StageIntent, dt_s: float) -> None:
-        for fixture_id, intent in stage.fixtures.items():
-            if not isinstance(intent, BeamIntent):
+    def request_beam_home(self, fixture_id: str | None = None) -> None:
+        """Smoothly return Beam(s) to saved home without lighting them."""
+        for fixture in self.show.patch.fixtures:
+            if fixture.kind is not FixtureKind.BEAM:
                 continue
-            fixture = next((fx for fx in self.show.patch.fixtures if fx.id == fixture_id), None)
-            home_pan = float(fixture.spatial.home_pan) if fixture is not None else 0.5
-            home_tilt = float(fixture.spatial.home_tilt) if fixture is not None else 0.5
+            if fixture_id is not None and fixture.id != fixture_id:
+                continue
+            self.beam_return_home.add(fixture.id)
+
+    def _beam_axes_mapped(self, fixture) -> bool:
+        from orng_led.engine.beam_transform import missing_pan_tilt_roles
+
+        return not missing_pan_tilt_roles(self.show.profile_for(fixture))
+
+    def _advance_beams(self, stage: StageIntent, dt_s: float) -> None:
+        for fixture in self.show.patch.fixtures:
+            if fixture.kind is not FixtureKind.BEAM:
+                continue
+            fixture_id = fixture.id
             state = self.beam_motion.setdefault(
-                fixture_id, BeamMotionState(pan=home_pan, tilt=home_tilt)
+                fixture_id,
+                BeamMotionState(
+                    pan=float(fixture.spatial.home_pan),
+                    tilt=float(fixture.spatial.home_tilt),
+                ),
             )
-            step_beam(state, intent.pan, intent.tilt, dt_s, self.beam_limits_for(fixture_id))
+            mapped = self._beam_axes_mapped(fixture)
+            confirmed = bool(fixture.spatial.beam_calibration_confirmed)
+            intent = stage.fixtures.get(fixture_id)
+            limits = self.beam_limits_for(fixture_id)
+
+            # Incomplete mapping: never move. Unconfirmed: only allow explicit home park.
+            if not mapped:
+                self.beam_return_home.discard(fixture_id)
+                continue
+
+            if fixture_id in self.beam_return_home:
+                home_pan = float(fixture.spatial.home_pan)
+                home_tilt = float(fixture.spatial.home_tilt)
+                step_beam(state, home_pan, home_tilt, dt_s, limits)
+                if abs(state.pan - home_pan) < 1e-3 and abs(state.tilt - home_tilt) < 1e-3:
+                    self.beam_return_home.discard(fixture_id)
+                continue
+
+            if not confirmed:
+                continue
+
+            if isinstance(intent, BeamIntent):
+                if intent.pan is not None and intent.tilt is not None:
+                    step_beam(state, float(intent.pan), float(intent.tilt), dt_s, limits)
+                continue
+            # Hold last valid position — never step toward 0/0.
 
     def render_at(self, time_s: float, *, dt_s: float = 0.0) -> EngineSnapshot:
         """Render a deterministic frame for an absolute clock time."""
@@ -311,7 +354,12 @@ class Engine:
 
         composed = compose_layers(base, self.show, self.overlays, time_s)
         self._advance_beams(composed, dt_s)
-        frame = render_stage(self.show, composed, self.beam_motion)
+        frame = render_stage(
+            self.show,
+            composed,
+            self.beam_motion,
+            master=self.overlays.master_brightness,
+        )
 
         assert_frame_bounds(frame)
         # Pad episode clock remains authoritative for Control UI; preview details

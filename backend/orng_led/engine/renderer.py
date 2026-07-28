@@ -130,11 +130,25 @@ def _nearest_palette_name(color: Rgbw) -> str:
 
 
 def _palette_dmx(channel: ChannelDefinition, color: Rgbw, *, active: bool) -> int:
+    """Resolve a semantic colour via the operator-saved palette only.
+
+    Missing palette entries are skipped (off) — never invent DMX values.
+    """
+    import logging
+
     table = _palette_table(channel)
     if not active:
         return int(table.get("off", 0))
     name = _nearest_palette_name(color)
-    return int(table.get(name, table.get("white", 64)))
+    if name not in table:
+        logging.getLogger(__name__).info(
+            "Show colour %r not in saved palette for ch%s (%s); skipping",
+            name,
+            channel.local,
+            channel.label,
+        )
+        return int(table.get("off", 0))
+    return int(table[name])
 
 
 def _intent_level(intent: FixtureIntent) -> float:
@@ -311,32 +325,58 @@ def _apply_fixed_and_unused(
             _write_local(frame, fixture, channel.local, channel.fixed_value)
 
 
+def _write_strobe_speed(
+    frame: list[int],
+    fixture: FixtureInstance,
+    roles: dict[ChannelRole, list[ChannelDefinition]],
+    strobe: float,
+) -> None:
+    """Show-mode strobe uses STROBE_SPEED only; 0 means no strobe."""
+    level = max(0.0, min(1.0, float(strobe)))
+    if level <= 0.02:
+        return
+    _write_role(frame, fixture, roles, ChannelRole.STROBE_SPEED, level)
+
+
+def _write_rgbw_look(
+    frame: list[int],
+    fixture: FixtureInstance,
+    roles: dict[ChannelRole, list[ChannelDefinition]],
+    color: Rgbw,
+    *,
+    look_level: float,
+) -> None:
+    """Write colour channels from the look (not Master). Missing roles are skipped."""
+    level = max(0.0, min(1.0, look_level))
+    scaled = color.scaled(level)
+    has_rgb = ChannelRole.RED in roles and ChannelRole.GREEN in roles and ChannelRole.BLUE in roles
+    if has_rgb:
+        _write_role(frame, fixture, roles, ChannelRole.RED, scaled.r)
+        _write_role(frame, fixture, roles, ChannelRole.GREEN, scaled.g)
+        _write_role(frame, fixture, roles, ChannelRole.BLUE, scaled.b)
+    if ChannelRole.WHITE in roles:
+        # Prefer explicit white channel for near-white looks; otherwise fold w.
+        white_level = scaled.w if scaled.w > 0.02 else (min(scaled.r, scaled.g, scaled.b))
+        if white_level > 0.02:
+            _write_role(frame, fixture, roles, ChannelRole.WHITE, white_level)
+    if ChannelRole.AMBER in roles and scaled.r > 0.3 and scaled.g > 0.15 and scaled.b < 0.25:
+        _write_role(frame, fixture, roles, ChannelRole.AMBER, scaled.r * 0.5)
+
+
 def render_par(
     frame: list[int],
     fixture: FixtureInstance,
     profile: FixtureProfile,
     intent: ParIntent,
+    *,
+    master: float = 1.0,
 ) -> None:
     roles = _role_map(profile)
-    lit = intent.intensity > 0.02
-    color = intent.color.scaled(intent.intensity)
-    _write_role(frame, fixture, roles, ChannelRole.DIMMER, intent.intensity)
-    _write_role(frame, fixture, roles, ChannelRole.RED, color.r)
-    _write_role(frame, fixture, roles, ChannelRole.GREEN, color.g)
-    _write_role(frame, fixture, roles, ChannelRole.BLUE, color.b)
-    _write_role(frame, fixture, roles, ChannelRole.WHITE, color.w)
-    _write_role(frame, fixture, roles, ChannelRole.AMBER, color.r * 0.4)
-    if intent.strobe > 0.02:
-        _write_role(frame, fixture, roles, ChannelRole.STROBE, intent.strobe)
-    _apply_service_channels(
-        frame,
-        fixture,
-        profile,
-        roles,
-        lit=lit,
-        shutter_open=lit,
-        strobe_level=intent.strobe,
-    )
+    look = max(0.0, min(1.0, intent.intensity))
+    master = max(0.0, min(1.0, master))
+    _write_role(frame, fixture, roles, ChannelRole.DIMMER, look * master)
+    _write_rgbw_look(frame, fixture, roles, intent.color, look_level=look)
+    _write_strobe_speed(frame, fixture, roles, intent.strobe)
     _apply_fixed_and_unused(frame, fixture, profile)
 
 
@@ -345,17 +385,16 @@ def render_bar(
     fixture: FixtureInstance,
     profile: FixtureProfile,
     intent: BarIntent,
+    *,
+    master: float = 1.0,
 ) -> None:
     roles = _role_map(profile)
-    lit = intent.dimmer > 0.02
-    color = intent.color.scaled(intent.dimmer)
-    _write_role(frame, fixture, roles, ChannelRole.DIMMER, intent.dimmer)
-    _write_role(frame, fixture, roles, ChannelRole.RED, color.r)
-    _write_role(frame, fixture, roles, ChannelRole.GREEN, color.g)
-    _write_role(frame, fixture, roles, ChannelRole.BLUE, color.b)
-    _write_role(frame, fixture, roles, ChannelRole.WHITE, color.w)
-    if intent.strobe > 0.02:
-        _write_role(frame, fixture, roles, ChannelRole.STROBE, intent.strobe)
+    look = max(0.0, min(1.0, intent.dimmer))
+    master = max(0.0, min(1.0, master))
+    lit = look > 0.02
+    _write_role(frame, fixture, roles, ChannelRole.DIMMER, look * master)
+    _write_rgbw_look(frame, fixture, roles, intent.color, look_level=look)
+    _write_strobe_speed(frame, fixture, roles, intent.strobe)
 
     invert = fixture.spatial.invert_segments
     segments = list(intent.segments)
@@ -364,68 +403,57 @@ def render_bar(
     if invert:
         segments = list(reversed(segments[:8]))
 
-    for channel in roles.get(ChannelRole.SEGMENT, []):
-        if channel.segment_index is None:
-            continue
-        level = segments[channel.segment_index - 1]
-        _write_local(frame, fixture, channel.local, level)
+    if intent.whole:
+        # Whole-fixture palette: segments must stay 0.
+        for channel in roles.get(ChannelRole.SEGMENT, []):
+            _write_local(frame, fixture, channel.local, 0)
+        for channel in roles.get(ChannelRole.SEGMENT_COLOR, []):
+            _write_local(frame, fixture, channel.local, 0)
+        for channel in roles.get(ChannelRole.WHOLE_COLOR, []):
+            value = _palette_dmx(channel, intent.color, active=lit)
+            _write_local(frame, fixture, channel.local, value)
+    else:
+        # Segment mode: whole_color must stay 0.
+        for channel in roles.get(ChannelRole.WHOLE_COLOR, []):
+            _write_local(frame, fixture, channel.local, 0)
+        for channel in roles.get(ChannelRole.SEGMENT, []):
+            if channel.segment_index is None:
+                continue
+            level = segments[channel.segment_index - 1]
+            _write_local(frame, fixture, channel.local, level)
+        for channel in roles.get(ChannelRole.SEGMENT_COLOR, []):
+            if channel.segment_index is None:
+                continue
+            level = segments[channel.segment_index - 1]
+            value = _palette_dmx(channel, intent.color, active=level > 0.05 and lit)
+            _write_local(frame, fixture, channel.local, value)
 
-    for channel in roles.get(ChannelRole.SEGMENT_COLOR, []):
-        if channel.segment_index is None:
-            continue
-        level = segments[channel.segment_index - 1]
-        value = _palette_dmx(channel, intent.color, active=level > 0.05 and lit)
-        _write_local(frame, fixture, channel.local, value)
-
-    for channel in roles.get(ChannelRole.WHOLE_COLOR, []):
-        value = _palette_dmx(channel, intent.color, active=lit)
-        _write_local(frame, fixture, channel.local, value)
-    for channel in roles.get(ChannelRole.COLOR, []):
-        value = _palette_dmx(channel, intent.color, active=lit)
-        _write_local(frame, fixture, channel.local, value)
-
-    _apply_service_channels(
-        frame,
-        fixture,
-        profile,
-        roles,
-        lit=lit,
-        shutter_open=lit,
-        strobe_level=intent.strobe,
-    )
     _apply_fixed_and_unused(frame, fixture, profile)
 
 
-def _split_16bit(normalized: float) -> tuple[int, int]:
-    from orng_led.engine.beam_transform import split_16bit
-
-    return split_16bit(normalized)
-
-
-def render_beam(
+def _write_beam_axes(
     frame: list[int],
     fixture: FixtureInstance,
     profile: FixtureProfile,
-    intent: BeamIntent,
     motion: BeamMotionState,
 ) -> None:
+    """Always emit calibrated pan/tilt — never leave axes at 0/0 while show-owned."""
     from orng_led.engine.beam_transform import (
         encode_axis_dmx,
+        missing_pan_tilt_roles,
         pan_tilt_role_locals,
         semantic_to_physical,
     )
 
+    if missing_pan_tilt_roles(profile):
+        return
     roles = _role_map(profile)
-    confirmed = bool(fixture.spatial.beam_calibration_confirmed)
-    # Unconfirmed heads may still track pan/tilt, but never emit light on the wire.
-    lit = confirmed and intent.dimmer > 0.02
     physical_pan, physical_tilt = semantic_to_physical(
         fixture.spatial, pan=motion.pan, tilt=motion.tilt
     )
     role_locals = pan_tilt_role_locals(profile)
     pan_enc = encode_axis_dmx(physical_pan, has_fine=role_locals["pan_fine"] is not None)
     tilt_enc = encode_axis_dmx(physical_tilt, has_fine=role_locals["tilt_fine"] is not None)
-
     for role, byte_value in (
         (ChannelRole.PAN_COARSE, pan_enc.coarse),
         (ChannelRole.PAN_FINE, pan_enc.fine),
@@ -439,42 +467,33 @@ def render_beam(
             continue
         _write_local(frame, fixture, entries[0].local, int(byte_value))
 
-    if not confirmed:
-        # Keep motion channels only; force light-related roles to safe zero / closed.
-        _apply_service_channels(
-            frame,
-            fixture,
-            profile,
-            roles,
-            lit=False,
-            shutter_open=False,
-            strobe_level=0.0,
-        )
+
+def render_beam(
+    frame: list[int],
+    fixture: FixtureInstance,
+    profile: FixtureProfile,
+    intent: BeamIntent | None,
+    motion: BeamMotionState,
+    *,
+    master: float = 1.0,
+) -> None:
+    """Write axes always; light only when confirmed + intent dimmer > 0."""
+    _write_beam_axes(frame, fixture, profile, motion)
+    roles = _role_map(profile)
+    confirmed = bool(fixture.spatial.beam_calibration_confirmed)
+    if intent is None or not confirmed:
         _apply_fixed_and_unused(frame, fixture, profile)
         return
 
-    color = intent.color.scaled(intent.dimmer)
-    _write_role(frame, fixture, roles, ChannelRole.DIMMER, intent.dimmer)
-    _write_role(frame, fixture, roles, ChannelRole.RED, color.r)
-    _write_role(frame, fixture, roles, ChannelRole.GREEN, color.g)
-    _write_role(frame, fixture, roles, ChannelRole.BLUE, color.b)
-    for channel in roles.get(ChannelRole.COLOR, []):
-        value = _palette_dmx(channel, intent.color, active=lit)
-        _write_local(frame, fixture, channel.local, value)
-    for channel in roles.get(ChannelRole.WHOLE_COLOR, []):
-        value = _palette_dmx(channel, intent.color, active=lit)
-        _write_local(frame, fixture, channel.local, value)
-    if intent.strobe > 0.02:
-        _write_role(frame, fixture, roles, ChannelRole.STROBE, intent.strobe)
-    _apply_service_channels(
-        frame,
-        fixture,
-        profile,
-        roles,
-        lit=lit,
-        shutter_open=intent.shutter_open and lit,
-        strobe_level=intent.strobe,
-    )
+    look = max(0.0, min(1.0, intent.dimmer))
+    master = max(0.0, min(1.0, master))
+    if look <= 0.02:
+        _apply_fixed_and_unused(frame, fixture, profile)
+        return
+
+    _write_role(frame, fixture, roles, ChannelRole.DIMMER, look * master)
+    _write_rgbw_look(frame, fixture, roles, intent.color, look_level=look)
+    _write_strobe_speed(frame, fixture, roles, intent.strobe)
     _apply_fixed_and_unused(frame, fixture, profile)
 
 
@@ -484,14 +503,19 @@ def render_fixture(
     profile: FixtureProfile,
     intent: FixtureIntent,
     beam_motion: dict[str, BeamMotionState],
+    *,
+    master: float = 1.0,
 ) -> None:
     if isinstance(intent, ParIntent):
-        render_par(frame, fixture, profile, intent)
+        render_par(frame, fixture, profile, intent, master=master)
     elif isinstance(intent, BarIntent):
-        render_bar(frame, fixture, profile, intent)
+        render_bar(frame, fixture, profile, intent, master=master)
     elif isinstance(intent, BeamIntent):
-        motion = beam_motion.get(fixture.id) or BeamMotionState()
-        render_beam(frame, fixture, profile, intent, motion)
+        motion = beam_motion.get(fixture.id) or BeamMotionState(
+            pan=float(fixture.spatial.home_pan),
+            tilt=float(fixture.spatial.home_tilt),
+        )
+        render_beam(frame, fixture, profile, intent, motion, master=master)
     else:
         raise TypeError(f"Unsupported intent type: {type(intent)!r}")
 
@@ -500,19 +524,55 @@ def render_stage(
     show: ShowConfig,
     stage: StageIntent,
     beam_motion: dict[str, BeamMotionState],
+    *,
+    master: float = 1.0,
+    scrub: bool = True,
 ) -> list[int]:
+    """Render show frame. Beam axes always follow motion/home; light follows intents."""
+    from orng_led.engine.show_whitelist import scrub_show_frame
+
     frame = empty_frame()
+    master = max(0.0, min(1.0, master))
     for fixture in show.patch.fixtures:
+        profile = show.profile_for(fixture)
         intent = stage.fixtures.get(fixture.id)
+
+        if fixture.kind is FixtureKind.BEAM:
+            motion = beam_motion.get(fixture.id) or BeamMotionState(
+                pan=float(fixture.spatial.home_pan),
+                tilt=float(fixture.spatial.home_tilt),
+            )
+            if isinstance(intent, BeamIntent):
+                render_beam(frame, fixture, profile, intent, motion, master=master)
+            else:
+                render_beam(frame, fixture, profile, None, motion, master=master)
+            continue
+
         if intent is None:
-            profile = show.profile_for(fixture)
             _apply_fixed_and_unused(frame, fixture, profile)
             continue
         if fixture.kind is FixtureKind.FACE_PAR and not isinstance(intent, ParIntent):
             continue
-        profile = show.profile_for(fixture)
-        render_fixture(frame, fixture, profile, intent, beam_motion)
+        render_fixture(frame, fixture, profile, intent, beam_motion, master=master)
+
+    if scrub:
+        scrub_show_frame(show, frame)
     return frame
+
+
+def safe_dark_frame(
+    show: ShowConfig,
+    beam_motion: dict[str, BeamMotionState] | None = None,
+) -> list[int]:
+    """Lights off, Beam axes parked at motion/home — never Pan/Tilt 0/0."""
+    motion = beam_motion or {}
+    for fixture in show.patch.fixtures:
+        if fixture.kind is FixtureKind.BEAM and fixture.id not in motion:
+            motion[fixture.id] = BeamMotionState(
+                pan=float(fixture.spatial.home_pan),
+                tilt=float(fixture.spatial.home_tilt),
+            )
+    return render_stage(show, StageIntent(), motion, master=0.0, scrub=True)
 
 
 def analyze_live_effect_coverage(

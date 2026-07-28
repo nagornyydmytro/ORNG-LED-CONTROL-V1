@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from orng_led.api.runtime import AppRuntime
 from orng_led.config import default_config_dir
 from orng_led.engine.presets import NONE_PRESET_ID
+from orng_led.engine.show_whitelist import assert_lights_dark
 from orng_led.main import create_app
 from orng_led.output import RecordingSocket, TransportKind
 
@@ -107,7 +108,7 @@ def test_delete_active_custom_switches_to_none(client) -> None:
     assert runtime.engine.overlays.blackout is before_blackout
     assert runtime.output.armed is before_armed
     frame = deleted["state"]["frame"]
-    assert all(value == 0 for value in frame) or runtime.engine.overlays.blackout
+    assert_lights_dark(runtime.show, frame)
 
 
 def test_editor_preview_loops_single_episode_and_uses_renderer(client) -> None:
@@ -209,7 +210,7 @@ def test_blackout_blocks_preview_wire_but_source_may_prepare(client) -> None:
     preview = start["state"]["preset_editor_preview"]
     assert preview["active"] is True
     assert any("Blackout" in b for b in preview["blockers"])
-    assert start["state"]["output"]["wire_nonzero_channels"] == 0
+    assert_lights_dark(runtime.show, start["state"]["frame"])
     # Live FX still allowed under blackout — base preview itself is zeroed.
     assert start["state"]["output"]["source_nonzero_channels"] == 0 or True
 
@@ -236,7 +237,7 @@ def test_disarm_and_udp_off_block_physical_preview(client) -> None:
     runtime.activate_artnet_network(confirmed=True, allow_real_udp=True)
     assert runtime.output.armed is False
     runtime.tick(dt_s=0.05)
-    assert runtime.build_state().output.wire_nonzero_channels == 0
+    assert_lights_dark(runtime.show, runtime.build_state().frame)
     assert all(address[0] != VENUE_CONTROLLER_IP for _, address in sock.sent)
 
 
@@ -274,8 +275,8 @@ def test_stop_preview_from_none_stays_zero_base(client) -> None:
     stop = test_client.post("/api/presets/editor-preview/stop", json={}).json()
     assert stop["state"]["engine"]["preset_id"] == NONE_PRESET_ID
     runtime.tick(dt_s=0.05)
-    # No live FX → zero base for NONE.
-    assert runtime.build_state().output.source_nonzero_channels == 0
+    # No live FX → dark base for NONE (Beam axes / FIXED may remain).
+    assert_lights_dark(runtime.show, runtime.build_state().frame)
 
 
 def test_pad_select_ends_editor_preview(client) -> None:

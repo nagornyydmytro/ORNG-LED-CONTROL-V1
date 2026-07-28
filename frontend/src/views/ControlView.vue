@@ -305,7 +305,7 @@ function goNextEpisode() {
             >
           </label>
           <label class="field">
-            <span>Master</span>
+            <span>Master {{ Math.round((engine?.master_brightness ?? 1) * 100) }}%</span>
             <input
               type="range"
               min="0"

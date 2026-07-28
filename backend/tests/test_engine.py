@@ -48,6 +48,8 @@ def test_frame_values_always_in_range_over_cycle() -> None:
 
 
 def test_blackout_zeros_all_channels_but_clock_continues() -> None:
+    from orng_led.engine.show_whitelist import assert_lights_dark
+
     show = load_show_config()
     engine = Engine(show=show, clock=FakeClock())
     engine.tick(dt_s=1.0)
@@ -56,7 +58,7 @@ def test_blackout_zeros_all_channels_but_clock_continues() -> None:
 
     engine.set_blackout(True)
     black = engine.tick(dt_s=2.0)
-    assert black.frame == [0] * DMX_UNIVERSE_SIZE
+    assert_lights_dark(show, black.frame)
     assert engine.preset_elapsed_s == before_preset_time + 2.0
 
     engine.set_blackout(False)

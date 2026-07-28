@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from orng_led.api.runtime import AppRuntime
 from orng_led.config import load_show_config
-from orng_led.config.schema import DMX_UNIVERSE_SIZE
 from orng_led.engine.layers import STROBE_HOLD_TIMEOUT_S
+from orng_led.engine.show_whitelist import assert_lights_dark
 from orng_led.presets.models import EpisodeCard, PresetDocument
 from orng_led.presets.program import YamlPresetProgram, _matches_groups
 
@@ -18,7 +18,7 @@ def test_startup_is_mock_disarmed_blackout_zero() -> None:
     assert runtime.engine.overlays.blackout is True
     state = runtime.build_state()
     assert state.engine.blackout is True
-    assert state.frame == [0] * DMX_UNIVERSE_SIZE
+    assert_lights_dark(runtime.show, state.frame)
     assert state.output.transport == "mock"
     assert state.output.armed is False
 
@@ -32,7 +32,7 @@ def test_blackout_overrides_raw_tester() -> None:
     runtime.apply_blackout(True)
     state = runtime.build_state()
     assert state.engine.blackout is True
-    assert state.frame == [0] * DMX_UNIVERSE_SIZE
+    assert_lights_dark(runtime.show, state.frame)
     assert runtime.raw_tester.active is True
     assert runtime.raw_tester.frame[0] == 255
 
@@ -55,7 +55,7 @@ def test_identify_fixture_is_mock_visible_and_blackout_wins() -> None:
     assert sum(bar.segments) > 0
 
     runtime.apply_blackout(True)
-    assert runtime.build_state().frame == [0] * DMX_UNIVERSE_SIZE
+    assert_lights_dark(runtime.show, runtime.build_state().frame)
 
 
 def test_identify_group_outer_only() -> None:

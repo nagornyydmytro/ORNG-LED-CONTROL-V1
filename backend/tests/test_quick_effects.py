@@ -8,6 +8,7 @@ from orng_led.api.runtime import AppRuntime
 from orng_led.config import default_config_dir, load_show_config
 from orng_led.engine.engine import Engine
 from orng_led.engine.layers import DROP_MAX_DURATION_S
+from orng_led.engine.show_whitelist import assert_lights_dark
 from orng_led.main import create_app
 from orng_led.presets.store import PresetStore
 from orng_led.simulator.decode import decode_simulator_view
@@ -124,7 +125,7 @@ def test_live_effects_work_during_blackout_then_return_to_zero() -> None:
     engine.set_face(False)
     engine.set_blackout(True)
     snap = engine.tick(dt_s=1 / 30, wall_dt_s=1 / 30)
-    assert snap.frame == [0] * 512
+    assert_lights_dark(engine.show, snap.frame)
 
     engine.trigger_white_hit()
     lit = engine.tick(dt_s=1 / 30, wall_dt_s=1 / 30)
@@ -135,7 +136,7 @@ def test_live_effects_work_during_blackout_then_return_to_zero() -> None:
     engine.strobe_release()
     engine.set_face(False)
     dark = engine.tick(dt_s=1 / 30, wall_dt_s=1 / 30)
-    assert dark.frame == [0] * 512
+    assert_lights_dark(engine.show, dark.frame)
 
 
 def test_failsafes_release_every_momentary_control() -> None:
@@ -200,9 +201,9 @@ def test_preview_clip_is_off_transport_and_uses_the_real_renderer() -> None:
         assert any(frame["nonzero_channels"] > 0 for frame in clip["frames"])
 
         after = client.get("/api/state").json()
-        # Live output untouched: still blackout, still zero frame, still Mock.
+        # Live output untouched: still blackout, lights dark on wire, still Mock.
         assert after["engine"]["blackout"] == before["engine"]["blackout"]
-        assert after["frame"] == [0] * 512
+        assert_lights_dark(runtime.show, after["frame"])
         assert after["output"]["frames_sent"] >= before["output"]["frames_sent"]
         assert after["output"]["transport"] == "mock"
 
@@ -221,7 +222,7 @@ def test_preview_clip_can_start_at_a_chosen_episode() -> None:
         # Deterministic: the same offset renders the same frames.
         again = client.get("/api/presets/P06/preview-clip?seconds=1&fps=10&start_s=54").json()
         assert again["frames"][0] == later["frames"][0]
-        assert client.get("/api/state").json()["frame"] == [0] * 512
+        assert_lights_dark(runtime.show, client.get("/api/state").json()["frame"])
 
 
 def test_stage_layout_endpoint_exposes_the_reference_plan() -> None:

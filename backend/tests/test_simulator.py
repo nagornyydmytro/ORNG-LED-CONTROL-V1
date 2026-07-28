@@ -5,6 +5,7 @@ from __future__ import annotations
 from orng_led.api.runtime import AppRuntime
 from orng_led.config import load_show_config
 from orng_led.engine.engine import Engine
+from orng_led.engine.show_whitelist import assert_lights_dark
 from orng_led.simulator.decode import decode_simulator_view
 
 
@@ -28,10 +29,8 @@ def test_blackout_zeros_simulator_and_frame() -> None:
     engine.set_blackout(True)
     snap = engine.tick(dt_s=0.0)
     frame = list(snap.frame)
-    assert all(value == 0 for value in frame)
+    assert_lights_dark(show, frame)
     view = decode_simulator_view(show, frame)
-    assert view.blackout_visual is True
-    assert view.nonzero_channels == 0
     assert all(par.intensity == 0 for par in view.pars)
     assert all(bar.dimmer == 0 and sum(bar.segments) == 0 for bar in view.bars)
     assert all(beam.dimmer == 0 for beam in view.beams)

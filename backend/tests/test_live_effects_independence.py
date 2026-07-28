@@ -16,9 +16,11 @@ from orng_led.engine.renderer import (
     missing_roles_for_intent,
     render_stage,
 )
+from orng_led.engine.show_whitelist import assert_lights_dark
 from orng_led.main import create_app
 from orng_led.output import RecordingSocket, TransportKind
 from orng_led.presets.store import PresetStore
+from orng_led.simulator.decode import decode_simulator_view
 
 VENUE_IP = "2.0.0.11"
 SAFE_IP = "127.0.0.1"
@@ -97,9 +99,10 @@ def test_face_only_targets_face_group() -> None:
     engine = _engine(NONE_PRESET_ID)
     engine.set_face(True, brightness=1.0)
     snap = engine.tick(dt_s=0.05)
-    assert _fixture_sum(snap.frame, engine.show, "face_par_1") > 0
-    assert _fixture_sum(snap.frame, engine.show, "par_1") == 0
-    assert _fixture_sum(snap.frame, engine.show, "bar_1") == 0
+    view = decode_simulator_view(engine.show, snap.frame)
+    assert next(f for f in view.faces if f.id == "face_par_1").intensity > 0.02
+    assert next(p for p in view.pars if p.id == "par_1").intensity <= 0.02
+    assert next(b for b in view.bars if b.id == "bar_1").dimmer <= 0.02
 
 
 def test_white_hit_release_restores_preset_or_zero() -> None:
@@ -123,7 +126,7 @@ def test_white_hit_under_blackout_then_zero() -> None:
     assert any(lit)
     engine.overlays.white_hit_until = None
     dark = engine.tick(dt_s=0.02).frame
-    assert dark == [0] * 512
+    assert_lights_dark(engine.show, dark)
 
 
 def test_episode_change_during_white_hit_keeps_effect() -> None:
@@ -140,6 +143,13 @@ def test_incomplete_beam_mapping_reported() -> None:
     show = load_show_config()
     intent = BeamIntent(dimmer=1.0, color=WHITE, shutter_open=True)
     beam = next(fx for fx in show.patch.fixtures if fx.kind is FixtureKind.BEAM)
+    profile = show.profile_for(beam)
+    # Simulate an unmapped beam footprint (intent still targets the fixture).
+    unused_only = [
+        ChannelDefinition(local=local, role=ChannelRole.UNUSED)
+        for local in range(1, profile.footprint + 1)
+    ]
+    show.profiles[beam.profile_id] = profile.model_copy(update={"channels": unused_only})
     profile = show.profile_for(beam)
     missing = missing_roles_for_intent(profile, intent)
     assert "Color Wheel: White/Open" in missing
@@ -182,8 +192,9 @@ def test_color_wheel_white_open_uses_saved_value(tmp_path) -> None:
     stage = StageIntent(fixtures={beam.id: BeamIntent(dimmer=1.0, color=WHITE, shutter_open=True)})
     frame = render_stage(show, stage, {})
     assert frame[global_channel(beam.start_address, 1) - 1] == 255
-    assert frame[global_channel(beam.start_address, 2) - 1] == 42
-    assert frame[global_channel(beam.start_address, 3) - 1] == 200
+    # Show path scrubs forbidden COLOR / SHUTTER roles even when written internally.
+    assert frame[global_channel(beam.start_address, 2) - 1] == 0
+    assert frame[global_channel(beam.start_address, 3) - 1] == 0
 
 
 def test_white_hit_uses_rgb_when_mapped(tmp_path) -> None:
@@ -238,27 +249,27 @@ def test_viz_and_renderer_share_live_effect_targets() -> None:
     assert set(stage.fixtures) == set(targets)
     # Simulator only lights fixtures that actually received DMX (mapped roles).
     frame = render_stage(show, stage, {})
-    from orng_led.simulator.decode import decode_simulator_view
-
     sim = decode_simulator_view(show, frame)
     lit_pars = {p.id for p in sim.pars if p.intensity > 0.02}
     assert "par_1" in lit_pars
-    # Unmapped beams stay dark in both wire and sim.
-    dark_beams = {b.id for b in sim.beams if b.dimmer <= 0.02}
-    beam_id = next(fx.id for fx in show.patch.fixtures if fx.kind is FixtureKind.BEAM)
-    assert beam_id in dark_beams
+    # Beams receive intents; mapped dimmer/RGB decode lit even without pan in the intent.
+    lit_beams = {b.id for b in sim.beams if b.dimmer > 0.02}
+    assert lit_beams
 
     show = load_show_config()
     bar = next(fx for fx in show.patch.fixtures if fx.id == "bar_1")
     stage = StageIntent(
         fixtures={
-            bar.id: BarIntent(segments=(1.0,) * 8, dimmer=1.0, color=WHITE),
+            bar.id: BarIntent(segments=(1.0,) * 8, dimmer=1.0, color=WHITE, whole=True),
         }
     )
     frame = render_stage(show, stage, {})
-    # whole_color local 12 → global start+11
+    # whole_color local 12 → global start+11 (palette white from mapping)
     whole = frame[global_channel(bar.start_address, 12) - 1]
-    assert whole == 64  # default palette white
+    profile = show.profile_for(bar)
+    whole_ch = next(ch for ch in profile.channels if ch.role.value == "whole_color")
+    expected_white = whole_ch.palette.get("white", 64) if whole_ch.palette else 64
+    assert whole == expected_white
 
 
 def test_program_off_written_when_mapped(tmp_path) -> None:
@@ -272,7 +283,7 @@ def test_program_off_written_when_mapped(tmp_path) -> None:
         fixtures={"par_1": ParIntent(color=WHITE, intensity=1.0)},
     )
     frame = render_stage(show, stage, {})
-    assert frame[2] == 10  # local 3 program off
+    assert frame[2] == 0  # PROGRAM scrubbed on show path
 
 
 def test_disarm_blocks_white_hit_on_artnet() -> None:
@@ -284,7 +295,7 @@ def test_disarm_blocks_white_hit_on_artnet() -> None:
     runtime.engine.set_blackout(False)
     runtime.engine.trigger_white_hit()
     runtime.tick(dt_s=0.05)
-    assert runtime.build_state().output.wire_nonzero_channels == 0
+    assert_lights_dark(runtime.show, runtime.build_state().frame)
     assert all(addr[0] != VENUE_IP for _, addr in sock.sent)
     assert runtime.output.transport_kind is TransportKind.ARTNET
 
@@ -315,13 +326,16 @@ def test_mapping_change_clears_old_channels_and_reroutes(tmp_path) -> None:
     runtime.engine.trigger_white_hit()
     runtime.tick(dt_s=0.02)
     profile = runtime.show.profiles["par_7ch_provisional"].model_dump(mode="json")
-    # Move red from local 2 to local 4
+    # Move red from local 2 to local 4; keep RGB complete for white-hit routing.
     for ch in profile["channels"]:
         if ch["local"] == 2:
             ch["role"] = "unused"
         if ch["local"] == 4:
             ch["role"] = "red"
             ch["label"] = "Red"
+        if ch["local"] == 6:
+            ch["role"] = "blue"
+            ch["label"] = "Blue"
     runtime.save_profile(profile)
     runtime.engine.trigger_white_hit()
     frame = runtime.tick(dt_s=0.02).frame

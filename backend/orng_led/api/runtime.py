@@ -871,24 +871,22 @@ class AppRuntime:
         )
 
     def end_beam_calibration_test(self) -> AppStateResponse:
-        from orng_led.engine.frame import empty_frame
-
         fixture_id = self.beam_calibration.fixture_id
-        # Force light off and clear footprint before dropping the session.
+        session_pan = float(self.beam_calibration.semantic_pan)
+        session_tilt = float(self.beam_calibration.semantic_tilt)
+        # End session without publishing Pan/Tilt zeros.
+        self.beam_calibration = BeamCalibrationTestSession()
         if fixture_id:
+            from orng_led.engine.beam import BeamMotionState
+
             fixture = next((fx for fx in self.show.patch.fixtures if fx.id == fixture_id), None)
             if fixture is not None:
-                profile = self.show.profile_for(fixture)
-                frame = empty_frame()
-                for local in range(1, profile.footprint + 1):
-                    from orng_led.config.validation import global_channel
-
-                    frame[global_channel(fixture.start_address, local) - 1] = 0
-                self.beam_calibration.frame = frame
-                self.beam_calibration.visible_beam_requested = False
-                self.beam_calibration.visible_beam_confirmed = False
-                self._publish_frame(frame, from_raw=False)
-        self.beam_calibration = BeamCalibrationTestSession()
+                # Resume from the last calibration pose, then glide to saved home.
+                self.engine.beam_motion[fixture_id] = BeamMotionState(
+                    pan=session_pan,
+                    tilt=session_tilt,
+                )
+                self.engine.request_beam_home(fixture_id)
         self._publish_frame(self._published_frame(), from_raw=False)
         self.sequence += 1
         return self.build_state()

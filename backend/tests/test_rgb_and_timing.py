@@ -98,13 +98,15 @@ def test_no_episode_leaves_the_stage_dark() -> None:
 
 
 def test_blackout_zeroes_rgb_and_dimmer_for_all_kinds() -> None:
+    from orng_led.engine.show_whitelist import assert_lights_dark
+
     show = load_show_config()
     engine = _engine("P10")
     engine.tick(dt_s=1.0, wall_dt_s=1.0)
     engine.set_blackout(True)
     snap = engine.tick(dt_s=0.1, wall_dt_s=0.1)
     view = decode_simulator_view(show, snap.frame)
-    assert snap.frame == [0] * 512
+    assert_lights_dark(show, snap.frame)
     for group in (view.pars, view.faces):
         assert all(p.intensity == 0 and p.r == 0 and p.g == 0 and p.b == 0 for p in group)
     assert all(b.dimmer == 0 and b.r == 0 and b.b == 0 for b in view.bars)

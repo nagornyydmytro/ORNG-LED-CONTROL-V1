@@ -88,8 +88,11 @@ class PresetStore:
             raise KeyError(f"Unknown preset {preset_id!r}") from exc
 
     def create(self, document: PresetDocument) -> PresetDocument:
+        from orng_led.presets.show_contract import validate_preset_show_contract
+
         if document.id in self.documents:
             raise ConfigError(f"Preset {document.id!r} already exists")
+        validate_preset_show_contract(document)
         path = preset_path(self.directory, document.id)
         save_preset(path, document)
         self.documents[document.id] = document
@@ -101,8 +104,11 @@ class PresetStore:
         try:
             from pydantic import ValidationError
 
+            from orng_led.presets.show_contract import validate_preset_show_contract
+
             document = PresetDocument.model_validate({**data, "id": preset_id})
             document = document.model_copy(update={"hardware_tuned": False})
+            validate_preset_show_contract(document)
             if previous is not None and previous.builtin:
                 document = document.model_copy(update={"builtin": True})
                 if len(document.episodes) != 10:

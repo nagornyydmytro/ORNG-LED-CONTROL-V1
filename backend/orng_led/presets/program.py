@@ -252,18 +252,29 @@ def _blend_intent(
             dimmer=_lerp(a.dimmer, b.dimmer, t),
             color=_blend_rgbw(a.color, b.color, t),
             strobe=_lerp(a.strobe, b.strobe, t),
+            whole=b.whole if t >= 0.5 else a.whole,
         )
     if isinstance(a, BeamIntent) and isinstance(b, BeamIntent):
         return BeamIntent(
-            pan=_lerp(a.pan, b.pan, t),
-            tilt=_lerp(a.tilt, b.tilt, t),
+            pan=_blend_axis(a.pan, b.pan, t),
+            tilt=_blend_axis(a.tilt, b.tilt, t),
             dimmer=_lerp(a.dimmer, b.dimmer, t),
             color=_blend_rgbw(a.color, b.color, t),
-            wheel=_lerp(a.wheel, b.wheel, t),
+            wheel=0.0,
             shutter_open=b.shutter_open if t >= 0.5 else a.shutter_open,
             strobe=_lerp(a.strobe, b.strobe, t),
         )
     return b
+
+
+def _blend_axis(a: float | None, b: float | None, t: float) -> float | None:
+    if a is None and b is None:
+        return None
+    if a is None:
+        return b
+    if b is None:
+        return a
+    return _lerp(a, b, t)
 
 
 def _blend_stage(previous: StageIntent, current: StageIntent, t: float) -> StageIntent:
@@ -333,10 +344,13 @@ def _evaluate_episode(
             intent.fixtures[fixture.id] = ParIntent(color=color, intensity=intensity)
         elif fixture.kind is FixtureKind.BAR:
             segments = _bar_segments(episode, local_turns, level)
+            # Chase/wave/mirror use segments; static/breathe/pulse prefer whole palette.
+            whole = episode.effect in {"static", "breathe", "pulse"}
             intent.fixtures[fixture.id] = BarIntent(
-                segments=segments,
+                segments=(0.0,) * 8 if whole else segments,
                 dimmer=max(intensity, 0.15 * episode.intensity),
                 color=color,
+                whole=whole,
             )
         elif fixture.kind is FixtureKind.BEAM:
             sweep = 0.5 + 0.42 * math.sin(2.0 * math.pi * clock.movement_turns)
@@ -347,7 +361,6 @@ def _evaluate_episode(
                 tilt=max(0.0, min(1.0, tilt)),
                 dimmer=intensity * 0.9,
                 color=color,
-                wheel=0.15 + 0.2 * intensity,
                 shutter_open=True,
             )
     return intent

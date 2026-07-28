@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from orng_led.api.runtime import AppRuntime
 from orng_led.config.schema import DMX_UNIVERSE_SIZE
+from orng_led.engine.show_whitelist import assert_lights_dark
 from orng_led.main import create_app
 
 
@@ -41,7 +42,7 @@ def test_initial_state_contains_engine_output_and_frame(client) -> None:
     state = test_client.get("/api/state").json()
     assert state["engine"]["preset_id"] == "P05"
     assert state["engine"]["blackout"] is True
-    assert state["frame"] == [0] * DMX_UNIVERSE_SIZE
+    assert_lights_dark(runtime.show, state["frame"])
     assert state["output"]["transport"] == "mock"
     assert state["output"]["armed"] is False
     assert len(state["frame"]) == DMX_UNIVERSE_SIZE
@@ -123,7 +124,7 @@ def test_commands_update_state(client) -> None:
     runtime.tick(dt_s=1.0)
     cleared = runtime.build_state()
     assert cleared.engine.blackout is True
-    assert cleared.frame == [0] * DMX_UNIVERSE_SIZE
+    assert_lights_dark(runtime.show, cleared.frame)
 
     bright = test_client.post(
         "/api/commands/master-brightness",

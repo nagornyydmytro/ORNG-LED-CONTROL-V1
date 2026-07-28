@@ -9,8 +9,9 @@ from fastapi.testclient import TestClient
 
 from orng_led.api.runtime import AppRuntime
 from orng_led.config.models import ChannelRole
-from orng_led.config.schema import DMX_UNIVERSE_SIZE
+from orng_led.config.validation import global_channel
 from orng_led.engine.presets import NONE_PRESET_ID
+from orng_led.engine.show_whitelist import assert_lights_dark
 from orng_led.main import create_app
 from orng_led.output import RecordingSocket, TransportKind
 
@@ -60,11 +61,14 @@ def test_unassigned_channel_stays_zero() -> None:
     runtime.engine.set_blackout(False)
     runtime.apply_select_preset("P10", reset_clock=True)
     runtime.tick(dt_s=0.1)
-    # Beam locals are unused → footprint globals remain 0 aside from nothing written
     beam = next(fx for fx in runtime.show.patch.fixtures if fx.id == "beam_right")
+    profile = runtime.show.profile_for(beam)
     frame = runtime.build_state().frame
-    for local in range(beam.start_address, beam.start_address + 13):
-        assert frame[local - 1] == 0
+    for channel in profile.channels:
+        if channel.role is not ChannelRole.UNUSED:
+            continue
+        index = global_channel(beam.start_address, channel.local) - 1
+        assert frame[index] == 0
 
 
 def test_fixture_slider_only_touches_selected_fixture_globals() -> None:
@@ -77,7 +81,7 @@ def test_fixture_slider_only_touches_selected_fixture_globals() -> None:
     assert state.raw_tester["frame"][7] == 64  # par_2 starts at 8
     assert state.raw_tester["frame"][8] == 255
     assert state.raw_tester["frame"][0] == 0  # par_1 untouched
-    assert state.output.wire_frame_sum == 0  # Blackout holds wire
+    assert_lights_dark(runtime.show, state.frame)  # Blackout holds wire lights dark
 
 
 def test_fixture_test_reset_and_end_zeros() -> None:
@@ -91,7 +95,7 @@ def test_fixture_test_reset_and_end_zeros() -> None:
     runtime.end_fixture_channel_test()
     assert runtime.raw_tester.active is False
     assert runtime.engine.overlays.blackout is True
-    assert runtime.build_state().output.wire_frame_sum == 0
+    assert_lights_dark(runtime.show, runtime.build_state().frame)
     assert runtime.output.frames_sent >= sock_before
 
 
@@ -100,7 +104,7 @@ def test_blackout_zeros_preset_but_live_fx_lights() -> None:
     runtime.engine.set_blackout(True)
     runtime.apply_select_preset("P10", reset_clock=True)
     runtime.tick(dt_s=0.05)
-    assert runtime.build_state().frame == [0] * DMX_UNIVERSE_SIZE
+    assert_lights_dark(runtime.show, runtime.build_state().frame)
 
     runtime.apply_white_hit()
     runtime.tick(dt_s=0.02)
@@ -108,7 +112,7 @@ def test_blackout_zeros_preset_but_live_fx_lights() -> None:
 
     runtime.engine.overlays.white_hit_until = None
     runtime.tick(dt_s=0.02)
-    assert runtime.build_state().frame == [0] * DMX_UNIVERSE_SIZE
+    assert_lights_dark(runtime.show, runtime.build_state().frame)
 
 
 def test_none_preset_zero_base_without_blackout() -> None:
@@ -120,7 +124,7 @@ def test_none_preset_zero_base_without_blackout() -> None:
     assert state.engine.preset_id == NONE_PRESET_ID
     assert state.engine.blackout is False
     assert state.engine.episode_count == 0
-    assert state.frame == [0] * DMX_UNIVERSE_SIZE
+    assert_lights_dark(runtime.show, state.frame)
 
     runtime.apply_white_hit()
     runtime.tick(dt_s=0.02)
@@ -137,8 +141,8 @@ def test_seek_episode_updates_runtime_immediately() -> None:
     state = runtime.build_state()
     assert state.engine.episode_index == 3
     assert state.engine.episode_time_s == pytest.approx(0.0)
-    # Blackout keeps preset output zero
-    assert state.frame == [0] * DMX_UNIVERSE_SIZE
+    # Blackout keeps preset look dark (Beam axes / FIXED may remain).
+    assert_lights_dark(runtime.show, state.frame)
 
 
 def test_seek_then_auto_continues_to_next_episode() -> None:
@@ -178,7 +182,7 @@ def test_disarm_blocks_live_fx_on_artnet() -> None:
     before = len(sock.sent)
     runtime.tick(dt_s=0.05)
     assert runtime.output.armed is False
-    assert sock.sent[-1][0][-512:] == bytes(512)
+    assert_lights_dark(runtime.show, list(sock.sent[-1][0][-512:]))
     assert all(addr[0] != VENUE_IP for _, addr in sock.sent)
     assert runtime.output.transport_kind is TransportKind.ARTNET
     assert len(sock.sent) >= before

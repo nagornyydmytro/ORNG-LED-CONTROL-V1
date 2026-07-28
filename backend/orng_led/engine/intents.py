@@ -31,20 +31,25 @@ class ParIntent:
 
 @dataclass(frozen=True)
 class BarIntent:
-    """Bars are RGB fixtures: one colour plus 8 semantic segment levels."""
+    """LED Bar look: exclusive segment mode or whole-fixture palette mode."""
 
     segments: tuple[float, ...] = (0.0,) * 8
     dimmer: float = 1.0
     color: Rgbw = field(default_factory=Rgbw)
     strobe: float = 0.0
+    # False → eight segment colours; True → whole_color only (segments forced 0).
+    whole: bool = False
 
 
 @dataclass(frozen=True)
 class BeamIntent:
-    """Moving heads are RGB too; ``wheel`` stays for the provisional colour wheel."""
+    """Moving head look in semantic scene pan/tilt (0..1).
 
-    pan: float = 0.5
-    tilt: float = 0.5
+    ``pan`` / ``tilt`` of ``None`` mean hold the last valid motion (never 0/0).
+    """
+
+    pan: float | None = None
+    tilt: float | None = None
     dimmer: float = 0.0
     color: Rgbw = field(default_factory=Rgbw)
     wheel: float = 0.0

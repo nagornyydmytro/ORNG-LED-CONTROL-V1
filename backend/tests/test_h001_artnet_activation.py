@@ -6,8 +6,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from orng_led.api.runtime import AppRuntime
-from orng_led.config.schema import DMX_UNIVERSE_SIZE
 from orng_led.engine.frame import empty_frame
+from orng_led.engine.show_whitelist import assert_lights_dark
 from orng_led.main import create_app
 from orng_led.output import OutputError, RecordingSocket, TransportKind
 from orng_led.output.artnet import parse_artdmx_header
@@ -29,7 +29,7 @@ def test_startup_does_not_create_udp_or_send_packets() -> None:
     assert runtime.output.udp_active is False
     assert runtime.engine.overlays.blackout is True
     frame = runtime._published_frame()
-    assert frame == [0] * DMX_UNIVERSE_SIZE
+    assert_lights_dark(runtime.show, frame)
     runtime.tick(dt_s=1.0 / 30.0)
     assert runtime.output.transport_kind is TransportKind.MOCK
     assert runtime.output.udp_active is False
@@ -63,7 +63,8 @@ def test_activation_auto_enforces_blackout_then_activates() -> None:
     assert state.engine.blackout is True
     assert state.output.transport == "artnet"
     assert state.output.armed is False
-    assert all(packet[-512:] == bytes(512) for packet, _ in sock.sent)
+    for packet, _ in sock.sent:
+        assert_lights_dark(runtime.show, list(packet[-512:]))
 
 
 def test_activation_blocked_without_target_ip() -> None:
@@ -113,14 +114,13 @@ def test_safe_activation_sends_only_zeros_via_injected_socket() -> None:
     assert state.output.network_allowed is False
     assert state.output.udp_active is True
     assert state.engine.blackout is True
-    assert state.output.frame_sum == 0
-    assert state.output.nonzero_channels == 0
+    assert_lights_dark(runtime.show, runtime.build_state().frame)
     assert len(sock.sent) >= 1
     for packet, address in sock.sent:
         assert address == (SAFE_TEST_IP, 6454)
         assert address[0] != VENUE_CONTROLLER_IP
         assert parse_artdmx_header(packet)["universe"] == 0
-        assert packet[-512:] == bytes(512)
+        assert_lights_dark(runtime.show, list(packet[-512:]))
 
     # Show clock may leave blackout; wire must stay zero while disarmed.
     runtime.engine.set_blackout(False)
@@ -128,7 +128,7 @@ def test_safe_activation_sends_only_zeros_via_injected_socket() -> None:
     runtime.tick(dt_s=0.1)
     assert runtime.output.armed is False
     last_packet = sock.sent[-1][0]
-    assert last_packet[-512:] == bytes(512)
+    assert_lights_dark(runtime.show, list(last_packet[-512:]))
 
 
 def test_nonzero_impossible_without_arm_and_blackout_off() -> None:
@@ -142,7 +142,7 @@ def test_nonzero_impossible_without_arm_and_blackout_off() -> None:
 
     runtime.engine.set_blackout(False)
     runtime.tick(dt_s=0.05)
-    assert sock.sent[-1][0][-512:] == bytes(512)
+    assert_lights_dark(runtime.show, list(sock.sent[-1][0][-512:]))
 
     # Arm is refused while Blackout is off.
     with pytest.raises(OutputError, match="Blackout|заблоковано"):
@@ -152,7 +152,7 @@ def test_nonzero_impossible_without_arm_and_blackout_off() -> None:
     runtime.arm_output(confirmed=True)
     assert runtime.output.armed is True
     runtime.tick(dt_s=0.05)
-    assert sock.sent[-1][0][-512:] == bytes(512)
+    assert_lights_dark(runtime.show, list(sock.sent[-1][0][-512:]))
 
     runtime.engine.set_blackout(False)
     bright_ticks = 0
@@ -178,7 +178,8 @@ def test_deactivate_and_shutdown_send_zeros_then_mock() -> None:
     assert state.output.udp_active is False
     assert state.engine.blackout is True
     assert sock.closed is True
-    assert all(packet[-512:] == bytes(512) for packet, _ in sock.sent)
+    for packet, _ in sock.sent:
+        assert_lights_dark(runtime.show, list(packet[-512:]))
     assert all(address[0] != VENUE_CONTROLLER_IP for _, address in sock.sent)
 
 
@@ -201,7 +202,7 @@ def test_api_activate_deactivate_endpoints_use_safe_defaults() -> None:
         assert state["output"]["transport"] == "mock"
         assert state["output"]["preferred_transport"] in {"mock", "artnet"}
         assert state["output"]["udp_active"] is False
-        assert state["output"]["frame_sum"] == 0
+        assert_lights_dark(runtime.show, state["frame"])
         assert state["engine"]["blackout"] is True
 
 

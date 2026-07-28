@@ -47,18 +47,17 @@ def test_layout_beams_are_ceiling_mounted() -> None:
     assert show.patch.fixture("beam_right").spatial.side.value == "right"
 
 
-def test_legacy_patch_loads_beam_calibration_defaults() -> None:
-    show = load_show_config()
-    for fixture_id in ("beam_left", "beam_right"):
-        spatial = show.patch.fixture(fixture_id).spatial
-        assert spatial.pan_invert is False
-        assert spatial.tilt_invert is False
-        assert spatial.pan_offset == 0.0
-        assert spatial.tilt_offset == 0.0
-        assert spatial.pan_min == 0.0
-        assert spatial.pan_max == 1.0
-        assert spatial.home_pan == 0.5
-        assert spatial.beam_calibration_confirmed is False
+def test_spatial_placement_defaults_for_uncalibrated_head() -> None:
+    """Factory defaults for a fresh SpatialPlacement (not the live operator patch)."""
+    spatial = SpatialPlacement(side="left")
+    assert spatial.pan_invert is False
+    assert spatial.tilt_invert is False
+    assert spatial.pan_offset == 0.0
+    assert spatial.tilt_offset == 0.0
+    assert spatial.pan_min == 0.0
+    assert spatial.pan_max == 1.0
+    assert spatial.home_pan == 0.5
+    assert spatial.beam_calibration_confirmed is False
 
 
 def test_transform_identity_preserves_midpoint() -> None:
@@ -226,7 +225,11 @@ def test_unconfirmed_beam_blocks_physical_light() -> None:
     channels[1] = ChannelDefinition(local=2, role=ChannelRole.PAN_COARSE)
     channels[2] = ChannelDefinition(local=3, role=ChannelRole.TILT_COARSE)
     show.profiles[beam.profile_id] = profile.model_copy(update={"channels": channels})
-    assert beam.spatial.beam_calibration_confirmed is False
+    # Force unconfirmed regardless of the operator's saved patch.
+    beam = beam.model_copy(
+        update={"spatial": beam.spatial.model_copy(update={"beam_calibration_confirmed": False})}
+    )
+    show.patch.fixtures = [beam if fx.id == beam.id else fx for fx in show.patch.fixtures]
     stage = StageIntent(
         fixtures={
             beam.id: BeamIntent(
@@ -234,7 +237,7 @@ def test_unconfirmed_beam_blocks_physical_light() -> None:
             )
         }
     )
-    frame = render_stage(show, stage, {beam.id: BeamMotionState()})
+    frame = render_stage(show, stage, {beam.id: BeamMotionState(pan=0.5, tilt=0.5)})
     dimmer = frame[global_channel(beam.start_address, 1) - 1]
     assert dimmer == 0
     view = decode_simulator_view(show, frame)
@@ -243,8 +246,16 @@ def test_unconfirmed_beam_blocks_physical_light() -> None:
     assert left.calibration_blocker
 
 
-def test_calibration_test_requires_pan_role() -> None:
-    runtime = AppRuntime.create(autostart_loop=False)
+def test_calibration_test_requires_pan_role(tmp_path) -> None:
+    source = default_config_dir()
+    cfg = tmp_path / "config"
+    shutil.copytree(source, cfg)
+    runtime = AppRuntime.create(autostart_loop=False, config_dir=cfg)
+    profile = runtime.show.profiles["beam_13ch"].model_dump(mode="json")
+    for ch in profile["channels"]:
+        if ch["role"] in {"pan_coarse", "pan_fine", "tilt_coarse", "tilt_fine"}:
+            ch["role"] = "unused"
+    runtime.save_profile(profile)
     with pytest.raises(ValueError, match="Pan Coarse"):
         runtime.begin_beam_calibration_test("beam_left", confirmed=True)
 
@@ -265,7 +276,9 @@ def test_calibration_test_begin_does_not_move_or_light(tmp_path) -> None:
     runtime.save_profile(profile)
     state = runtime.begin_beam_calibration_test("beam_left", confirmed=True)
     assert state.beam_calibration["session"]["active"] is True
-    assert sum(state.frame) == 0
+    from orng_led.engine.show_whitelist import assert_lights_dark
+
+    assert_lights_dark(runtime.show, state.frame)
     assert state.beam_calibration["session"]["visible_beam_on"] is False
 
 

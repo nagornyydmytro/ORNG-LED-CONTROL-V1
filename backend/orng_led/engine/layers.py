@@ -118,12 +118,6 @@ def face_fixture_ids(show: ShowConfig) -> list[str]:
     return [fx.id for fx in show.patch.fixtures if fx.kind is FixtureKind.FACE_PAR]
 
 
-def _beam_pan_tilt(previous: object | None) -> tuple[float, float]:
-    if isinstance(previous, BeamIntent):
-        return previous.pan, previous.tilt
-    return 0.5, 0.5
-
-
 def _force_rear_look(
     stage: StageIntent,
     fixture: FixtureInstance,
@@ -143,10 +137,13 @@ def _force_rear_look(
             dimmer=level,
             color=color,
             strobe=strobe,
+            whole=False,
         )
     elif fixture.kind is FixtureKind.BEAM:
         previous = stage.fixtures.get(fixture.id)
-        pan, tilt = _beam_pan_tilt(previous)
+        # Preserve preset pan/tilt when present; otherwise hold motion (None).
+        pan = previous.pan if isinstance(previous, BeamIntent) else None
+        tilt = previous.tilt if isinstance(previous, BeamIntent) else None
         stage.fixtures[fixture.id] = BeamIntent(
             pan=pan,
             tilt=tilt,
@@ -235,31 +232,8 @@ def apply_face(stage: StageIntent, show: ShowConfig, overlays: OverlayState) -> 
 
 
 def apply_master_brightness(stage: StageIntent, master: float) -> StageIntent:
-    master = max(0.0, min(1.0, master))
-    for fixture_id, intent in list(stage.fixtures.items()):
-        if isinstance(intent, ParIntent):
-            stage.fixtures[fixture_id] = ParIntent(
-                color=intent.color,
-                intensity=intent.intensity * master,
-                strobe=intent.strobe,
-            )
-        elif isinstance(intent, BarIntent):
-            stage.fixtures[fixture_id] = BarIntent(
-                segments=intent.segments,
-                dimmer=intent.dimmer * master,
-                color=intent.color,
-                strobe=intent.strobe,
-            )
-        elif isinstance(intent, BeamIntent):
-            stage.fixtures[fixture_id] = BeamIntent(
-                pan=intent.pan,
-                tilt=intent.tilt,
-                dimmer=intent.dimmer * master,
-                color=intent.color,
-                wheel=intent.wheel,
-                shutter_open=intent.shutter_open,
-                strobe=intent.strobe,
-            )
+    """Master is applied in the renderer on DIMMER roles only — keep intents intact."""
+    _ = master
     return stage
 
 

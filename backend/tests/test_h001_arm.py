@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from orng_led.api.runtime import AppRuntime
+from orng_led.engine.show_whitelist import assert_lights_dark
 from orng_led.main import create_app
 from orng_led.output import OutputError, RecordingSocket, TransportKind
 
@@ -76,17 +77,15 @@ def test_arm_with_prepared_nonzero_source_keeps_wire_zero() -> None:
     state = runtime.build_state()
     assert state.output.source_nonzero_channels == 2
     assert state.output.source_frame_sum == 64 + 255
-    assert state.output.wire_nonzero_channels == 0
-    assert state.output.wire_frame_sum == 0
-    assert state.output.frame_sum == 0
-    assert state.output.nonzero_channels == 0
+    assert_lights_dark(runtime.show, state.frame)
+    assert state.output.nonzero_channels == state.output.wire_nonzero_channels
 
     _activate_network(runtime, sock)
     # Raw session stays active with prepared values; wire stays zero.
     state = runtime.build_state()
     assert state.raw_tester["active"] is True
     assert state.output.source_nonzero_channels == 2
-    assert state.output.wire_nonzero_channels == 0
+    assert_lights_dark(runtime.show, state.frame)
     assert state.engine.blackout is True
 
     before = len(sock.sent)
@@ -96,9 +95,9 @@ def test_arm_with_prepared_nonzero_source_keeps_wire_zero() -> None:
     assert state.output.transport == "artnet"
     assert state.output.udp_active is True
     assert state.output.source_nonzero_channels == 2
-    assert state.output.wire_nonzero_channels == 0
-    assert state.output.wire_frame_sum == 0
-    assert all(packet[-512:] == bytes(512) for packet, _ in sock.sent[before:])
+    assert_lights_dark(runtime.show, state.frame)
+    for packet, _ in sock.sent[before:]:
+        assert_lights_dark(runtime.show, list(packet[-512:]))
     assert all(address[0] != VENUE_CONTROLLER_IP for _, address in sock.sent)
 
 
@@ -117,10 +116,10 @@ def test_armed_plus_blackout_zeros_preset_and_raw() -> None:
     runtime.output.publish(bright, from_raw=True)
     assert sock.sent[-1][0][-512:] == bytes(512)
 
-    # Engine tick with Blackout and no Live FX → zero wire.
+    # Engine tick with Blackout and no Live FX → lights dark on wire.
     runtime.tick(dt_s=0.05)
-    assert sock.sent[-1][0][-512:] == bytes(512)
-    assert runtime.build_state().output.wire_nonzero_channels == 0
+    assert_lights_dark(runtime.show, list(sock.sent[-1][0][-512:]))
+    assert_lights_dark(runtime.show, runtime.build_state().frame)
 
 
 def test_disarm_sends_zeros_and_blocks_nonzero() -> None:
@@ -139,11 +138,12 @@ def test_disarm_sends_zeros_and_blocks_nonzero() -> None:
     assert state.output.udp_active is True
     assert state.output.network_allowed is True
     assert len(sock.sent) > before
-    assert all(packet[-512:] == bytes(512) for packet, _ in sock.sent[before:])
+    for packet, _ in sock.sent[before:]:
+        assert_lights_dark(runtime.show, list(packet[-512:]))
 
     runtime.engine.set_blackout(False)
     runtime.tick(dt_s=0.05)
-    assert sock.sent[-1][0][-512:] == bytes(512)
+    assert_lights_dark(runtime.show, list(sock.sent[-1][0][-512:]))
     assert runtime.output.armed is False
 
 
@@ -170,10 +170,8 @@ def test_source_and_wire_counters_separate_on_api() -> None:
         state = client.get("/api/state").json()
         assert state["output"]["source_nonzero_channels"] == 2
         assert state["output"]["source_frame_sum"] == 319
-        assert state["output"]["wire_nonzero_channels"] == 0
-        assert state["output"]["wire_frame_sum"] == 0
-        assert state["output"]["frame_sum"] == 0
-        assert state["output"]["nonzero_channels"] == 0
+        assert_lights_dark(runtime.show, state["frame"])
+        assert state["output"]["nonzero_channels"] == state["output"]["wire_nonzero_channels"]
 
 
 def test_api_arm_disarm_endpoints() -> None:
@@ -202,7 +200,7 @@ def test_api_arm_disarm_endpoints() -> None:
         body = armed.json()["state"]
         assert body["output"]["armed"] is True
         assert body["engine"]["blackout"] is True
-        assert body["output"]["wire_nonzero_channels"] == 0
+        assert_lights_dark(runtime.show, body["frame"])
 
         disarmed = client.post("/api/output/disarm", json={})
         assert disarmed.status_code == 200

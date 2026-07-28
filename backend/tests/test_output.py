@@ -7,6 +7,7 @@ import pytest
 from orng_led.config.schema import DMX_UNIVERSE_SIZE
 from orng_led.engine import Engine, FakeClock, create_engine
 from orng_led.engine.frame import empty_frame
+from orng_led.engine.show_whitelist import assert_lights_dark
 from orng_led.output import (
     FailsafeReason,
     MockTransport,
@@ -60,8 +61,8 @@ def test_blackout_publish_is_zero_frame() -> None:
     controller = create_output_controller()
     controller.engine.set_blackout(True)
     frame = controller.publish_engine_tick()
-    assert frame == [0] * DMX_UNIVERSE_SIZE
-    assert controller.transport.last_frame == frame
+    assert_lights_dark(controller.engine.show, frame)
+    assert_lights_dark(controller.engine.show, controller.transport.last_frame)
 
 
 def test_udp_artnet_with_recording_socket_no_real_network() -> None:
@@ -126,8 +127,8 @@ def test_disarmed_artnet_sends_only_zero_frames() -> None:
     assert len(sock.sent) == 1
     packet, address = sock.sent[0]
     assert address == ("127.0.0.1", 6454)
-    assert packet[-512:] == bytes(512)
-    assert controller.transport.last_frame == [0] * DMX_UNIVERSE_SIZE
+    assert_lights_dark(controller.engine.show, list(packet[-512:]))
+    assert_lights_dark(controller.engine.show, controller.transport.last_frame)
 
 
 def test_nonzero_requires_armed_raw_blackout_still_zeros() -> None:
@@ -162,7 +163,8 @@ def test_nonzero_requires_armed_raw_blackout_still_zeros() -> None:
     assert controller.armed is False
     assert controller.engine.overlays.blackout is True
     assert len(sock.sent) > before
-    assert all(packet[-512:] == bytes(512) for packet, _ in sock.sent[before:])
+    for packet, _ in sock.sent[before:]:
+        assert_lights_dark(controller.engine.show, list(packet[-512:]))
 
 
 def test_shutdown_emits_zero_frames_and_returns_to_mock() -> None:
@@ -179,7 +181,8 @@ def test_shutdown_emits_zero_frames_and_returns_to_mock() -> None:
 
     emitted = controller.shutdown(zero_count=3)
     assert len(emitted) == 3
-    assert all(frame == [0] * DMX_UNIVERSE_SIZE for frame in emitted)
+    for frame in emitted:
+        assert_lights_dark(engine.show, frame)
     assert len(sock.sent) == 3
     assert all(parse_artdmx_header(packet)["length"] == 512 for packet, _ in sock.sent)
     assert controller.transport_kind is TransportKind.MOCK

@@ -8,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from orng_led.api.runtime import AppRuntime
-from orng_led.config.schema import DMX_UNIVERSE_SIZE
+from orng_led.engine.show_whitelist import assert_lights_dark
 from orng_led.main import FRONTEND_DIST, create_app
 
 HAS_FRONTEND_DIST = (FRONTEND_DIST / "index.html").is_file()
@@ -45,7 +45,7 @@ def test_home_runtime_stays_mock_disarmed_zero() -> None:
     assert runtime.output.allow_real_network is False
     assert runtime.engine.overlays.blackout is True
     state = runtime.build_state()
-    assert state.frame == [0] * DMX_UNIVERSE_SIZE
+    assert_lights_dark(runtime.show, state.frame)
     assert state.output.network_allowed is False
     # No real UDP socket is created in Mock mode.
     assert getattr(runtime.output.transport, "socket", None) is None

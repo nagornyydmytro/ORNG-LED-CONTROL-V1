@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 from orng_led.api.runtime import AppRuntime
+from orng_led.engine.show_whitelist import assert_lights_dark
 from orng_led.main import create_app
 from orng_led.output import RecordingSocket, TransportKind
 
@@ -33,8 +34,7 @@ def test_raw_source_stable_319_2_under_blackout() -> None:
         assert state.output.source_owner == "raw_tester"
         assert state.output.source_frame_sum == 319
         assert state.output.source_nonzero_channels == 2
-        assert state.output.wire_frame_sum == 0
-        assert state.output.wire_nonzero_channels == 0
+        assert_lights_dark(runtime.show, state.frame)
         assert state.raw_tester["active"] is True
         assert state.raw_tester["frame"][0] == 64
         assert state.raw_tester["frame"][1] == 255
@@ -61,8 +61,7 @@ def test_artnet_and_arm_preserve_raw_session() -> None:
     assert state.output.source_owner == "raw_tester"
     assert state.output.source_frame_sum == 319
     assert state.output.source_nonzero_channels == 2
-    assert state.output.wire_frame_sum == 0
-    assert state.output.wire_nonzero_channels == 0
+    assert_lights_dark(runtime.show, state.frame)
 
     state, _ = runtime.arm_output(confirmed=True)
     assert state.output.armed is True
@@ -72,9 +71,9 @@ def test_artnet_and_arm_preserve_raw_session() -> None:
     assert state.raw_tester["frame"][1] == 255
     assert state.output.source_frame_sum == 319
     assert state.output.source_nonzero_channels == 2
-    assert state.output.wire_frame_sum == 0
-    assert state.output.wire_nonzero_channels == 0
-    assert all(packet[-512:] == bytes(512) for packet, _ in sock.sent)
+    assert_lights_dark(runtime.show, state.frame)
+    for packet, _ in sock.sent:
+        assert_lights_dark(runtime.show, list(packet[-512:]))
     assert all(address[0] != VENUE_CONTROLLER_IP for _, address in sock.sent)
 
     # Simulate returning to step 6: session still authoritative in AppState.
@@ -85,7 +84,7 @@ def test_artnet_and_arm_preserve_raw_session() -> None:
     assert again.output.armed is True
     assert again.engine.blackout is True
     assert again.output.source_frame_sum == 319
-    assert again.output.wire_nonzero_channels == 0
+    assert_lights_dark(runtime.show, again.frame)
 
 
 def test_disarm_keeps_raw_and_zero_wire() -> None:
@@ -102,9 +101,10 @@ def test_disarm_keeps_raw_and_zero_wire() -> None:
     assert state.engine.blackout is True
     assert state.raw_tester["active"] is True
     assert state.output.source_frame_sum == 319
-    assert state.output.wire_frame_sum == 0
+    assert_lights_dark(runtime.show, state.frame)
     assert len(sock.sent) > before
-    assert all(packet[-512:] == bytes(512) for packet, _ in sock.sent[before:])
+    for packet, _ in sock.sent[before:]:
+        assert_lights_dark(runtime.show, list(packet[-512:]))
 
 
 def test_explicit_raw_exit_forces_blackout_and_zeros_before_clear() -> None:
@@ -121,10 +121,10 @@ def test_explicit_raw_exit_forces_blackout_and_zeros_before_clear() -> None:
     assert state.raw_tester["active"] is False
     assert state.raw_tester["frame"] is None
     assert state.output.source_owner != "raw_tester"
-    assert state.output.wire_frame_sum == 0
-    assert state.output.wire_nonzero_channels == 0
+    assert_lights_dark(runtime.show, state.frame)
     assert len(sock.sent) > before
-    assert all(packet[-512:] == bytes(512) for packet, _ in sock.sent[before:])
+    for packet, _ in sock.sent[before:]:
+        assert_lights_dark(runtime.show, list(packet[-512:]))
     assert all(address[0] != VENUE_CONTROLLER_IP for _, address in sock.sent)
 
 
@@ -173,5 +173,5 @@ def test_api_raw_persist_across_state_fetches() -> None:
             assert state["output"]["source_owner"] == "raw_tester"
             assert state["output"]["source_frame_sum"] == 319
             assert state["output"]["source_nonzero_channels"] == 2
-            assert state["output"]["wire_frame_sum"] == 0
+            assert_lights_dark(runtime.show, state["frame"])
             assert state["engine"]["blackout"] is True

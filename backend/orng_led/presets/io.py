@@ -15,8 +15,11 @@ def default_presets_dir() -> Path:
 
 def load_preset(path: Path) -> PresetDocument:
     from orng_led.config.io import _read_yaml
+    from orng_led.presets.show_contract import validate_preset_show_contract
 
-    return parse_model(PresetDocument, _read_yaml(path), source=path)
+    doc = parse_model(PresetDocument, _read_yaml(path), source=path)
+    validate_preset_show_contract(doc)
+    return doc
 
 
 def save_preset(path: Path, document: PresetDocument) -> None:

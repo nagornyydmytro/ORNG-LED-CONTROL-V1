@@ -55,7 +55,7 @@ const emit = defineEmits<{
     </button>
 
     <label class="slider-field">
-      <span>Master brightness</span>
+      <span>Master {{ Math.round(masterBrightness * 100) }}%</span>
       <input
         type="range"
         min="0"

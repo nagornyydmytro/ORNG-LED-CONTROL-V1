@@ -130,17 +130,20 @@ class OutputController:
         """Human-readable reasons why Art-Net must not be activated yet.
 
         A prepared Raw tester session is allowed: Blackout + wire policy keep
-        the outbound frame at zeros. ``raw_tester_active`` is accepted for
-        call-site compatibility and does not block activation.
+        light channels dark. Beam axes / FIXED may remain non-zero on purpose.
+        ``raw_tester_active`` is accepted for call-site compatibility and does
+        not block activation.
         """
         del raw_tester_active  # prepared Raw source is allowed under Blackout
+        from orng_led.engine.show_whitelist import light_nonzero_channels
+
         blockers: list[str] = []
         if self.armed:
             blockers.append("Вивід уже armed — спочатку disarm / поверніть Mock")
         if not self.engine.overlays.blackout:
             blockers.append("Blackout має бути увімкнений")
-        if any(int(value) for value in published_frame):
-            blockers.append("Поточний кадр не нульовий (frame_sum > 0)")
+        if light_nonzero_channels(self.engine.show, published_frame):
+            blockers.append("Світлові канали не погашені (light_frame не dark)")
         if not self.target_ip:
             blockers.append("Не задано Art-Net target_ip")
         return blockers
@@ -189,6 +192,8 @@ class OutputController:
 
     def arm_blockers(self, *, wire_frame: list[int]) -> list[str]:
         """Human-readable reasons why Arm must not be enabled yet."""
+        from orng_led.engine.show_whitelist import light_nonzero_channels
+
         blockers: list[str] = []
         if self.transport.kind is not TransportKind.ARTNET:
             blockers.append("Runtime має бути Art-Net (у Mock Arm неможливий)")
@@ -198,8 +203,8 @@ class OutputController:
             blockers.append("artnet_network_enabled=false — спочатку безпечно активуйте Art-Net")
         if not self.engine.overlays.blackout:
             blockers.append("Blackout має бути увімкнений перед Arm")
-        if any(int(value) for value in wire_frame):
-            blockers.append("Фактичний wire-кадр не нульовий")
+        if light_nonzero_channels(self.engine.show, wire_frame):
+            blockers.append("Світлові канали wire-кадру не погашені")
         if not self.target_ip:
             blockers.append("Не задано Art-Net target_ip")
         if self.armed:
@@ -213,9 +218,10 @@ class OutputController:
         confirmed: bool = False,
         wire_frame: list[int] | None = None,
     ) -> None:
-        """Arm Art-Net output. Requires Blackout and a fully zero wire frame.
+        """Arm Art-Net output. Requires Blackout and dark light channels.
 
-        Does not activate Art-Net, clear Blackout, or alter the prepared source.
+        Beam axes / FIXED may remain non-zero. Does not activate Art-Net, clear
+        Blackout, or alter the prepared source.
         """
         if not explicit:
             raise OutputError("Output arm requires an explicit action")
@@ -243,18 +249,20 @@ class OutputController:
         return []
 
     def wire_frame(self, frame: list[int], *, from_raw: bool = False) -> list[int]:
-        """Outbound safety: Art-Net nonzero only when armed.
+        """Outbound safety: Art-Net light only when armed.
 
-        Blackout no longer blanks Live Effects at the wire: the engine zeroes
-        the preset base and then composes Live FX on top. Raw-tester sources
-        still stay dark while Blackout is on (``from_raw=True``).
+        While Art-Net UDP is active but disarmed, emit a safe-dark frame that
+        keeps Beam axes at motion/home (never Pan/Tilt 0/0) and FIXED service
+        values, with light channels extinguished.
         """
         if len(frame) != DMX_UNIVERSE_SIZE:
             raise OutputError(f"Frame length must be {DMX_UNIVERSE_SIZE}")
         if from_raw and self.engine.overlays.blackout:
             return empty_frame()
         if self.transport.kind is TransportKind.ARTNET and not self.armed:
-            return empty_frame()
+            from orng_led.engine.renderer import safe_dark_frame
+
+            return safe_dark_frame(self.engine.show, self.engine.beam_motion)
         return list(frame)
 
     def publish(self, frame: list[int], *, from_raw: bool = False) -> None:
@@ -288,7 +296,7 @@ class OutputController:
         return release_held_controls(self.engine, FailsafeReason.VISIBILITY_HIDDEN)
 
     def shutdown(self, *, zero_count: int = ZERO_FRAME_SHUTDOWN_COUNT) -> list[list[int]]:
-        """Release holds, emit zero frames, disarm, and return to Mock."""
+        """Release holds, emit safe-dark frames, disarm, and return to Mock."""
         release_held_controls(self.engine, FailsafeReason.SHUTDOWN)
         self.engine.set_blackout(True)
         emitted = self._emit_zero_frames(count=zero_count, raise_on_error=False)
@@ -303,23 +311,23 @@ class OutputController:
         count: int = ZERO_FRAME_SHUTDOWN_COUNT,
         raise_on_error: bool = False,
     ) -> list[list[int]]:
-        zeros = empty_frame()
+        from orng_led.engine.renderer import safe_dark_frame
+
+        dark = safe_dark_frame(self.engine.show, self.engine.beam_motion)
         emitted: list[list[int]] = []
         for _ in range(max(1, count)):
             try:
-                if self.transport.kind is TransportKind.ARTNET:
-                    # Bypass arm gate: safety zeros must leave even while disarmed.
-                    self.transport.send_frame(zeros)
-                    self.frames_sent += 1
-                elif self.transport.kind is TransportKind.MOCK:
-                    self.transport.send_frame(zeros)
-                    self.frames_sent += 1
+                # Bypass arm gate: safety frames must leave even while disarmed.
+                self.transport.send_frame(dark)
+                self.frames_sent += 1
+                self.last_error = None
+                emitted.append(list(dark))
             except Exception as exc:  # noqa: BLE001
                 self.last_error = str(exc)
+                self.armed = False
                 if raise_on_error:
-                    raise OutputError(f"Failed to emit safety zero frame: {exc}") from exc
+                    raise OutputError(f"Failed to emit safety dark frame: {exc}") from exc
                 break
-            emitted.append(list(zeros))
         return emitted
 
     def _close_transport(self) -> None:

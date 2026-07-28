@@ -82,7 +82,7 @@
           if (w < 8 || h < 8) return;
 
           var R = 255, G = 77, B = 0;
-          var pitch = Math.max(5, Math.round(w / 55));
+          var pitch = Math.max(5, Math.min(14, Math.round(w / 70)));
           var thin = Math.max(1, Math.round(pitch * 0.15));
           var thick = Math.max(thin + 3, Math.round(pitch * 0.78));
 
@@ -98,20 +98,20 @@
           o.textAlign = "center";
           o.textBaseline = "top";
           o.lineJoin = "round";
-          var fontPx = Math.min(w * 0.32, h * 0.135);
+          var fontPx = Math.min(w * 0.36, h * 0.14);
           function font(sz) {
             return "900 " + sz + 'px "Arial Black",Impact,Arial,sans-serif';
           }
           o.font = font(fontPx);
-          while (fontPx > 28 && o.measureText("HOTBOX").width > w * 0.9) {
+          while (fontPx > 28 && o.measureText("HOTBOX").width > w * 0.92) {
             fontPx -= 2;
             o.font = font(fontPx);
           }
-          var gap = fontPx * 0.06;
+          var gap = fontPx * 0.05;
           var blockH = fontPx * 2 + gap;
-          var textTop = h * 0.34 - blockH * 0.5;
+          var textTop = h * 0.36 - blockH * 0.5;
           var cx = w * 0.5;
-          o.lineWidth = Math.max(3, fontPx * 0.08);
+          o.lineWidth = Math.max(4, fontPx * 0.12);
           o.strokeText("ORNG", cx, textTop);
           o.fillText("ORNG", cx, textTop);
           o.strokeText("HOTBOX", cx, textTop + fontPx + gap);

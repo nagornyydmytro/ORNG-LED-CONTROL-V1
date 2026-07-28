@@ -57,20 +57,21 @@ export function buildSplashMask(width: number, height: number): SplashMask {
   ctx.textBaseline = "top";
   ctx.lineJoin = "round";
 
-  // Whole block ≈ 30% of screen height.
-  const maxTextW = w * 0.9;
-  let fontPx = Math.min(w * 0.32, h * 0.135);
+  // Whole block ≈ 30% of screen height, wide like the reference.
+  const maxTextW = w * 0.92;
+  let fontPx = Math.min(w * 0.36, h * 0.14);
   ctx.font = fontFor(fontPx);
   while (fontPx > 28 && ctx.measureText("HOTBOX").width > maxTextW) {
     fontPx -= 2;
     ctx.font = fontFor(fontPx);
   }
 
-  const gap = fontPx * 0.06;
+  const gap = fontPx * 0.05;
   const blockH = fontPx * 2 + gap;
-  const textTop = h * 0.34 - blockH * 0.5;
+  const textTop = h * 0.36 - blockH * 0.5;
   const cx = w * 0.5;
-  ctx.lineWidth = Math.max(3, fontPx * 0.08);
+  // Fat stroke so slit samples read as solid letter bars.
+  ctx.lineWidth = Math.max(4, fontPx * 0.12);
 
   for (const [label, y] of [
     ["ORNG", textTop],
@@ -108,8 +109,9 @@ export function drawSplashStripes(
   ctx.fillRect(0, 0, w, h);
   if (w < 8 || h < 8) return;
 
-  // Reference: ~13–14px pitch @ 720 → ~55 slits.
-  const pitch = Math.max(5, Math.round(w / 55));
+  // Lock pitch near the reference (~13–14px @ 720). Cap so wide screens
+  // get denser slits — more samples through each letter → readable glyphs.
+  const pitch = Math.max(5, Math.min(14, Math.round(w / 70)));
   const thin = Math.max(1, Math.round(pitch * 0.15));
   // Letter bars nearly fill the pitch (small black gutters), like the ref.
   const thick = Math.max(thin + 3, Math.round(pitch * 0.78));

@@ -249,17 +249,26 @@ export function useAppState(toasts: ToastApi) {
     await dispatchPad(BUTTON_WHITE_HIT, "pulse", "White Hit");
   }
 
-  async function strobePress() {
-    await dispatchPad(BUTTON_STROBE, "press");
+  /** Serialize STROBE press/release so pointerup cannot race ahead of press. */
+  let strobeChain: Promise<void> = Promise.resolve();
+
+  function strobePress() {
+    strobeChain = strobeChain
+      .then(() => dispatchPad(BUTTON_STROBE, "press"))
+      .then(() => undefined)
+      .catch(() => undefined);
+    return strobeChain;
   }
 
-  async function strobeRelease() {
-    if (!state.value?.engine.strobe_held && connection.value !== "online") return;
-    try {
-      await dispatchPad(BUTTON_STROBE, "release");
-    } catch {
-      // failsafe best-effort
-    }
+  function strobeRelease() {
+    strobeChain = strobeChain
+      .then(async () => {
+        if (!state.value?.engine.strobe_held && connection.value !== "online") return;
+        await dispatchPad(BUTTON_STROBE, "release");
+      })
+      .then(() => undefined)
+      .catch(() => undefined);
+    return strobeChain;
   }
 
   async function setBlackout(enabled: boolean) {
@@ -290,16 +299,23 @@ export function useAppState(toasts: ToastApi) {
     await runCommand("preview-speed", { value });
   }
 
-  async function dropPress() {
-    await runCommand("drop", { action: "press" });
+  /** Serialize DROP press/release so a fast pointerup cannot race ahead of press. */
+  let dropChain: Promise<void> = Promise.resolve();
+
+  function dropPress() {
+    dropChain = dropChain
+      .then(() => runCommand("drop", { action: "press" }))
+      .then(() => undefined)
+      .catch(() => undefined);
+    return dropChain;
   }
 
-  async function dropRelease() {
-    try {
-      await runCommand("drop", { action: "release" });
-    } catch {
-      // failsafe best-effort; the backend also has a wall-clock max duration
-    }
+  function dropRelease() {
+    dropChain = dropChain
+      .then(() => runCommand("drop", { action: "release" }))
+      .then(() => undefined)
+      .catch(() => undefined);
+    return dropChain;
   }
 
   async function colorHit(rgb?: { r: number; g: number; b: number }) {

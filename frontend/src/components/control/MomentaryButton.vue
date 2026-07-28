@@ -15,16 +15,41 @@ const emit = defineEmits<{
 }>();
 
 const pressing = ref(false);
+const buttonRef = ref<HTMLButtonElement | null>(null);
+let activePointerId: number | null = null;
 
-function start(event: Event) {
+function start(event: PointerEvent) {
   if (props.disabled) return;
-  event.preventDefault();
   if (pressing.value) return;
+  event.preventDefault();
   pressing.value = true;
+  activePointerId = event.pointerId;
+  try {
+    buttonRef.value?.setPointerCapture(event.pointerId);
+  } catch {
+    // Capture can fail on some synthetic events — still emit press.
+  }
   emit("press");
 }
 
-function stop() {
+function stop(event?: PointerEvent) {
+  if (!pressing.value && !props.active) return;
+  if (
+    event &&
+    activePointerId !== null &&
+    event.pointerId !== activePointerId &&
+    event.type !== "lostpointercapture"
+  ) {
+    return;
+  }
+  if (activePointerId !== null && buttonRef.value?.hasPointerCapture(activePointerId)) {
+    try {
+      buttonRef.value.releasePointerCapture(activePointerId);
+    } catch {
+      // already released
+    }
+  }
+  activePointerId = null;
   if (!pressing.value && !props.active) return;
   pressing.value = false;
   emit("release");
@@ -32,7 +57,12 @@ function stop() {
 
 function onKeyDown(event: KeyboardEvent) {
   if (event.repeat) return;
-  if (event.key === " " || event.key === "Enter") start(event);
+  if (event.key === " " || event.key === "Enter") {
+    event.preventDefault();
+    if (pressing.value) return;
+    pressing.value = true;
+    emit("press");
+  }
 }
 
 function onKeyUp(event: KeyboardEvent) {
@@ -40,11 +70,12 @@ function onKeyUp(event: KeyboardEvent) {
 }
 
 // Releasing on unmount / hidden tab is a safety requirement, not a nicety.
-onBeforeUnmount(stop);
+onBeforeUnmount(() => stop());
 </script>
 
 <template>
   <button
+    ref="buttonRef"
     type="button"
     class="fx-btn fx-btn--momentary"
     :class="[`fx-btn--${variant ?? 'neutral'}`, { active: active || pressing }]"
@@ -53,7 +84,7 @@ onBeforeUnmount(stop);
     @pointerdown="start"
     @pointerup="stop"
     @pointercancel="stop"
-    @pointerleave="stop"
+    @lostpointercapture="stop"
     @keydown="onKeyDown"
     @keyup="onKeyUp"
   >

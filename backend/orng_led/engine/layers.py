@@ -23,7 +23,8 @@ STROBE_MAX_HZ = 4.0
 STROBE_HOLD_TIMEOUT_S = 8.0
 
 # Quick live effects (canon §5.3 momentary rules).
-DROP_MAX_DURATION_S = 1.2
+# Drop is hold-to-kill; keep a wall-clock failsafe in line with Strobe.
+DROP_MAX_DURATION_S = 8.0
 COLOR_HIT_DURATION_S = 0.35
 SWEEP_HIT_DURATION_S = 0.75
 SWEEP_WIDTH = 0.22
@@ -200,9 +201,39 @@ def apply_sweep_hit(
 
 
 def apply_drop(stage: StageIntent, show: ShowConfig) -> StageIntent:
-    """Momentary kill of the stage look; the preset clock keeps running."""
+    """Momentary kill of the rear stage look; the preset clock keeps running.
+
+    Explicit dark intents (not only pop) so the renderer never keeps a stale
+    rear look if another layer re-touched the map earlier in the compose pass.
+    Face PAR stays available for the DJ.
+    """
     for fixture in show.patch.fixtures:
-        if _is_rear(fixture.kind):
+        if not _is_rear(fixture.kind):
+            continue
+        if fixture.kind is FixtureKind.PAR:
+            stage.fixtures[fixture.id] = ParIntent(
+                color=Rgbw(),
+                intensity=0.0,
+                strobe=0.0,
+            )
+        elif fixture.kind is FixtureKind.BAR:
+            stage.fixtures[fixture.id] = BarIntent(
+                segments=(0.0,) * 8,
+                dimmer=0.0,
+                color=Rgbw(),
+                strobe=0.0,
+                whole=False,
+            )
+        elif fixture.kind is FixtureKind.BEAM:
+            stage.fixtures[fixture.id] = BeamIntent(
+                pan=None,
+                tilt=None,
+                dimmer=0.0,
+                color=Rgbw(),
+                shutter_open=False,
+                strobe=0.0,
+            )
+        else:
             stage.fixtures.pop(fixture.id, None)
     return stage
 

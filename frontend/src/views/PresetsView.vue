@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, inject, onMounted, ref } from "vue";
+import { computed, inject, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { useRouter } from "vue-router";
 import {
   EFFECTS,
   GROUPS,
@@ -13,22 +14,35 @@ import {
   newEpisode,
   renamePreset,
   savePreset,
+  startEditorEpisodePreview,
+  stopEditorEpisodePreview,
+  suggestCustomPresetId,
   type EpisodeCard,
   type PresetDocument,
 } from "../api/presets";
 import { fetchStageLayout } from "../api/client";
+import BlackoutButton from "../components/control/BlackoutButton.vue";
 import StageSimulator from "../components/simulator/StageSimulator.vue";
 import { APP_STATE_KEY } from "../composables/appStateKey";
 import { usePreviewClip } from "../composables/usePreviewClip";
 import type { PresetInfo, StageLayout } from "../vite-env";
-import { PRESET_CATALOG, paletteCss } from "../lib/presets";
+import { PRESET_CATALOG, formatClock, paletteCss } from "../lib/presets";
 
 const api = inject(APP_STATE_KEY);
 if (!api) {
   throw new Error("App state is not provided");
 }
 
-const { selectPreset, connection, engine, refreshRest } = api;
+const {
+  connection,
+  engine,
+  output,
+  state,
+  refreshRest,
+  toggleBlackout,
+} = api;
+
+const router = useRouter();
 
 const summaries = ref<PresetInfo[]>([]);
 const editing = ref<PresetDocument | null>(null);
@@ -37,6 +51,7 @@ const loading = ref(true);
 const saving = ref(false);
 const message = ref<string | null>(null);
 const error = ref<string | null>(null);
+const savedHintId = ref<string | null>(null);
 const newId = ref("C01");
 const newLabel = ref("Мій пресет");
 const renameLabel = ref("");
@@ -52,10 +67,13 @@ const totalDuration = computed(() =>
 const isBuiltinEditing = computed(() => editing.value?.builtin === true);
 const offline = computed(() => connection.value === "offline");
 const selected = computed(() => summaries.value.find((p) => p.id === selectedId.value) ?? null);
+const editorPreview = computed(() => state.value?.preset_editor_preview ?? null);
+const hardwareTestActive = computed(() => editorPreview.value?.active === true);
 
 async function reloadList() {
   summaries.value = await listPresets();
   await refreshRest();
+  newId.value = suggestCustomPresetId(summaries.value.map((p) => p.id));
 }
 
 function setStatus(ok: string | null, err: string | null = null) {
@@ -67,6 +85,7 @@ async function openEditor(id: string) {
   error.value = null;
   editing.value = await getPreset(id);
   renameLabel.value = editing.value.label;
+  savedHintId.value = null;
 }
 
 const episodeDuration = computed(() => {
@@ -96,10 +115,12 @@ async function previewFrom(episodeIndex: number) {
 async function onCreate() {
   saving.value = true;
   try {
-    await createCustomPreset(newId.value.trim(), newLabel.value.trim());
+    const id = newId.value.trim() || suggestCustomPresetId(summaries.value.map((p) => p.id));
+    newId.value = id;
+    await createCustomPreset(id, newLabel.value.trim() || "Мій пресет");
     await reloadList();
-    await openEditor(newId.value.trim());
-    setStatus(`Створено ${newId.value}`);
+    await openEditor(id);
+    setStatus(`Створено ${id}. Натисніть «Зберегти пресет», щоб він з’явився на пульті.`);
   } catch (err) {
     setStatus(null, err instanceof Error ? err.message : "Помилка створення");
   } finally {
@@ -113,12 +134,19 @@ async function onSave() {
   try {
     await savePreset(editing.value.id, editing.value);
     await reloadList();
-    setStatus("Пресет збережено (atomic YAML)");
+    savedHintId.value = editing.value.id;
+    setStatus(`Пресет ${editing.value.id} збережено і доступний на пульті`);
   } catch (err) {
     setStatus(null, err instanceof Error ? err.message : "Помилка збереження");
   } finally {
     saving.value = false;
   }
+}
+
+async function openOnPad() {
+  const id = savedHintId.value ?? editing.value?.id;
+  if (!id) return;
+  await router.push({ name: "control", query: { highlight: id } });
 }
 
 async function onRename() {
@@ -128,7 +156,7 @@ async function onRename() {
     await renamePreset(editing.value.id, renameLabel.value.trim());
     editing.value = { ...editing.value, label: renameLabel.value.trim() };
     await reloadList();
-    setStatus("Назву оновлено");
+    setStatus("Назву оновлено на пульті без дубліката");
   } catch (err) {
     setStatus(null, err instanceof Error ? err.message : "Помилка перейменування");
   } finally {
@@ -137,7 +165,10 @@ async function onRename() {
 }
 
 async function onDuplicate(id: string) {
-  const nextId = `${id}_copy`.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 28) || "Copy1";
+  const nextId =
+    suggestCustomPresetId(summaries.value.map((p) => p.id)) ||
+    `${id}_copy`.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 28) ||
+    "Copy1";
   saving.value = true;
   try {
     await duplicatePreset(id, nextId);
@@ -158,8 +189,12 @@ async function onDelete(id: string, builtin?: boolean) {
   }
   saving.value = true;
   try {
+    if (hardwareTestActive.value && editorPreview.value?.preset_id === id) {
+      await stopEditorEpisodePreview();
+    }
     await deletePreset(id);
     if (editing.value?.id === id) editing.value = null;
+    if (savedHintId.value === id) savedHintId.value = null;
     await reloadList();
     setStatus(`Видалено ${id}`);
   } catch (err) {
@@ -169,9 +204,42 @@ async function onDelete(id: string, builtin?: boolean) {
   }
 }
 
-async function onApply(id: string) {
-  await selectPreset(id);
-  setStatus(`${id} застосовано до живої сцени`);
+/** Virtual-scene only — does not enable Art-Net / Arm / clear Blackout. */
+async function onApplyVisualization(id: string) {
+  selectedId.value = id;
+  await preview.load(id, 12, 15);
+  setStatus(`${id} застосовано до візуалізації (Mock-кліп)`);
+}
+
+async function playEpisodeOnHardware(index: number) {
+  if (!editing.value) return;
+  const ep = editing.value.episodes[index];
+  if (!ep) return;
+  saving.value = true;
+  try {
+    await startEditorEpisodePreview({
+      preset_id: editing.value.id,
+      preset_label: editing.value.label,
+      episode_index: index,
+      episode: ep,
+    });
+    await refreshRest();
+    setStatus(`Тест епізоду ${index + 1} на обладнанні`);
+  } catch (err) {
+    setStatus(null, err instanceof Error ? err.message : "Помилка тесту епізоду");
+  } finally {
+    saving.value = false;
+  }
+}
+
+async function stopHardwareTest() {
+  try {
+    await stopEditorEpisodePreview();
+    await refreshRest();
+    setStatus("Тест на обладнанні зупинено");
+  } catch (err) {
+    setStatus(null, err instanceof Error ? err.message : "Не вдалося зупинити тест");
+  }
 }
 
 function addEpisode() {
@@ -182,8 +250,17 @@ function addEpisode() {
   };
 }
 
-function removeEpisode(index: number) {
+async function removeEpisode(index: number) {
   if (!editing.value || isBuiltinEditing.value || editing.value.episodes.length <= 1) return;
+  const removed = editing.value.episodes[index];
+  if (
+    hardwareTestActive.value &&
+    editorPreview.value?.preset_id === editing.value.id &&
+    (editorPreview.value.episode_id === removed?.id ||
+      editorPreview.value.episode_index === index)
+  ) {
+    await stopHardwareTest();
+  }
   const episodes = editing.value.episodes.filter((_, i) => i !== index);
   editing.value = { ...editing.value, episodes };
 }
@@ -224,6 +301,15 @@ function toggleGroup(index: number, group: string) {
   updateEpisode(index, { groups });
 }
 
+watch(
+  () => editing.value?.id,
+  async (id, prev) => {
+    if (prev && hardwareTestActive.value && editorPreview.value?.preset_id === prev && id !== prev) {
+      await stopHardwareTest();
+    }
+  },
+);
+
 onMounted(async () => {
   try {
     await reloadList();
@@ -233,9 +319,14 @@ onMounted(async () => {
   } finally {
     loading.value = false;
   }
-  // The clip is half a megabyte of rendered frames: never block the page on it.
   const first = summaries.value[0];
   if (first) void choose(engine.value?.preset_id ?? first.id);
+});
+
+onBeforeUnmount(() => {
+  if (hardwareTestActive.value) {
+    void stopEditorEpisodePreview().then(() => refreshRest());
+  }
 });
 </script>
 
@@ -244,8 +335,7 @@ onMounted(async () => {
     <header class="card">
       <h1>Пресети</h1>
       <p class="card__sub">
-        Картки показують справжню палітру та характер пресету. Перегляд рендериться тим самим
-        рушієм, але нікуди не надсилається: фізичний вивід залишається вимкненим.
+        Три окремі дії: візуалізація · тест епізоду на обладнанні · збереження на пульт.
       </p>
     </header>
 
@@ -268,7 +358,88 @@ onMounted(async () => {
       role="status"
     >
       {{ message }}
+      <button
+        v-if="savedHintId"
+        type="button"
+        class="btn btn--sm btn--primary"
+        style="margin-left: 12px"
+        @click="openOnPad"
+      >
+        Відкрити на пульті
+      </button>
     </p>
+
+    <section
+      v-if="hardwareTestActive"
+      class="card editor-hw-test"
+      aria-label="Тест на обладнанні"
+    >
+      <header class="card__head">
+        <div>
+          <h2>Тест на обладнанні активний</h2>
+          <p class="card__sub">
+            {{ editorPreview?.preset_label }} ·
+            {{ editorPreview?.episode_title }}
+          </p>
+        </div>
+        <div class="row-actions">
+          <BlackoutButton
+            :active="engine?.blackout ?? false"
+            :disabled="offline"
+            @toggle="toggleBlackout"
+          />
+          <button
+            type="button"
+            class="btn btn--danger"
+            @click="stopHardwareTest"
+          >
+            Зупинити тест
+          </button>
+        </div>
+      </header>
+      <div class="form-grid">
+        <div class="field">
+          <span>Час циклу епізоду</span>
+          <strong>{{ formatClock(editorPreview?.elapsed_s ?? 0) }} /
+            {{ formatClock(editorPreview?.episode_duration_s ?? 0) }}</strong>
+        </div>
+        <div class="field">
+          <span>Art-Net / UDP / Arm</span>
+          <strong>
+            {{ output?.transport ?? "—" }} /
+            {{ output?.udp_active ? "UDP on" : "UDP off" }} /
+            {{ output?.armed ? "Armed" : "Disarmed" }}
+          </strong>
+        </div>
+        <div class="field">
+          <span>Blackout</span>
+          <strong>{{ engine?.blackout ? "увімкнено" : "вимкнено" }}</strong>
+        </div>
+        <div class="field">
+          <span>DMX source</span>
+          <strong>{{ output?.source_owner ?? "—" }}</strong>
+        </div>
+        <div class="field">
+          <span>Source NZ / Wire NZ</span>
+          <strong>
+            {{ editorPreview?.source_nonzero_channels ?? output?.source_nonzero_channels ?? 0 }}
+            /
+            {{ editorPreview?.wire_nonzero_channels ?? output?.wire_nonzero_channels ?? 0 }}
+          </strong>
+        </div>
+      </div>
+      <ul
+        v-if="(editorPreview?.blockers?.length ?? 0) > 0"
+        class="banner banner--warn"
+      >
+        <li
+          v-for="(b, i) in editorPreview?.blockers ?? []"
+          :key="i"
+        >
+          {{ b }}
+        </li>
+      </ul>
+    </section>
 
     <div class="presets-grid">
       <section
@@ -278,7 +449,7 @@ onMounted(async () => {
         <header class="card__head">
           <h2>Каталог</h2>
           <p class="card__sub">
-            Вбудовані: 10 × 18 с = 180 с
+            Вбудовані та власні пресети
           </p>
         </header>
 
@@ -332,9 +503,9 @@ onMounted(async () => {
             type="button"
             class="btn btn--primary"
             :disabled="offline || !selectedId"
-            @click="selectedId && onApply(selectedId)"
+            @click="selectedId && onApplyVisualization(selectedId)"
           >
-            Застосувати до сцени
+            Застосувати до візуалізації
           </button>
           <button
             type="button"
@@ -405,7 +576,8 @@ onMounted(async () => {
             </button>
           </div>
           <p class="card__sub">
-            Натисніть епізод, щоб переглянути його в Mock без надсилання у transport.
+            Натисніть епізод для Mock-візуалізації. Для реального виводу використайте
+            «Відтворити на обладнанні» в редакторі.
           </p>
         </section>
       </div>
@@ -417,6 +589,9 @@ onMounted(async () => {
     >
       <header class="card__head">
         <h2>Створити власний пресет</h2>
+        <p class="card__sub">
+          ID стійкий і не залежить від назви (наприклад C01)
+        </p>
       </header>
       <div class="form-grid">
         <label class="field">
@@ -461,6 +636,9 @@ onMounted(async () => {
             hardware_tuned=false
             <span v-if="isBuiltinEditing"> · структура 10 × 18 с зафіксована</span>
           </p>
+          <p class="card__sub">
+            Після збереження пресет з’явиться на пульті
+          </p>
         </div>
         <div class="row-actions">
           <label class="field field--inline">
@@ -484,7 +662,7 @@ onMounted(async () => {
             :disabled="saving"
             @click="onSave"
           >
-            Зберегти YAML
+            Зберегти пресет
           </button>
           <button
             type="button"
@@ -509,6 +687,14 @@ onMounted(async () => {
         <div class="card__head">
           <strong>Епізод {{ index + 1 }} · {{ ep.id }}</strong>
           <div class="row-actions">
+            <button
+              type="button"
+              class="btn btn--sm btn--primary"
+              :disabled="offline || saving"
+              @click="playEpisodeOnHardware(index)"
+            >
+              Відтворити на обладнанні
+            </button>
             <button
               type="button"
               class="btn btn--sm"

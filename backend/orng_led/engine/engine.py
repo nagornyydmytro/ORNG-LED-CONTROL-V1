@@ -63,6 +63,10 @@ class Engine:
     overlays: OverlayState = field(default_factory=OverlayState)
     beam_motion: dict[str, BeamMotionState] = field(default_factory=dict)
     beam_limits: BeamMotionLimits = field(default_factory=BeamMotionLimits)
+    # Temporary single-episode hardware check from the preset editor.
+    # Does not replace the pad selection; only the base look source.
+    editor_preview_program: PresetProgram | None = None
+    editor_preview_elapsed_s: float = 0.0
 
     def __post_init__(self) -> None:
         if not self.presets:
@@ -90,8 +94,23 @@ class Engine:
         if reset_clock:
             self.preset_elapsed_s = 0.0
 
+    def start_editor_preview(self, program: PresetProgram) -> None:
+        """Replace base look with a looping single-episode draft (pad selection kept)."""
+        self.editor_preview_program = program
+        self.editor_preview_elapsed_s = 0.0
+
+    def stop_editor_preview(self) -> None:
+        self.editor_preview_program = None
+        self.editor_preview_elapsed_s = 0.0
+
+    @property
+    def editor_preview_active(self) -> bool:
+        return self.editor_preview_program is not None
+
     def seek_episode(self, episode_index: int) -> None:
         """Jump to the start of ``episode_index``; auto-continue afterwards."""
+        if self.editor_preview_active:
+            raise ValueError("Cannot seek pad episodes while editor hardware preview is active")
         if self.active_preset_id == NONE_PRESET_ID:
             raise ValueError("Cannot seek episodes while «Без пресету» is selected")
         preset = self.active_preset
@@ -248,11 +267,14 @@ class Engine:
     def render_at(self, time_s: float, *, dt_s: float = 0.0) -> EngineSnapshot:
         """Render a deterministic frame for an absolute clock time."""
         self._expire_overlays(time_s)
-        preset = self.active_preset
-        if self.active_preset_id == NONE_PRESET_ID:
+        preview = self.editor_preview_program
+        pad_preset = self.active_preset
+        if preview is not None:
+            base = preview.evaluate(self.editor_preview_elapsed_s, self.show)
+        elif self.active_preset_id == NONE_PRESET_ID:
             base = StageIntent()
         else:
-            base = preset.evaluate(self.preset_elapsed_s, self.show)
+            base = pad_preset.evaluate(self.preset_elapsed_s, self.show)
 
         # Blackout zeroes the preset/base look only. Live Effects still compose
         # on top and can produce light while Blackout remains engaged.
@@ -264,6 +286,8 @@ class Engine:
         frame = render_stage(self.show, composed, self.beam_motion)
 
         assert_frame_bounds(frame)
+        # Pad episode clock remains authoritative for Control UI; preview details
+        # are exposed separately via AppState.preset_editor_preview.
         if self.active_preset_id == NONE_PRESET_ID:
             from orng_led.engine.presets import CyclePosition as _CP
 
@@ -272,17 +296,17 @@ class Engine:
             preset_time = 0.0
             episode_count = 0
         else:
-            position_fn = getattr(preset, "cycle_position", None)
+            position_fn = getattr(pad_preset, "cycle_position", None)
             if callable(position_fn):
                 pos = position_fn(self.preset_elapsed_s)
                 cycle_len = float(
-                    getattr(preset, "total_duration_s", CYCLE_DURATION_S) or CYCLE_DURATION_S
+                    getattr(pad_preset, "total_duration_s", CYCLE_DURATION_S) or CYCLE_DURATION_S
                 )
                 preset_time = self.preset_elapsed_s % cycle_len if cycle_len else 0.0
-                if hasattr(preset, "episode_count"):
-                    episode_count = int(preset.episode_count)
-                elif hasattr(preset, "document"):
-                    episode_count = len(preset.document.episodes)
+                if hasattr(pad_preset, "episode_count"):
+                    episode_count = int(pad_preset.episode_count)
+                elif hasattr(pad_preset, "document"):
+                    episode_count = len(pad_preset.document.episodes)
                 else:
                     episode_count = 10
             else:
@@ -332,8 +356,10 @@ class Engine:
         if wall < 0:
             raise ValueError("wall_dt_s must be >= 0")
         now = self.clock.advance(wall)
-        # Preset clock advances except for «Без пресету».
-        if self.active_preset_id != NONE_PRESET_ID:
+        # Editor hardware preview pauses the pad preset clock and advances its own.
+        if self.editor_preview_active:
+            self.editor_preview_elapsed_s += dt_s
+        elif self.active_preset_id != NONE_PRESET_ID:
             self.preset_elapsed_s += dt_s
         return self.render_at(now, dt_s=dt_s)
 

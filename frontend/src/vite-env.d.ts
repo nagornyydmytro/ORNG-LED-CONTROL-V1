@@ -165,6 +165,22 @@ export interface AppState {
     prepared_channels?: Array<{ channel: number; value: number }>;
     universe_size: number;
   } | null;
+  preset_editor_preview?: PresetEditorPreviewState | null;
+}
+
+export interface PresetEditorPreviewState {
+  active: boolean;
+  preset_id?: string | null;
+  preset_label?: string | null;
+  episode_index?: number | null;
+  episode_id?: string | null;
+  episode_title?: string | null;
+  episode_duration_s?: number;
+  elapsed_s?: number;
+  restored_preset_id?: string | null;
+  blockers?: string[];
+  source_nonzero_channels?: number;
+  wire_nonzero_channels?: number;
 }
 
 export interface CommandAck {

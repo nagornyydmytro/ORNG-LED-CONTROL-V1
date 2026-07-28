@@ -57,6 +57,10 @@ function controlSignature(state: AppState): string {
     state.raw_tester?.active,
     state.raw_tester?.nonzero_channels,
     JSON.stringify(state.raw_tester?.prepared_channels ?? []),
+    state.preset_editor_preview?.active,
+    state.preset_editor_preview?.episode_id,
+    state.preset_editor_preview?.elapsed_s,
+    JSON.stringify(state.preset_editor_preview?.blockers ?? []),
   ].join("|");
 }
 

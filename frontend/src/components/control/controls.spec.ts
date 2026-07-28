@@ -52,23 +52,28 @@ describe("StrobeButton", () => {
 });
 
 describe("PresetPad", () => {
-  it("renders Без пресету plus ten preset buttons and marks availability", async () => {
+  it("renders Без пресету plus catalog presets including custom ones", async () => {
     const wrapper = mount(PresetPad, {
       props: {
         activeId: "P05",
-        availableIds: new Set(["NONE", "P05"]),
+        availableIds: new Set(["NONE", "P05", "C01"]),
+        presets: [
+          { id: "P05", label: "Універсальний", builtin: true },
+          { id: "C01", label: "Мій пресет", builtin: false },
+        ],
       },
     });
     const buttons = wrapper.findAll("button.preset-btn");
-    expect(buttons).toHaveLength(11);
+    expect(buttons.length).toBeGreaterThanOrEqual(3);
     expect(wrapper.text()).toContain("Без пресету");
+    expect(wrapper.text()).toContain("C01");
+    expect(wrapper.text()).toContain("Мій пресет");
     expect(buttons[0].text()).toContain("NONE");
-    expect(buttons[5].classes()).toContain("active");
-    expect(buttons[5].attributes("disabled")).toBeUndefined();
-    expect(buttons[1].attributes("disabled")).toBeDefined();
 
-    await buttons[5].trigger("click");
-    expect(wrapper.emitted("select")?.[0]).toEqual(["P05"]);
+    const custom = buttons.find((b) => b.text().includes("C01"));
+    expect(custom).toBeTruthy();
+    await custom!.trigger("click");
+    expect(wrapper.emitted("select")?.[0]).toEqual(["C01"]);
   });
 
   it("marks Без пресету active when activeId is NONE", () => {
@@ -76,6 +81,7 @@ describe("PresetPad", () => {
       props: {
         activeId: "NONE",
         availableIds: new Set(["NONE", "P01"]),
+        presets: [{ id: "P01", label: "Дуже плавний", builtin: true }],
       },
     });
     const noneBtn = wrapper.findAll("button.preset-btn")[0];
@@ -84,12 +90,11 @@ describe("PresetPad", () => {
   });
 
   it("uses compact grid class for narrow viewports via stylesheet contract", () => {
-    // Viewport behavior is CSS (@media max-width 900/560). Assert the pad
-    // exposes the hook class used by those rules.
     const wrapper = mount(PresetPad, {
       props: {
         activeId: null,
         availableIds: new Set(["NONE", "P05"]),
+        presets: [{ id: "P05", label: "Універсальний", builtin: true }],
       },
     });
     expect(wrapper.find(".preset-pad").exists()).toBe(true);

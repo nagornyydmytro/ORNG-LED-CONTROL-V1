@@ -17,6 +17,8 @@ from orng_led.api.schemas import (
     DeactivateArtNetCommand,
     DisarmOutputCommand,
     DropCommand,
+    EditorEpisodePreviewRequest,
+    EditorEpisodePreviewStopRequest,
     FaceCommand,
     FailsafeCommand,
     FixtureChannelTestCommand,
@@ -217,6 +219,33 @@ def build_api_router() -> APIRouter:
             state = runtime.preview_preset(preset_id, speed=body.speed)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+        await runtime.broadcast_state()
+        return CommandAck(state=state)
+
+    @router.post("/presets/editor-preview/start", response_model=CommandAck)
+    async def editor_preview_start(
+        body: EditorEpisodePreviewRequest, request: Request
+    ) -> CommandAck:
+        """Loop one draft episode through the real engine (no auto Art-Net/Arm)."""
+        runtime = get_runtime(request)
+        try:
+            state = runtime.start_editor_episode_preview(
+                preset_id=body.preset_id,
+                preset_label=body.preset_label,
+                episode_index=body.episode_index,
+                episode=body.episode,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        await runtime.broadcast_state()
+        return CommandAck(state=state)
+
+    @router.post("/presets/editor-preview/stop", response_model=CommandAck)
+    async def editor_preview_stop(
+        body: EditorEpisodePreviewStopRequest, request: Request
+    ) -> CommandAck:
+        runtime = get_runtime(request)
+        state = runtime.stop_editor_episode_preview()
         await runtime.broadcast_state()
         return CommandAck(state=state)
 

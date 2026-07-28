@@ -102,6 +102,7 @@ class AppStateResponse(ApiModel):
     preview_speed: float = 1.0
     simulator: SimulatorView
     raw_tester: dict[str, Any] | None = None
+    preset_editor_preview: dict[str, Any] | None = None
 
 
 class PreviewSpeedCommand(ApiModel):
@@ -117,6 +118,20 @@ class RawTesterSetCommand(ApiModel):
 
 
 class RawTesterCommand(ApiModel):
+    client_command_id: str | None = None
+
+
+class EditorEpisodePreviewRequest(ApiModel):
+    """Temporary single-episode hardware check from the preset editor."""
+
+    preset_id: Annotated[str, Field(min_length=1, max_length=32)]
+    preset_label: Annotated[str, Field(min_length=1, max_length=80)] = "Чернетка"
+    episode_index: Annotated[int, Field(ge=0, le=19)] = 0
+    episode: dict[str, Any]
+    client_command_id: str | None = None
+
+
+class EditorEpisodePreviewStopRequest(ApiModel):
     client_command_id: str | None = None
 
 

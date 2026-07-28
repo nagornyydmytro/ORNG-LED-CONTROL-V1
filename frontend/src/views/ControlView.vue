@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, inject, onMounted, ref, watch } from "vue";
+import { useRoute } from "vue-router";
 import BlackoutButton from "../components/control/BlackoutButton.vue";
 import LiveFxPanel from "../components/control/LiveFxPanel.vue";
 import PresetPad from "../components/control/PresetPad.vue";
@@ -21,6 +22,7 @@ const {
   engine,
   output,
   availableIds,
+  availablePresets,
   connection,
   loading,
   liveView,
@@ -40,10 +42,15 @@ const {
   sweepHit,
 } = api;
 
+const route = useRoute();
 const layout = ref<StageLayout | null>(null);
 const offline = computed(() => connection.value === "offline");
 const activePresetId = computed(() => engine.value?.preset_id ?? null);
 const isNonePreset = computed(() => !activePresetId.value || activePresetId.value === "NONE");
+const highlightId = computed(() => {
+  const q = route.query.highlight;
+  return typeof q === "string" && q.length ? q : null;
+});
 
 const presetDoc = ref<PresetDocument | null>(null);
 const episodes = computed<EpisodeCard[]>(() => presetDoc.value?.episodes ?? []);
@@ -173,12 +180,14 @@ function goNextEpisode() {
           <header class="card__head">
             <h2>Пресети</h2>
             <p class="card__sub">
-              10 епізодів × 18 с = 180 с
+              Вбудовані та власні · епізоди на пульті
             </p>
           </header>
           <PresetPad
             :active-id="engine?.preset_id ?? null"
             :available-ids="availableIds"
+            :presets="availablePresets"
+            :highlight-id="highlightId"
             :disabled="offline"
             @select="selectPreset"
           />

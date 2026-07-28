@@ -597,6 +597,15 @@ select {
   border-color: var(--orng-line);
 }
 
+.preset-btn.highlight {
+  box-shadow: inset 0 0 0 1px var(--orng-line);
+  border-color: var(--orng-line);
+}
+
+.preset-btn.custom .preset-id {
+  color: var(--ok);
+}
+
 .preset-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;

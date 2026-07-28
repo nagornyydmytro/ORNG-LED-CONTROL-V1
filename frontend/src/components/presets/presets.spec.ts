@@ -1,6 +1,7 @@
 import { flushPromises, mount } from "@vue/test-utils";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { computed, ref } from "vue";
+import { createMemoryHistory, createRouter } from "vue-router";
 import PresetsView from "../../views/PresetsView.vue";
 import { APP_STATE_KEY } from "../../composables/appStateKey";
 
@@ -93,8 +94,17 @@ describe("PresetsView editor", () => {
   });
 
   function mountView() {
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: "/", name: "control", component: { template: "<div />" } },
+        { path: "/presets", name: "presets", component: PresetsView },
+      ],
+    });
     return mount(PresetsView, {
       global: {
+        plugins: [router],
+        stubs: { BlackoutButton: true },
         provide: {
           [APP_STATE_KEY as symbol]: {
             selectPreset: vi.fn(),
@@ -110,6 +120,14 @@ describe("PresetsView editor", () => {
               white_hit_active: false,
               face_on: false,
             })),
+            output: computed(() => ({
+              transport: "mock",
+              armed: false,
+              udp_active: false,
+              source_owner: "none",
+              source_nonzero_channels: 0,
+              wire_nonzero_channels: 0,
+            })),
             state: computed(() => ({
               frame: [],
               preview_speed: 1,
@@ -121,8 +139,10 @@ describe("PresetsView editor", () => {
                 nonzero_channels: 0,
                 blackout_visual: true,
               },
+              preset_editor_preview: { active: false },
             })),
             setPreviewSpeed: vi.fn(),
+            toggleBlackout: vi.fn(),
             refreshRest: vi.fn(async () => undefined),
           },
         },
@@ -141,6 +161,9 @@ describe("PresetsView editor", () => {
     await flushPromises();
     expect(wrapper.text()).toContain("Редактор");
     expect(wrapper.findAll(".episode-card").length).toBeGreaterThan(0);
+    expect(wrapper.text()).toContain("Зберегти пресет");
+    expect(wrapper.text()).toContain("Відтворити на обладнанні");
+    expect(wrapper.text()).toContain("Застосувати до візуалізації");
   });
 
   it("can reorder episodes with buttons", async () => {

@@ -72,6 +72,8 @@ class AppRuntime:
     config_dir: Path = field(default_factory=default_config_dir)
     preset_store: PresetStore = field(default_factory=PresetStore)
     input_dispatcher: InputDispatcher | None = None
+    # Authoritative editor hardware-preview session (not persisted across restart).
+    _editor_preview_meta: dict[str, object] = field(default_factory=dict)
 
     @classmethod
     def create(
@@ -108,8 +110,8 @@ class AppRuntime:
         previous = self.engine.active_preset_id
         self.engine.presets = programs
         if previous not in self.engine.presets:
-            fallback = next(pid for pid in self.engine.presets if pid != NONE_PRESET_ID)
-            self.engine.select_preset(fallback, reset_clock=True)
+            # Prefer explicit «Без пресету» over an arbitrary fallback.
+            self.engine.select_preset(NONE_PRESET_ID, reset_clock=True)
 
     async def start(self) -> None:
         if self._running:
@@ -246,7 +248,63 @@ class AppRuntime:
             preview_speed=self.preview_speed,
             simulator=decode_simulator_view(self.show, wire),
             raw_tester=self.raw_tester.as_dict(),
+            preset_editor_preview=self._editor_preview_state(source=source, wire=wire),
         )
+
+    def _editor_preview_output_blockers(self) -> list[str]:
+        blockers: list[str] = []
+        if self.engine.overlays.blackout:
+            blockers.append("Епізод підготовлено, але Blackout блокує його вивід")
+        if self.output.transport_kind.value != "artnet" or not self.output.allow_real_network:
+            blockers.append("Art-Net вимкнено — фізичного виводу немає")
+        if not self.output.udp_active:
+            blockers.append("UDP вимкнено — фізичного виводу немає")
+        if not self.output.armed:
+            blockers.append("Disarm — фізичний вивід заблоковано")
+        return blockers
+
+    def _editor_preview_state(
+        self,
+        *,
+        source: list[int] | None = None,
+        wire: list[int] | None = None,
+    ) -> dict[str, object] | None:
+        if not self.engine.editor_preview_active:
+            return {
+                "active": False,
+                "preset_id": None,
+                "preset_label": None,
+                "episode_index": None,
+                "episode_id": None,
+                "episode_title": None,
+                "episode_duration_s": 0.0,
+                "elapsed_s": 0.0,
+                "restored_preset_id": None,
+                "blockers": [],
+                "source_nonzero_channels": 0,
+                "wire_nonzero_channels": 0,
+            }
+        program = self.engine.editor_preview_program
+        duration = float(getattr(program, "total_duration_s", 0.0) or 0.0)
+        elapsed = float(self.engine.editor_preview_elapsed_s)
+        cycle_elapsed = elapsed % duration if duration > 0 else 0.0
+        src = source if source is not None else self._source_frame()
+        wr = wire if wire is not None else self._wire_frame()
+        meta = self._editor_preview_meta
+        return {
+            "active": True,
+            "preset_id": meta.get("preset_id"),
+            "preset_label": meta.get("preset_label"),
+            "episode_index": meta.get("episode_index"),
+            "episode_id": meta.get("episode_id"),
+            "episode_title": meta.get("episode_title"),
+            "episode_duration_s": duration,
+            "elapsed_s": cycle_elapsed,
+            "restored_preset_id": meta.get("restored_preset_id"),
+            "blockers": self._editor_preview_output_blockers(),
+            "source_nonzero_channels": int(sum(1 for value in src if value)),
+            "wire_nonzero_channels": int(sum(1 for value in wr if value)),
+        }
 
     def artnet_activation_blockers(self) -> list[str]:
         # Use wire frame so prepared Raw under Blackout does not block activation.
@@ -800,6 +858,9 @@ class AppRuntime:
         cached = self._idempotent(client_command_id)
         if cached is not None:
             return cached, True
+        # Choosing a pad preset ends any editor hardware preview without restoring.
+        if self.engine.editor_preview_active:
+            self._clear_editor_preview(restore=False)
         if preset_id == NONE_PRESET_ID:
             self.engine.presets[NONE_PRESET_ID] = NonePresetProgram()
         self.engine.select_preset(preset_id, reset_clock=reset_clock)
@@ -1070,6 +1131,17 @@ class AppRuntime:
     def update_preset(self, preset_id: str, data: dict) -> AppStateResponse:
         self.preset_store.update(preset_id, data)
         self.refresh_presets()
+        if self.engine.active_preset_id == preset_id and not self.engine.editor_preview_active:
+            # Refresh live definition and restart current (or first) episode.
+            try:
+                current = int(
+                    self.engine.render_at(self.engine.clock.time(), dt_s=0.0).episode_index
+                )
+                self.engine.seek_episode(current)
+            except (ValueError, KeyError):
+                self.engine.select_preset(preset_id, reset_clock=True)
+            self._publish_frame(self._published_frame())
+            self.sequence += 1
         return self.build_state()
 
     def rename_preset(self, preset_id: str, label: str) -> AppStateResponse:
@@ -1085,12 +1157,105 @@ class AppRuntime:
         return self.build_state()
 
     def delete_preset(self, preset_id: str) -> AppStateResponse:
+        from orng_led.engine.presets import NONE_PRESET_ID
+
+        was_active = self.engine.active_preset_id == preset_id
+        previewing = (
+            self.engine.editor_preview_active
+            and self._editor_preview_meta.get("preset_id") == preset_id
+        )
+        if previewing:
+            self._clear_editor_preview(restore=True)
         self.preset_store.delete(preset_id)
         self.refresh_presets()
+        if was_active:
+            # Stop playback → NONE; do not touch Art-Net / Arm / Blackout.
+            self.engine.select_preset(NONE_PRESET_ID, reset_clock=True)
+            self._publish_frame(self._published_frame())
+            self.sequence += 1
+        return self.build_state()
+
+    def _clear_editor_preview(self, *, restore: bool) -> None:
+        from orng_led.engine.presets import NONE_PRESET_ID
+
+        restored = str(self._editor_preview_meta.get("restored_preset_id") or NONE_PRESET_ID)
+        self.engine.stop_editor_preview()
+        self._editor_preview_meta = {}
+        if restore:
+            if restored not in self.engine.presets:
+                restored = NONE_PRESET_ID
+            # Keep pad clock where it was paused; do not touch safety gates.
+            self.engine.select_preset(restored, reset_clock=False)
+        self._publish_frame(self._published_frame())
+        self.sequence += 1
+
+    def start_editor_episode_preview(
+        self,
+        *,
+        preset_id: str,
+        preset_label: str,
+        episode_index: int,
+        episode: dict,
+    ) -> AppStateResponse:
+        """Loop one draft episode through the real renderer/mapping (no auto Arm)."""
+        from pydantic import ValidationError
+
+        from orng_led.config.schema import SCHEMA_VERSION
+        from orng_led.presets.models import EpisodeCard, PresetDocument
+        from orng_led.presets.program import YamlPresetProgram
+
+        try:
+            card = EpisodeCard.model_validate(episode)
+        except ValidationError as exc:
+            # Surface the first concrete field error for the operator UI.
+            err = exc.errors()[0]
+            loc = ".".join(str(part) for part in err.get("loc", ()))
+            raise ValueError(f"{loc or 'episode'}: {err.get('msg', 'invalid')}") from exc
+
+        # Single-episode document so the program loops only this look.
+        document = PresetDocument(
+            schema_version=SCHEMA_VERSION,
+            id="EditorPreview",
+            label=preset_label[:80] or "Чернетка",
+            hardware_tuned=False,
+            builtin=False,
+            episodes=[card],
+        )
+        program = YamlPresetProgram(document=document)
+
+        if self.raw_tester.active:
+            # Editor preview must own the engine base path, not Raw channels.
+            self.exit_raw_tester()
+
+        if not self.engine.editor_preview_active:
+            self._editor_preview_meta = {
+                "restored_preset_id": self.engine.active_preset_id,
+            }
+        self._editor_preview_meta.update(
+            {
+                "preset_id": preset_id,
+                "preset_label": preset_label,
+                "episode_index": int(episode_index),
+                "episode_id": card.id,
+                "episode_title": (
+                    f"Епізод {int(episode_index) + 1} · {card.effect} · {card.palette}"
+                ),
+            }
+        )
+        self.engine.start_editor_preview(program)
+        self._publish_frame(self._published_frame())
+        self.sequence += 1
+        return self.build_state()
+
+    def stop_editor_episode_preview(self) -> AppStateResponse:
+        if self.engine.editor_preview_active:
+            self._clear_editor_preview(restore=True)
         return self.build_state()
 
     def preview_preset(self, preset_id: str, *, speed: float = 10.0) -> AppStateResponse:
         """Select preset and accelerate preview on Mock only (never arms Art-Net)."""
+        if self.engine.editor_preview_active:
+            self._clear_editor_preview(restore=False)
         self.output.use_mock()
         if self.raw_tester.active:
             self.exit_raw_tester()
@@ -1132,6 +1297,9 @@ class AppRuntime:
             return []
         self._shutting_down = True
         self._running = False
+        if self.engine.editor_preview_active:
+            self.engine.stop_editor_preview()
+            self._editor_preview_meta = {}
         if self.raw_tester.active:
             self.exit_raw_tester()
         task = self._loop_task

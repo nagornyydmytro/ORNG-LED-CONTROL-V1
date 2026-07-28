@@ -140,6 +140,31 @@ export async function previewPreset(id: string, speed = 10): Promise<CommandAck>
   );
 }
 
+export async function startEditorEpisodePreview(body: {
+  preset_id: string;
+  preset_label: string;
+  episode_index: number;
+  episode: EpisodeCard;
+}): Promise<CommandAck> {
+  return parseJson(
+    await fetch("/api/presets/editor-preview/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  );
+}
+
+export async function stopEditorEpisodePreview(): Promise<CommandAck> {
+  return parseJson(
+    await fetch("/api/presets/editor-preview/stop", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    }),
+  );
+}
+
 export function newEpisode(index: number): EpisodeCard {
   return {
     id: `ep${Date.now()}-${index}`,
@@ -151,4 +176,14 @@ export function newEpisode(index: number): EpisodeCard {
     intensity: 0.7,
     transition: "soft",
   };
+}
+
+/** Suggest next unused custom id like C01, C02, … */
+export function suggestCustomPresetId(existingIds: string[]): string {
+  const used = new Set(existingIds.map((id) => id.toUpperCase()));
+  for (let n = 1; n < 1000; n += 1) {
+    const id = `C${String(n).padStart(2, "0")}`;
+    if (!used.has(id)) return id;
+  }
+  return `C${Date.now().toString(36)}`;
 }

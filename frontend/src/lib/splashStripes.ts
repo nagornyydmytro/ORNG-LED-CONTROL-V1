@@ -1,18 +1,24 @@
-/** Vertical barcode / slit-scan splash typography (Klickpin-style). */
+/**
+ * Klickpin-style vertical-slit typography.
+ *
+ * Reference: dense full-height vertical lines on black; glyphs appear where
+ * those lines thicken into rounded capsules. Orange replaces reference red.
+ */
 
 export const SPLASH_MIN_MS = 1800;
 
-/** Brand orange — replaces reference red. */
-export const SPLASH_ORANGE = "#ff5a00";
-export const SPLASH_ORANGE_RGB = { r: 255, g: 90, b: 0 };
+/** Hot orange (reference red → brand orange). */
+export const SPLASH_ORANGE = "#ff4d00";
+export const SPLASH_ORANGE_RGB = { r: 255, g: 77, b: 0 };
 
-export type SplashGlyph = {
+export type SplashMask = {
   width: number;
   height: number;
-  canvas: HTMLCanvasElement;
+  /** 0/255 coverage, row-major, length = width * height */
+  coverage: Uint8Array;
 };
 
-export function edgeFade(t: number, soft = 0.18): number {
+export function edgeFade(t: number, soft = 0.12): number {
   const x = Math.max(0, Math.min(1, t));
   return Math.min(smoothstep(0, soft, x), smoothstep(0, soft, 1 - x));
 }
@@ -23,45 +29,48 @@ function smoothstep(edge0: number, edge1: number, x: number): number {
 }
 
 function fontFor(size: number): string {
-  return `900 ${size}px "Arial Black",Impact,"Helvetica Neue",Arial,sans-serif`;
+  // Ultra-black condensed stack — closest system match to the reference blocks.
+  return `900 ${size}px "Arial Black",Impact,"Arial Narrow",Arial,sans-serif`;
 }
 
 /**
- * Solid orange ORNG / HOTBOX on black — source for vertical slit sampling.
- * Text sits near 30% of height, centered horizontally.
+ * Build a binary glyph mask for ORNG / HOTBOX.
+ * Horizontally centered; block sits near 30% of screen height.
  */
-export function buildSplashGlyph(width: number, height: number): SplashGlyph {
+export function buildSplashMask(width: number, height: number): SplashMask {
   const w = Math.max(1, Math.floor(width));
   const h = Math.max(1, Math.floor(height));
   const canvas = document.createElement("canvas");
   canvas.width = w;
   canvas.height = h;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return { width: w, height: h, canvas };
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  const coverage = new Uint8Array(w * h);
+  if (!ctx) return { width: w, height: h, coverage };
 
   ctx.fillStyle = "#000000";
   ctx.fillRect(0, 0, w, h);
-
-  ctx.fillStyle = SPLASH_ORANGE;
-  ctx.strokeStyle = SPLASH_ORANGE;
+  ctx.fillStyle = "#ffffff";
+  ctx.strokeStyle = "#ffffff";
   ctx.textAlign = "center";
   ctx.textBaseline = "top";
   ctx.lineJoin = "round";
   ctx.miterLimit = 2;
 
-  const maxTextW = w * 0.84;
-  let fontPx = Math.min(w * 0.3, h * 0.155);
+  // Large block type like the reference (fills ~half the frame width).
+  const maxTextW = w * 0.88;
+  let fontPx = Math.min(w * 0.34, h * 0.17);
   ctx.font = fontFor(fontPx);
-  while (fontPx > 28 && ctx.measureText("HOTBOX").width > maxTextW) {
+  while (fontPx > 32 && ctx.measureText("HOTBOX").width > maxTextW) {
     fontPx -= 2;
     ctx.font = fontFor(fontPx);
   }
 
-  const gap = fontPx * 0.05;
+  const gap = fontPx * 0.02;
   const blockH = fontPx * 2 + gap;
-  const textTop = h * 0.3 - blockH * 0.32;
+  const textTop = h * 0.3 - blockH * 0.28;
   const cx = w * 0.5;
-  ctx.lineWidth = Math.max(3, fontPx * 0.07);
+  // Fat stroke so slits read as solid bars after sampling.
+  ctx.lineWidth = Math.max(4, fontPx * 0.1);
 
   for (const [label, y] of [
     ["ORNG", textTop],
@@ -71,28 +80,51 @@ export function buildSplashGlyph(width: number, height: number): SplashGlyph {
     ctx.fillText(label, cx, y);
   }
 
-  return { width: w, height: h, canvas };
+  const data = ctx.getImageData(0, 0, w, h).data;
+  for (let i = 0, p = 0; i < coverage.length; i += 1, p += 4) {
+    coverage[i] = data[p]! > 40 ? 255 : 0;
+  }
+  return { width: w, height: h, coverage };
 }
 
-/** @deprecated use buildSplashGlyph — kept for older call sites/tests */
-export function buildSplashMask(width: number, height: number): SplashGlyph {
-  return buildSplashGlyph(width, height);
+/** @deprecated alias — SplashScreen historically imported buildSplashGlyph */
+export function buildSplashGlyph(width: number, height: number): SplashMask {
+  return buildSplashMask(width, height);
+}
+
+function roundCapsule(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+): void {
+  const r = Math.min(w / 2, h / 2);
+  if (h <= w) {
+    ctx.beginPath();
+    ctx.arc(x + w / 2, y + h / 2, r, 0, Math.PI * 2);
+    ctx.fill();
+    return;
+  }
+  ctx.beginPath();
+  ctx.moveTo(x, y + r);
+  ctx.arc(x + w / 2, y + r, r, Math.PI, 0);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.arc(x + w / 2, y + h - r, r, 0, Math.PI);
+  ctx.closePath();
+  ctx.fill();
 }
 
 /**
- * Klickpin slit look:
- * 1) dense thin vertical orange lines on black
- * 2) 1px columns of the glyph canvas stretched into thick bars (the letters)
- * 3) vignette so slits dissolve before the screen edges
+ * Paint the reference slit field + thickened glyph capsules.
+ * Lines fade before touching the screen edges (user requirement).
  */
 export function drawSplashStripes(
   ctx: CanvasRenderingContext2D,
-  glyph: SplashGlyph,
+  mask: SplashMask,
   _timeSec = 0,
 ): void {
-  const w = glyph.width;
-  const h = glyph.height;
-  const src = glyph.canvas;
+  const { width: w, height: h, coverage } = mask;
 
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.globalAlpha = 1;
@@ -100,61 +132,64 @@ export function drawSplashStripes(
   ctx.fillRect(0, 0, w, h);
   if (w < 8 || h < 8) return;
 
-  const pitch = Math.max(3, Math.round(w / 80));
-  const thin = Math.max(1, Math.round(pitch * 0.32));
-  const thick = Math.max(thin + 2, Math.round(pitch * 0.95));
+  // Reference: ~13px pitch on 720px → ~55 slits.
+  const pitch = Math.max(4, Math.round(w / 55));
+  const thin = Math.max(1, Math.round(pitch * 0.16));
+  const thick = Math.max(thin + 2, Math.round(pitch * 0.52));
   const { r, g, b } = SPLASH_ORANGE_RGB;
   const invW = 1 / Math.max(1, w - 1);
   const invH = 1 / Math.max(1, h - 1);
 
-  // 1) Field of thin slits — always present, like the reference grid.
-  for (let x = Math.floor(pitch / 2); x < w; x += pitch) {
-    const fadeX = edgeFade(x * invW, 0.13);
+  // Soft vertical fade only — keep slits strong through the text band.
+  // Horizontal fade keeps slits off the left/right screen borders.
+  const edgeSoftX = 0.1;
+  const edgeSoftY = 0.16;
+
+  for (let i = 0; i < Math.ceil(w / pitch); i += 1) {
+    const x = Math.floor(i * pitch + pitch * 0.5);
+    if (x < 0 || x >= w) continue;
+    const fadeX = edgeFade(x * invW, edgeSoftX);
     if (fadeX < 0.05) continue;
-    const band = Math.max(6, (h / 20) | 0);
+
+    // --- thin full-height slit (reference grid) ---
+    // Draw as one vertical strip with alpha gradient via multiple bands.
+    const band = Math.max(4, (h / 40) | 0);
     for (let y0 = 0; y0 < h; y0 += band) {
-      const fadeY = edgeFade(((y0 + band * 0.5) * invH), 0.2);
-      const a = 0.62 * fadeX * fadeY;
-      if (a < 0.04) continue;
+      const fadeY = edgeFade((y0 + band * 0.5) * invH, edgeSoftY);
+      const a = 0.85 * fadeX * fadeY;
+      if (a < 0.03) continue;
       ctx.fillStyle = `rgba(${r},${g},${b},${a})`;
-      ctx.fillRect(x - (thin >> 1), y0, thin, Math.min(band, h - y0));
+      ctx.fillRect(x - (thin >> 1), y0, thin, Math.min(band + 1, h - y0));
     }
+
+    // --- thick rounded capsules where the glyph covers this column ---
+    let run = -1;
+    const flush = (yEnd: number) => {
+      if (run < 0) return;
+      const y0 = run;
+      const hh = yEnd - y0;
+      run = -1;
+      if (hh < 2) return;
+      const midY = (y0 + yEnd) * 0.5 * invH;
+      const fadeY = edgeFade(midY, edgeSoftY);
+      const a = fadeX * fadeY;
+      if (a < 0.05) return;
+      ctx.globalAlpha = a;
+      ctx.fillStyle = SPLASH_ORANGE;
+      roundCapsule(ctx, x - (thick >> 1), y0, thick, hh);
+      ctx.globalAlpha = 1;
+    };
+
+    for (let y = 0; y < h; y += 1) {
+      const on = coverage[y * w + x]! > 0;
+      if (on) {
+        if (run < 0) run = y;
+      } else {
+        flush(y);
+      }
+    }
+    flush(h);
   }
-
-  // 2) Letter slits — classic column stretch of the solid glyph.
-  ctx.imageSmoothingEnabled = false;
-  for (let x = Math.floor(pitch / 2); x < w; x += pitch) {
-    const fadeX = edgeFade(x * invW, 0.13);
-    if (fadeX < 0.05) continue;
-    ctx.globalAlpha = fadeX;
-    ctx.drawImage(src, x, 0, 1, h, x - (thick >> 1), 0, thick, h);
-  }
-  ctx.globalAlpha = 1;
-
-  // Vertical dissolve of the stretched bars near top/bottom edges.
-  const topFade = ctx.createLinearGradient(0, 0, 0, h);
-  topFade.addColorStop(0, "rgba(0,0,0,1)");
-  topFade.addColorStop(0.14, "rgba(0,0,0,0)");
-  topFade.addColorStop(0.86, "rgba(0,0,0,0)");
-  topFade.addColorStop(1, "rgba(0,0,0,1)");
-  ctx.fillStyle = topFade;
-  ctx.fillRect(0, 0, w, h);
-
-  // 3) Soft vignette — slits must not reach the physical screen border.
-  const vig = ctx.createRadialGradient(
-    w * 0.5,
-    h * 0.36,
-    Math.min(w, h) * 0.18,
-    w * 0.5,
-    h * 0.4,
-    Math.max(w, h) * 0.7,
-  );
-  vig.addColorStop(0, "rgba(0,0,0,0)");
-  vig.addColorStop(0.5, "rgba(0,0,0,0)");
-  vig.addColorStop(0.78, "rgba(0,0,0,0.45)");
-  vig.addColorStop(1, "#000000");
-  ctx.fillStyle = vig;
-  ctx.fillRect(0, 0, w, h);
 }
 
 export function paintSplash(
@@ -163,5 +198,5 @@ export function paintSplash(
   height: number,
   timeSec = 0,
 ): void {
-  drawSplashStripes(ctx, buildSplashGlyph(width, height), timeSec);
+  drawSplashStripes(ctx, buildSplashMask(width, height), timeSec);
 }

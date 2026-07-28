@@ -2,9 +2,9 @@
 import { onBeforeUnmount, onMounted, ref } from "vue";
 import {
   SPLASH_MIN_MS,
-  buildSplashGlyph,
+  buildSplashMask,
   drawSplashStripes,
-  type SplashGlyph,
+  type SplashMask,
 } from "../lib/splashStripes";
 
 const visible = ref(true);
@@ -14,7 +14,7 @@ let raf = 0;
 let hideTimer = 0;
 let cssW = 0;
 let cssH = 0;
-let glyph: SplashGlyph | null = null;
+let mask: SplashMask | null = null;
 let painted = false;
 
 const splashT0 = (window as unknown as { __ORNG_SPLASH_T0?: number }).__ORNG_SPLASH_T0;
@@ -34,14 +34,14 @@ function unlockApp(): void {
 function ensureSize(canvas: HTMLCanvasElement): void {
   const nextW = Math.max(1, Math.floor(window.innerWidth));
   const nextH = Math.max(1, Math.floor(window.innerHeight));
-  if (nextW === cssW && nextH === cssH && glyph) return;
+  if (nextW === cssW && nextH === cssH && mask) return;
   cssW = nextW;
   cssH = nextH;
   canvas.width = nextW;
   canvas.height = nextH;
   canvas.style.width = "100%";
   canvas.style.height = "100%";
-  glyph = buildSplashGlyph(nextW, nextH);
+  mask = buildSplashMask(nextW, nextH);
 }
 
 function frame(now: number) {
@@ -50,11 +50,10 @@ function frame(now: number) {
   const ctx = canvas.getContext("2d", { alpha: false });
   if (!ctx) return;
   ensureSize(canvas);
-  if (glyph) {
-    drawSplashStripes(ctx, glyph, (now - t0) / 1000);
+  if (mask) {
+    drawSplashStripes(ctx, mask, (now - t0) / 1000);
     if (!painted) {
       painted = true;
-      // Boot cover can go once the real canvas has a frame.
       document.getElementById("boot-splash")?.classList.add("boot-splash--done");
     }
   }
@@ -113,7 +112,6 @@ onBeforeUnmount(() => {
   padding: 0;
   background: #000000;
   pointer-events: all;
-  display: block;
   overflow: hidden;
 }
 

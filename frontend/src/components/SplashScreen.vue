@@ -16,10 +16,8 @@ let hideTimer = 0;
 let cssW = 0;
 let cssH = 0;
 let mask: SplashMask | null = null;
-const t0 =
-  typeof (window as Window & { __ORNG_SPLASH_T0?: number }).__ORNG_SPLASH_T0 === "number"
-    ? (window as Window & { __ORNG_SPLASH_T0: number }).__ORNG_SPLASH_T0
-    : performance.now();
+const splashT0 = (window as unknown as { __ORNG_SPLASH_T0?: number }).__ORNG_SPLASH_T0;
+const t0 = typeof splashT0 === "number" ? splashT0 : performance.now();
 
 function ensureSize(canvas: HTMLCanvasElement): void {
   const nextW = Math.max(1, Math.floor(window.innerWidth));

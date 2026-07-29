@@ -1,18 +1,17 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from "vue";
-import { SPLASH_MIN_MS, createSplashPainter } from "../lib/splashStripes";
+import { SPLASH_MIN_MS, SPLASH_TEXT_BOTTOM, SPLASH_TEXT_TOP } from "../lib/splashBrand";
 
 const visible = ref(true);
-const canvasRef = ref<HTMLCanvasElement | null>(null);
-
-let raf = 0;
 let hideTimer = 0;
-let painter: ReturnType<typeof createSplashPainter> | null = null;
-let painted = false;
 
 const splashT0 = (window as unknown as { __ORNG_SPLASH_T0?: number }).__ORNG_SPLASH_T0;
 const t0 = typeof splashT0 === "number" ? splashT0 : performance.now();
 const hold = new URLSearchParams(location.search).has("splashHold");
+
+/** Two identical halves → seamless translateX(-50%) loop. */
+const TOP_HALF = Array.from({ length: 6 }, () => SPLASH_TEXT_TOP);
+const BOTTOM_HALF = Array.from({ length: 4 }, () => SPLASH_TEXT_BOTTOM);
 
 function lockApp(): void {
   document.documentElement.classList.add("splash-active");
@@ -25,48 +24,17 @@ function unlockApp(): void {
   document.getElementById("boot-splash")?.remove();
 }
 
-function ensurePainter(w: number, h: number): void {
-  if (!painter) {
-    painter = createSplashPainter(w, h);
-    return;
-  }
-  if (painter.width !== w || painter.height !== h) painter.resize(w, h);
-}
-
-function frame(now: number) {
-  const canvas = canvasRef.value;
-  if (!canvas || !visible.value) return;
-  const ctx = canvas.getContext("2d", { alpha: false });
-  if (!ctx) return;
-
-  const w = Math.max(1, Math.floor(window.innerWidth));
-  const h = Math.max(1, Math.floor(window.innerHeight));
-  if (canvas.width !== w || canvas.height !== h) {
-    canvas.width = w;
-    canvas.height = h;
-  }
-  ensurePainter(w, h);
-  painter?.paint(ctx, (now - t0) / 1000);
-
-  if (!painted) {
-    painted = true;
-    document.getElementById("boot-splash")?.classList.add("boot-splash--done");
-  }
-
-  raf = window.requestAnimationFrame(frame);
-}
-
-function dismiss() {
+function dismiss(): void {
   if (!visible.value) return;
   visible.value = false;
-  if (raf) window.cancelAnimationFrame(raf);
-  raf = 0;
   unlockApp();
 }
 
 onMounted(() => {
   lockApp();
-  raf = window.requestAnimationFrame(frame);
+  window.requestAnimationFrame(() => {
+    document.getElementById("boot-splash")?.classList.add("boot-splash--done");
+  });
   if (!hold) {
     const remaining = Math.max(0, SPLASH_MIN_MS - (performance.now() - t0));
     hideTimer = window.setTimeout(dismiss, remaining);
@@ -74,7 +42,6 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
-  if (raf) window.cancelAnimationFrame(raf);
   if (hideTimer) window.clearTimeout(hideTimer);
   unlockApp();
 });
@@ -88,19 +55,28 @@ onBeforeUnmount(() => {
       role="status"
       aria-live="polite"
       aria-busy="true"
-      aria-label="ORNG HOTBOX"
+      :aria-label="`${SPLASH_TEXT_TOP} ${SPLASH_TEXT_BOTTOM}`"
     >
-      <canvas
-        ref="canvasRef"
-        class="splash__canvas"
-      />
-      <span class="visually-hidden">ORNG HOTBOX</span>
+      <div class="marquee" aria-hidden="true">
+        <div class="marquee__track">
+          <span v-for="(word, i) in TOP_HALF" :key="`t1-${i}`" class="marquee__word">{{ word }}</span>
+          <span v-for="(word, i) in TOP_HALF" :key="`t2-${i}`" class="marquee__word">{{ word }}</span>
+        </div>
+      </div>
+      <div class="marquee" aria-hidden="true">
+        <div class="marquee__track marquee__track--reverse">
+          <span v-for="(word, i) in BOTTOM_HALF" :key="`b1-${i}`" class="marquee__word">{{ word }}</span>
+          <span v-for="(word, i) in BOTTOM_HALF" :key="`b2-${i}`" class="marquee__word">{{ word }}</span>
+        </div>
+      </div>
+      <span class="visually-hidden">{{ SPLASH_TEXT_TOP }} {{ SPLASH_TEXT_BOTTOM }}</span>
     </div>
   </Teleport>
 </template>
 
 <style scoped>
 .splash {
+  --splash-orange: #ff4d00;
   position: fixed;
   inset: 0;
   z-index: 2147483646;
@@ -111,12 +87,69 @@ onBeforeUnmount(() => {
   background: #000000;
   pointer-events: all;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  gap: clamp(0.35rem, 1.2vh, 1rem);
 }
 
-.splash__canvas {
-  display: block;
+.marquee {
+  position: relative;
   width: 100%;
-  height: 100%;
-  background: #000000;
+  height: 1.1em;
+  font-size: clamp(3.5rem, 15vh, 10rem);
+  overflow: hidden;
+}
+
+.marquee__track {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0.6em;
+  width: max-content;
+  will-change: transform;
+  animation: orng-marquee 12s linear infinite;
+}
+
+.marquee__track--reverse {
+  animation-name: orng-marquee-reverse;
+  animation-duration: 16s;
+}
+
+.marquee__word {
+  flex: 0 0 auto;
+  color: var(--splash-orange);
+  font-weight: 900;
+  font-family: Impact, "Arial Black", Arial, sans-serif;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+@keyframes orng-marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@keyframes orng-marquee-reverse {
+  from {
+    transform: translateX(-50%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .marquee__track {
+    animation: none;
+    transform: translateX(-25%);
+  }
 }
 </style>

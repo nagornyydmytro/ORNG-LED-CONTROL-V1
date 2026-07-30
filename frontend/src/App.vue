@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, provide } from "vue";
 import AppShell from "./components/AppShell.vue";
-import SplashScreen from "./components/SplashScreen.vue";
 import { APP_STATE_KEY } from "./composables/appStateKey";
 import { useAppState } from "./composables/useAppState";
 import { provideToasts } from "./composables/useToasts";
@@ -26,7 +25,6 @@ const blackout = computed(() => appState.engine.value?.blackout ?? false);
 </script>
 
 <template>
-  <SplashScreen />
   <AppShell
     :connection="connection"
     :transport="transport"

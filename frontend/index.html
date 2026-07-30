@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="uk" data-theme="dark" class="splash-active">
+<html lang="uk" data-theme="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -7,7 +7,6 @@
     <title>ORNG LED CONTROL</title>
     <script>
       (function () {
-        window.__ORNG_SPLASH_T0 = performance.now();
         try {
           var t = sessionStorage.getItem("orng-ui-theme");
           if (t === "light" || t === "dark") {
@@ -17,123 +16,8 @@
         } catch (e) {}
       })();
     </script>
-    <style>
-      html.splash-active,
-      html.splash-active body {
-        background: #000000 !important;
-        overflow: hidden !important;
-      }
-      html.splash-active #app {
-        visibility: hidden !important;
-        pointer-events: none !important;
-      }
-      #boot-splash {
-        --splash-orange: #ff4d00;
-        position: fixed;
-        inset: 0;
-        z-index: 2147483647;
-        width: 100vw;
-        height: 100vh;
-        margin: 0;
-        padding: 0;
-        background: #000000;
-        pointer-events: all;
-        display: flex;
-        flex-direction: column;
-        align-items: stretch;
-        justify-content: center;
-        gap: clamp(0.35rem, 1.2vh, 1rem);
-      }
-      #boot-splash.boot-splash--done {
-        opacity: 0;
-        pointer-events: none;
-        transition: opacity 0.15s linear;
-      }
-      #boot-splash .marquee {
-        position: relative;
-        width: 100%;
-        height: 1.1em;
-        font-size: clamp(3.5rem, 15vh, 10rem);
-        overflow: hidden;
-      }
-      #boot-splash .marquee__track {
-        display: flex;
-        flex-wrap: nowrap;
-        align-items: center;
-        gap: 0.6em;
-        width: max-content;
-        will-change: transform;
-        animation: orng-marquee 12s linear infinite;
-      }
-      #boot-splash .marquee__track--reverse {
-        animation-name: orng-marquee-reverse;
-        animation-duration: 16s;
-      }
-      #boot-splash .marquee__word {
-        flex: 0 0 auto;
-        color: var(--splash-orange);
-        font-weight: 900;
-        font-family: Impact, "Arial Black", Arial, sans-serif;
-        letter-spacing: 0.04em;
-        text-transform: uppercase;
-        line-height: 1;
-        white-space: nowrap;
-      }
-      @keyframes orng-marquee {
-        from {
-          transform: translateX(0);
-        }
-        to {
-          transform: translateX(-50%);
-        }
-      }
-      @keyframes orng-marquee-reverse {
-        from {
-          transform: translateX(-50%);
-        }
-        to {
-          transform: translateX(0);
-        }
-      }
-      @media (prefers-reduced-motion: reduce) {
-        #boot-splash .marquee__track {
-          animation: none;
-          transform: translateX(-25%);
-        }
-      }
-    </style>
   </head>
   <body>
-    <div id="boot-splash" aria-hidden="true">
-      <div class="marquee">
-        <div class="marquee__track">
-          <span class="marquee__word">ORNG</span>
-          <span class="marquee__word">ORNG</span>
-          <span class="marquee__word">ORNG</span>
-          <span class="marquee__word">ORNG</span>
-          <span class="marquee__word">ORNG</span>
-          <span class="marquee__word">ORNG</span>
-          <span class="marquee__word">ORNG</span>
-          <span class="marquee__word">ORNG</span>
-          <span class="marquee__word">ORNG</span>
-          <span class="marquee__word">ORNG</span>
-          <span class="marquee__word">ORNG</span>
-          <span class="marquee__word">ORNG</span>
-        </div>
-      </div>
-      <div class="marquee">
-        <div class="marquee__track marquee__track--reverse">
-          <span class="marquee__word">HOTBOX</span>
-          <span class="marquee__word">HOTBOX</span>
-          <span class="marquee__word">HOTBOX</span>
-          <span class="marquee__word">HOTBOX</span>
-          <span class="marquee__word">HOTBOX</span>
-          <span class="marquee__word">HOTBOX</span>
-          <span class="marquee__word">HOTBOX</span>
-          <span class="marquee__word">HOTBOX</span>
-        </div>
-      </div>
-    </div>
     <div id="app"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>

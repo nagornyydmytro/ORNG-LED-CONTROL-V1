@@ -9,8 +9,6 @@ import {
   BUTTON_BLACKOUT,
   BUTTON_FACE,
   BUTTON_STROBE,
-  BUTTON_WHITE_HIT,
-  PRESET_BUTTONS,
   postInputButton,
 } from "../api/input";
 import type { AppState, PresetInfo } from "../vite-env";
@@ -40,6 +38,12 @@ function controlSignature(state: AppState): string {
     e.drop_active,
     e.color_hit_active,
     e.sweep_active,
+    e.vertical_sweep_active,
+    e.strobe_speed,
+    e.sweep_speed,
+    state.pad_presets?.join(","),
+    state.strobe_speed,
+    state.sweep_speed,
     o.transport,
     o.preferred_transport,
     o.armed,
@@ -225,28 +229,15 @@ export function useAppState(toasts: ToastApi) {
   }
 
   async function selectPreset(presetId: string) {
-    if (presetId === "NONE") {
-      await runCommand("select-preset", { preset_id: "NONE", reset_clock: true });
-      return;
-    }
-    if (!availableIds.value.has(presetId)) {
+    if (presetId !== "NONE" && !availableIds.value.has(presetId)) {
       toasts.push(`Пресет ${presetId} ще не завантажено на сервері`, "error");
       return;
     }
-    const buttonId = PRESET_BUTTONS[presetId];
-    if (!buttonId) {
-      await runCommand("select-preset", { preset_id: presetId, reset_clock: true });
-      return;
-    }
-    await dispatchPad(buttonId);
+    await runCommand("select-preset", { preset_id: presetId, reset_clock: true });
   }
 
   async function seekEpisode(episodeIndex: number) {
     await runCommand("seek-episode", { episode_index: episodeIndex });
-  }
-
-  async function whiteHit() {
-    await dispatchPad(BUTTON_WHITE_HIT, "pulse", "White Hit");
   }
 
   /** Serialize STROBE press/release so pointerup cannot race ahead of press. */
@@ -299,31 +290,42 @@ export function useAppState(toasts: ToastApi) {
     await runCommand("preview-speed", { value });
   }
 
-  /** Serialize DROP press/release so a fast pointerup cannot race ahead of press. */
-  let dropChain: Promise<void> = Promise.resolve();
-
-  function dropPress() {
-    dropChain = dropChain
-      .then(() => runCommand("drop", { action: "press" }))
-      .then(() => undefined)
-      .catch(() => undefined);
-    return dropChain;
-  }
-
-  function dropRelease() {
-    dropChain = dropChain
-      .then(() => runCommand("drop", { action: "release" }))
-      .then(() => undefined)
-      .catch(() => undefined);
-    return dropChain;
-  }
-
   async function colorHit(rgb?: { r: number; g: number; b: number }) {
     await runCommand("color-hit", rgb ? { ...rgb } : {});
   }
 
-  async function sweepHit(rgb?: { r: number; g: number; b: number }) {
-    await runCommand("sweep-hit", rgb ? { ...rgb } : {});
+  /** Serialize sweep press/release so pointerup cannot race ahead of press. */
+  let sweepChain: Promise<void> = Promise.resolve();
+
+  function sweepPress(mode: "horizontal" | "vertical" = "horizontal") {
+    sweepChain = sweepChain
+      .then(() => runCommand("sweep", { action: "press", mode }))
+      .then(() => undefined)
+      .catch(() => undefined);
+    return sweepChain;
+  }
+
+  function sweepRelease() {
+    sweepChain = sweepChain
+      .then(() => runCommand("sweep", { action: "release" }))
+      .then(() => undefined)
+      .catch(() => undefined);
+    return sweepChain;
+  }
+
+  function verticalSweepPress() {
+    return sweepPress("vertical");
+  }
+
+  async function setLiveFxSpeeds(payload: {
+    strobe_speed?: number;
+    sweep_speed?: number;
+  }) {
+    await runCommand("live-fx-speed", { ...payload, persist: true });
+  }
+
+  async function setPadPresets(presetIds: string[]) {
+    await runCommand("pad-presets", { preset_ids: presetIds });
   }
 
   async function notifyFocusLoss() {
@@ -344,14 +346,14 @@ export function useAppState(toasts: ToastApi) {
     if (document.visibilityState === "hidden") {
       void notifyVisibilityHidden();
       void strobeRelease();
-      void dropRelease();
+      void sweepRelease();
     }
   }
 
   function onBlur() {
     void notifyFocusLoss();
     void strobeRelease();
-    void dropRelease();
+    void sweepRelease();
   }
 
   useKeyboardPad({
@@ -398,7 +400,6 @@ export function useAppState(toasts: ToastApi) {
     liveFrame,
     selectPreset,
     seekEpisode,
-    whiteHit,
     strobePress,
     strobeRelease,
     setBlackout,
@@ -406,10 +407,12 @@ export function useAppState(toasts: ToastApi) {
     setFace,
     setMasterBrightness,
     setPreviewSpeed,
-    dropPress,
-    dropRelease,
     colorHit,
-    sweepHit,
+    sweepPress,
+    sweepRelease,
+    verticalSweepPress,
+    setLiveFxSpeeds,
+    setPadPresets,
     refreshRest,
   };
 }

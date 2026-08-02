@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { PRESET_CATALOG } from "../../lib/presets";
 import type { PresetInfo } from "../../vite-env";
 
 const props = defineProps<{
@@ -8,6 +7,8 @@ const props = defineProps<{
   availableIds: Set<string>;
   /** Full catalog from backend (builtin + custom). */
   presets?: PresetInfo[];
+  /** Exactly 9 preset ids shown on the home pad (after NONE). */
+  padPresetIds?: string[];
   /** Visual highlight without activating (e.g. «Відкрити на пульті»). */
   highlightId?: string | null;
   disabled?: boolean;
@@ -19,39 +20,24 @@ const emit = defineEmits<{
 
 const NONE_PRESET = { id: "NONE", label: "Без пресету" } as const;
 
-const staffOrder = PRESET_CATALOG.map((p) => p.id);
-
 const padPresets = computed(() => {
   const fromApi = props.presets ?? [];
   const byId = new Map(fromApi.map((p) => [p.id, p]));
-  // AppState.presets may include custom ids before /api/presets labels refresh.
   for (const id of props.availableIds) {
     if (id === "NONE" || byId.has(id)) continue;
-    byId.set(id, { id, label: id, builtin: !staffOrder.includes(id as never) ? false : true });
+    byId.set(id, { id, label: id, builtin: !id.startsWith("C") });
   }
-  const staffFallback = PRESET_CATALOG.map((p) => ({
-    id: p.id,
-    label: p.label,
-    builtin: true,
-  }));
-  const ordered: Array<{ id: string; label: string; builtin?: boolean }> = [];
-  const seen = new Set<string>();
 
-  for (const id of staffOrder) {
-    const item = byId.get(id) ?? staffFallback.find((s) => s.id === id);
-    if (item && item.id !== "NONE") {
-      ordered.push({ id: item.id, label: item.label, builtin: item.builtin ?? true });
-      seen.add(item.id);
-    }
-  }
-  const customs = [...byId.values()]
-    .filter((p) => p.id !== "NONE" && !seen.has(p.id))
-    .slice()
-    .sort((a, b) => a.id.localeCompare(b.id));
-  for (const item of customs) {
-    ordered.push({ id: item.id, label: item.label, builtin: item.builtin ?? false });
-  }
-  return ordered;
+  const slots = (props.padPresetIds ?? []).slice(0, 9);
+  return slots.map((id, index) => {
+    const item = byId.get(id);
+    return {
+      id,
+      label: item?.label ?? id,
+      builtin: item?.builtin ?? true,
+      slot: index + 1,
+    };
+  });
 });
 </script>
 
@@ -70,9 +56,10 @@ const padPresets = computed(() => {
       }"
       :disabled="disabled || !availableIds.has(NONE_PRESET.id)"
       :aria-pressed="activeId === NONE_PRESET.id"
+      :title="'Клавіша 0'"
       @click="emit('select', NONE_PRESET.id)"
     >
-      <span class="preset-id">{{ NONE_PRESET.id }}</span>
+      <span class="preset-id">0 · {{ NONE_PRESET.id }}</span>
       <span class="preset-label">{{ NONE_PRESET.label }}</span>
     </button>
     <button
@@ -88,9 +75,10 @@ const padPresets = computed(() => {
       }"
       :disabled="disabled || !availableIds.has(preset.id)"
       :aria-pressed="activeId === preset.id"
+      :title="`Клавіша ${preset.slot}`"
       @click="emit('select', preset.id)"
     >
-      <span class="preset-id">{{ preset.id }}</span>
+      <span class="preset-id">{{ preset.slot }} · {{ preset.id }}</span>
       <span class="preset-label">{{ preset.label }}</span>
     </button>
   </section>

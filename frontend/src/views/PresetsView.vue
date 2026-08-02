@@ -40,7 +40,39 @@ const {
   state,
   refreshRest,
   toggleBlackout,
+  setPadPresets,
 } = api;
+
+const padDraft = ref<string[]>([]);
+const padSaving = ref(false);
+
+watch(
+  () => state.value?.pad_presets,
+  (ids) => {
+    if (ids?.length === 9) padDraft.value = [...ids];
+  },
+  { immediate: true },
+);
+
+function setPadSlot(index: number, presetId: string) {
+  const next = [...padDraft.value];
+  while (next.length < 9) next.push(`P0${next.length + 1}`);
+  next[index] = presetId;
+  padDraft.value = next.slice(0, 9);
+}
+
+async function savePadSlots() {
+  if (padDraft.value.length !== 9) return;
+  padSaving.value = true;
+  try {
+    await setPadPresets(padDraft.value);
+    setStatus("Склад пульта збережено");
+  } catch (err) {
+    setStatus(null, err instanceof Error ? err.message : "Не вдалося зберегти пульт");
+  } finally {
+    padSaving.value = false;
+  }
+}
 
 const router = useRouter();
 
@@ -439,6 +471,52 @@ onBeforeUnmount(() => {
           {{ b }}
         </li>
       </ul>
+    </section>
+
+    <section
+      class="card"
+      aria-label="Пульт — 9 пресетів"
+    >
+      <header class="card__head">
+        <h2>Склад пульта</h2>
+        <p class="card__sub">
+          На головній завжди NONE (клавіша 0), далі рівно 9 обраних (клавіші 1–9).
+          NONE тут не налаштовується.
+        </p>
+      </header>
+      <div class="form-grid">
+        <label
+          v-for="(_, index) in 9"
+          :key="index"
+          class="field"
+        >
+          <span>Слот {{ index + 1 }}</span>
+          <select
+            :value="padDraft[index] ?? ''"
+            :disabled="offline || padSaving"
+            @change="setPadSlot(index, ($event.target as HTMLSelectElement).value)"
+          >
+            <option
+              v-for="preset in summaries"
+              :key="preset.id"
+              :value="preset.id"
+              :disabled="padDraft.includes(preset.id) && padDraft[index] !== preset.id"
+            >
+              {{ preset.id }} · {{ preset.label }}
+            </option>
+          </select>
+        </label>
+      </div>
+      <div class="row-actions">
+        <button
+          type="button"
+          class="btn"
+          :disabled="offline || padSaving || padDraft.length !== 9"
+          @click="savePadSlots"
+        >
+          Зберегти склад пульта
+        </button>
+      </div>
     </section>
 
     <div class="presets-grid">

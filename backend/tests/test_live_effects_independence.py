@@ -89,7 +89,7 @@ def test_white_hit_sets_dimmer_and_rgb_roles() -> None:
 
 
 def test_strobe_lights_targets_on_zero_base() -> None:
-    stage = apply_strobe(StageIntent(), load_show_config(), now=0.0)
+    stage = apply_strobe(StageIntent(), load_show_config(), now=0.0, speed=0.7)
     assert "par_2" in stage.fixtures
     assert isinstance(stage.fixtures["par_2"], ParIntent)
     assert stage.fixtures["par_2"].intensity == 1.0
@@ -235,7 +235,7 @@ def test_strobe_and_color_hit_ignore_preset_mask() -> None:
     assert "bar_1" in stage.fixtures
     beam_id = next(fx.id for fx in show.patch.fixtures if fx.kind is FixtureKind.BEAM)
     assert beam_id in stage.fixtures
-    strobe = apply_strobe(StageIntent(fixtures=dict(base.fixtures)), show, now=0.0)
+    strobe = apply_strobe(StageIntent(fixtures=dict(base.fixtures)), show, now=0.0, speed=0.7)
     assert "bar_2" in strobe.fixtures
 
 

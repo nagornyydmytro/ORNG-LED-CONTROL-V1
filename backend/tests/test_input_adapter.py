@@ -32,15 +32,23 @@ def client(isolated_config: Path):
         yield test_client, runtime
 
 
-def test_buttons_1_to_10_select_presets(client) -> None:
+def test_buttons_1_to_9_select_pad_slots_and_10_is_none(client) -> None:
     test_client, runtime = client
-    for button_id in range(1, 11):
+    pad = list(runtime.show.app.pad_presets)
+    assert len(pad) == 9
+    for button_id in range(1, 10):
         ack = test_client.post(
             "/api/input/button",
             json={"button_id": button_id, "source": "mock"},
         ).json()
         assert ack["accepted"] is True
-        assert ack["state"]["engine"]["preset_id"] == f"P{button_id:02d}"
+        assert ack["state"]["engine"]["preset_id"] == pad[button_id - 1]
+    none = test_client.post(
+        "/api/input/button",
+        json={"button_id": 10, "source": "mock"},
+    ).json()
+    assert none["accepted"] is True
+    assert none["state"]["engine"]["preset_id"] == "NONE"
     assert runtime.input_dispatcher is not None
 
 
@@ -48,28 +56,28 @@ def test_strobe_press_release_and_key_repeat(client) -> None:
     test_client, runtime = client
     press = test_client.post(
         "/api/input/keyboard",
-        json={"code": "KeyS", "type": "keydown", "repeat": False},
+        json={"code": "Backspace", "type": "keydown", "repeat": False},
     ).json()
     assert press["accepted"] is True
     assert press["state"]["engine"]["strobe_held"] is True
 
     repeat = test_client.post(
         "/api/input/keyboard",
-        json={"code": "KeyS", "type": "keydown", "repeat": True},
+        json={"code": "Backspace", "type": "keydown", "repeat": True},
     ).json()
     assert repeat["accepted"] is False
     assert runtime.engine.overlays.strobe_held is True
 
     dup = test_client.post(
         "/api/input/keyboard",
-        json={"code": "KeyS", "type": "keydown", "repeat": False},
+        json={"code": "Backspace", "type": "keydown", "repeat": False},
     ).json()
     assert dup["accepted"] is False
     assert runtime.engine.overlays.strobe_held is True
 
     release = test_client.post(
         "/api/input/keyboard",
-        json={"code": "KeyS", "type": "keyup", "repeat": False},
+        json={"code": "Backspace", "type": "keyup", "repeat": False},
     ).json()
     assert release["accepted"] is True
     assert release["state"]["engine"]["strobe_held"] is False
@@ -108,8 +116,12 @@ def test_debounce_pulse_and_mapping_helpers() -> None:
     assert debouncer.accept_release("strobe", 2.4) is False
 
     event = button_to_event(3, source=InputSource.UI)
-    assert event.action is InputAction.SELECT_PRESET
-    assert event.preset_id == "P03"
+    assert event.action is InputAction.SELECT_PAD_SLOT
+    assert event.pad_slot == 2
+
+    none = button_to_event(10, source=InputSource.UI)
+    assert none.action is InputAction.SELECT_PRESET
+    assert none.preset_id == "NONE"
 
     kb = KeyboardInputAdapter()
     assert kb.handle_raw({"code": "Digit5", "type": "keydown", "repeat": False})
@@ -131,12 +143,14 @@ def test_disconnect_clears_strobe_hold(client) -> None:
 
 
 def test_mapping_endpoint_lists_keyboard_and_gpio_boundary(client) -> None:
-    test_client, _runtime = client
+    test_client, runtime = client
     body = test_client.get("/api/input/mapping").json()
     assert body["buttons"] == list(range(1, 17))
-    assert body["presets"]["1"] == "P01"
+    assert body["pad_presets"] == list(runtime.show.app.pad_presets)
     assert body["gpio"]["implemented"] is False
-    assert "Digit1" in body["keyboard"]
+    assert body["keyboard"]["Digit1"]["action"] == "select_pad_slot"
+    assert body["keyboard"]["Digit0"]["action"] == "select_preset"
+    assert body["keyboard"]["Space"]["action"] == "blackout_toggle"
 
 
 def test_ui_source_goes_through_dispatcher(client) -> None:
@@ -148,4 +162,4 @@ def test_ui_source_goes_through_dispatcher(client) -> None:
     result = dispatcher.dispatch(event)
     assert result.accepted is True
     assert result.state is not None
-    assert result.state.engine.preset_id == "P01"
+    assert result.state.engine.preset_id == runtime.show.app.pad_presets[0]

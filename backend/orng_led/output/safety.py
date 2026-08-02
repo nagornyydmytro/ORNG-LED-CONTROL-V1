@@ -19,11 +19,14 @@ class FailsafeReason(StrEnum):
 def release_held_controls(engine: Engine, reason: FailsafeReason | str) -> dict[str, object]:
     """Clear press/hold overlays without stopping the preset clock."""
     was_held = engine.overlays.strobe_held
-    engine.strobe_release()
+    sweep_was_held = engine.overlays.sweep_held
+    engine.release_momentary()
     return {
         "reason": str(reason),
         "strobe_was_held": was_held,
         "strobe_held": engine.overlays.strobe_held,
+        "sweep_was_held": sweep_was_held,
+        "sweep_held": engine.overlays.sweep_held,
         "preset_id": engine.active_preset_id,
         "preset_elapsed_s": engine.preset_elapsed_s,
     }

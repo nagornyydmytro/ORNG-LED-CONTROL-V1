@@ -318,7 +318,7 @@ def test_color_hit_and_strobe_intents_hold_beam_axes() -> None:
         if fixture.kind is FixtureKind.BEAM:
             intent = stage.fixtures[fixture.id]
             assert intent.pan is None and intent.tilt is None  # type: ignore[union-attr]
-    strobe = apply_strobe(StageIntent(), show, now=0.0)
+    strobe = apply_strobe(StageIntent(), show, now=0.0, speed=0.7)
     for fixture in show.patch.fixtures:
         if fixture.kind is FixtureKind.BEAM:
             intent = strobe.fixtures[fixture.id]

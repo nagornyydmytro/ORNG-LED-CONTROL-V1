@@ -5,10 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Protocol
 
-from orng_led.input.contract import Edge, InputEvent, InputSource
+from orng_led.input.contract import Edge, InputAction, InputEvent, InputSource
 from orng_led.input.mapping import (
+    DIGIT_PAD_SLOT,
+    HOLD_RELEASE_CODES,
     KEYBOARD_CODE_MAP,
-    STROBE_RELEASE_CODES,
     button_to_event,
 )
 
@@ -56,10 +57,12 @@ class MockInputAdapter:
 
 @dataclass
 class KeyboardInputAdapter:
-    """Maps browser KeyboardEvent.code payloads to the 16-button contract."""
+    """Maps browser KeyboardEvent.code payloads to pad / encoder actions."""
 
     source: InputSource = InputSource.KEYBOARD
-    code_map: dict[str, tuple[int, Edge]] = field(default_factory=lambda: dict(KEYBOARD_CODE_MAP))
+    code_map: dict[str, tuple[InputAction, Edge]] = field(
+        default_factory=lambda: dict(KEYBOARD_CODE_MAP)
+    )
 
     def handle_raw(self, raw: dict) -> list[InputEvent]:
         code = str(raw.get("code", ""))
@@ -67,10 +70,10 @@ class KeyboardInputAdapter:
         repeat = bool(raw.get("repeat", False))
         client_command_id = raw.get("client_command_id")
 
-        if event_type == "keyup" and code in STROBE_RELEASE_CODES:
+        if event_type == "keyup" and code in HOLD_RELEASE_CODES:
             return [
-                button_to_event(
-                    13,
+                InputEvent(
+                    action=HOLD_RELEASE_CODES[code],
                     source=self.source,
                     edge="release",
                     client_command_id=client_command_id,
@@ -83,16 +86,20 @@ class KeyboardInputAdapter:
         mapped = self.code_map.get(code)
         if mapped is None:
             return []
-        button_id, edge = mapped
+        action, edge = mapped
         if edge == "press" and repeat:
-            # Let dispatcher also ignore, but avoid emitting duplicate press events.
             return []
         if edge == "pulse" and repeat:
             return []
+
+        pad_slot = DIGIT_PAD_SLOT.get(code)
+        preset_id = "NONE" if action is InputAction.SELECT_PRESET and code == "Digit0" else None
         return [
-            button_to_event(
-                button_id,
+            InputEvent(
+                action=action,
                 source=self.source,
+                pad_slot=pad_slot,
+                preset_id=preset_id,
                 edge=edge,
                 client_command_id=client_command_id,
             )

@@ -3,9 +3,38 @@ import { postInputKeyboard } from "../api/input";
 
 type StateHandler = (state: import("../vite-env").AppState) => void;
 
+const PREVENT_DEFAULT_CODES = new Set([
+  "Digit0",
+  "Digit1",
+  "Digit2",
+  "Digit3",
+  "Digit4",
+  "Digit5",
+  "Digit6",
+  "Digit7",
+  "Digit8",
+  "Digit9",
+  "Space",
+  "Backspace",
+  "Enter",
+  "NumpadEnter",
+  "KeyF",
+  "Minus",
+  "Equal",
+  "NumpadSubtract",
+  "NumpadAdd",
+  "ZoomIn",
+  "ZoomOut",
+  "AudioVolumeUp",
+  "AudioVolumeDown",
+  "VolumeUp",
+  "VolumeDown",
+]);
+
 /**
- * HOME keyboard/mock adapter: browser keys → /api/input/keyboard contract.
- * 1–9,0 → P01–P10; F face; H white hit; S strobe hold; B blackout; -/+ brightness.
+ * HOME keyboard / encoder adapter → /api/input/keyboard.
+ * 0 = NONE; 1–9 = pad slots; Space blackout; Backspace strobe; Enter sweep;
+ * Zoom (± / ZoomIn/Out) = episode or live-FX speed; Volume = program ×1–×5.
  */
 export function useKeyboardPad(options: {
   enabled: () => boolean;
@@ -20,6 +49,16 @@ export function useKeyboardPad(options: {
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target.isContentEditable) {
         return;
       }
+      // Avoid double-firing with focused MomentaryButton / native button semantics.
+      if (
+        (tag === "BUTTON" || target.closest("button,[role='button']")) &&
+        (event.code === "Space" ||
+          event.code === "Enter" ||
+          event.code === "NumpadEnter" ||
+          event.code === "Backspace")
+      ) {
+        return;
+      }
     }
 
     try {
@@ -30,19 +69,8 @@ export function useKeyboardPad(options: {
       });
       if (ack.accepted) {
         options.onState(ack.state);
-        if (type === "keydown" && !event.repeat) {
-          // Prevent browser shortcuts for mapped pad keys when accepted.
-          if (
-            event.code.startsWith("Digit") ||
-            event.code === "KeyS" ||
-            event.code === "KeyB" ||
-            event.code === "KeyF" ||
-            event.code === "KeyH" ||
-            event.code === "Minus" ||
-            event.code === "Equal"
-          ) {
-            event.preventDefault();
-          }
+        if (PREVENT_DEFAULT_CODES.has(event.code)) {
+          event.preventDefault();
         }
       } else if (ack.reason && options.onIgnored) {
         options.onIgnored(ack.reason);

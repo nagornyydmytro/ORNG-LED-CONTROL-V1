@@ -269,7 +269,7 @@ describe("StageSimulator", () => {
         nonzeroChannels: 0,
         enginePresetId: "P05",
         blackout: true,
-        previewSpeed: 10,
+        previewSpeed: 5,
       },
     });
     expect(wrapper.text()).toContain("Кадр = 0");
@@ -280,8 +280,8 @@ describe("StageSimulator", () => {
     const wrapper = mount(StageSimulator, {
       props: { layout, view: () => view, previewSpeed: 1 },
     });
-    await wrapper.find("select").setValue("10");
-    expect(wrapper.emitted("update:previewSpeed")?.[0]).toEqual([10]);
+    await wrapper.find("select").setValue("5");
+    expect(wrapper.emitted("update:previewSpeed")?.[0]).toEqual([5]);
   });
 });
 

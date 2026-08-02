@@ -100,6 +100,9 @@ class AppRuntime:
             config_dir=root,
             preset_store=store,
         )
+        runtime.engine.overlays.master_brightness = loaded.app.master_brightness
+        runtime.engine.set_strobe_speed(loaded.app.strobe_speed)
+        runtime.engine.set_sweep_speed(loaded.app.sweep_speed)
         runtime.refresh_presets()
         runtime.input_dispatcher = InputDispatcher(runtime=runtime)
         return runtime
@@ -236,6 +239,9 @@ class AppRuntime:
                 drop_active=snap.drop_active,
                 color_hit_active=snap.color_hit_active,
                 sweep_active=snap.sweep_active,
+                vertical_sweep_active=snap.vertical_sweep_active,
+                strobe_speed=snap.strobe_speed,
+                sweep_speed=snap.sweep_speed,
             ),
             output=OutputState(
                 transport=out.transport.value,
@@ -261,6 +267,9 @@ class AppRuntime:
             frame=wire,
             sequence=self.sequence,
             preview_speed=self.preview_speed,
+            pad_presets=list(self.show.app.pad_presets),
+            strobe_speed=self.engine.overlays.strobe_speed,
+            sweep_speed=self.engine.overlays.sweep_speed,
             simulator=decode_simulator_view(self.show, wire),
             raw_tester=self.raw_tester.as_dict(),
             preset_editor_preview=self._editor_preview_state(source=source, wire=wire),
@@ -1060,6 +1069,8 @@ class AppRuntime:
         self.show = self.show.model_copy(update={"app": app})
         self.engine.show = self.show
         self.engine.overlays.master_brightness = app.master_brightness
+        self.engine.set_strobe_speed(app.strobe_speed)
+        self.engine.set_sweep_speed(app.sweep_speed)
         # Configure Art-Net settings in memory but stay on Mock unless already forced.
         if app.artnet.target_ip:
             self.output.configure_artnet(
@@ -1311,6 +1322,168 @@ class AppRuntime:
         self._remember(client_command_id, state)
         return state, False
 
+
+    def apply_select_pad_slot(
+        self,
+        slot: int,
+        *,
+        client_command_id: str | None = None,
+    ) -> tuple[AppStateResponse, bool]:
+        cached = self._idempotent(client_command_id)
+        if cached is not None:
+            return cached, True
+        pad = list(self.show.app.pad_presets)
+        if slot < 0 or slot >= len(pad):
+            raise ValueError(f"pad slot out of range: {slot}")
+        preset_id = pad[slot]
+        if preset_id not in self.engine.presets:
+            raise ValueError(f"Pad preset {preset_id!r} is not loaded")
+        return self.apply_select_preset(preset_id, client_command_id=client_command_id)
+
+    def apply_sweep(
+        self,
+        action: str,
+        *,
+        mode: str = "horizontal",
+        color: tuple[float, float, float] | None = None,
+        client_command_id: str | None = None,
+    ) -> tuple[AppStateResponse, bool]:
+        cached = self._idempotent(client_command_id)
+        if cached is not None:
+            return cached, True
+        if action == "press":
+            rgb = Rgbw(r=color[0], g=color[1], b=color[2]) if color else None
+            resolved = "vertical" if mode == "vertical" else "horizontal"
+            self.engine.sweep_press(mode=resolved, color=rgb)
+        elif action == "release":
+            self.engine.sweep_release()
+        else:
+            raise ValueError(f"Unknown sweep action: {action}")
+        self._publish_frame(self._published_frame())
+        self.sequence += 1
+        state = self.build_state()
+        self._remember(client_command_id, state)
+        return state, False
+
+    def apply_pad_presets(
+        self,
+        preset_ids: list[str],
+        *,
+        client_command_id: str | None = None,
+    ) -> tuple[AppStateResponse, bool]:
+        from orng_led.config.io import save_model
+        from orng_led.config.models import AppConfig
+
+        cached = self._idempotent(client_command_id)
+        if cached is not None:
+            return cached, True
+        app = self.show.app.model_copy(update={"pad_presets": list(preset_ids)})
+        # Re-validate through AppConfig rules.
+        app = AppConfig.model_validate(app.model_dump(mode="python"))
+        missing = [pid for pid in app.pad_presets if pid not in self.engine.presets]
+        if missing:
+            raise ValueError(f"Unknown pad presets: {', '.join(missing)}")
+        save_model(self.config_dir / "app.yaml", app)
+        self.show = self.show.model_copy(update={"app": app})
+        self.engine.show = self.show
+        state = self.build_state()
+        self._remember(client_command_id, state)
+        return state, False
+
+    def apply_live_fx_speeds(
+        self,
+        *,
+        strobe_speed: float | None = None,
+        sweep_speed: float | None = None,
+        persist: bool = True,
+        client_command_id: str | None = None,
+    ) -> tuple[AppStateResponse, bool]:
+        from orng_led.config.io import save_model
+
+        cached = self._idempotent(client_command_id)
+        if cached is not None:
+            return cached, True
+        if strobe_speed is not None:
+            self.engine.set_strobe_speed(strobe_speed)
+        if sweep_speed is not None:
+            self.engine.set_sweep_speed(sweep_speed)
+        if persist:
+            app = self.show.app.model_copy(
+                update={
+                    "strobe_speed": self.engine.overlays.strobe_speed,
+                    "sweep_speed": self.engine.overlays.sweep_speed,
+                }
+            )
+            save_model(self.config_dir / "app.yaml", app)
+            self.show = self.show.model_copy(update={"app": app})
+            self.engine.show = self.show
+        state = self.build_state()
+        self._remember(client_command_id, state)
+        return state, False
+
+    def apply_nudge_episode(
+        self,
+        delta: int,
+        *,
+        client_command_id: str | None = None,
+    ) -> tuple[AppStateResponse, bool]:
+        cached = self._idempotent(client_command_id)
+        if cached is not None:
+            return cached, True
+        snap = self.engine.render_at(self.engine.clock.time(), dt_s=0.0)
+        target = max(0, min(snap.episode_count - 1, snap.episode_index + int(delta)))
+        return self.apply_seek_episode(target, client_command_id=client_command_id)
+
+    def apply_nudge_program_speed(
+        self,
+        delta: int,
+        *,
+        client_command_id: str | None = None,
+    ) -> tuple[AppStateResponse, bool]:
+        from orng_led.input.contract import PROGRAM_SPEED_MAX, PROGRAM_SPEED_MIN
+
+        cached = self._idempotent(client_command_id)
+        if cached is not None:
+            return cached, True
+        current = int(round(self.preview_speed))
+        value = max(PROGRAM_SPEED_MIN, min(PROGRAM_SPEED_MAX, current + int(delta)))
+        return self.apply_preview_speed(float(value), client_command_id=client_command_id)
+
+    def apply_nudge_live_fx_speed(
+        self,
+        delta: float,
+        *,
+        client_command_id: str | None = None,
+    ) -> tuple[AppStateResponse, bool]:
+        cached = self._idempotent(client_command_id)
+        if cached is not None:
+            return cached, True
+        changed = self.engine.nudge_live_fx_speed(delta)
+        if changed is None:
+            state = self.build_state()
+            self._remember(client_command_id, state)
+            return state, False
+        return self.apply_live_fx_speeds(
+            strobe_speed=self.engine.overlays.strobe_speed,
+            sweep_speed=self.engine.overlays.sweep_speed,
+            persist=True,
+            client_command_id=client_command_id,
+        )
+
+    def apply_zoom(
+        self,
+        delta: int,
+        *,
+        client_command_id: str | None = None,
+    ) -> tuple[AppStateResponse, bool]:
+        """Zoom encoder: live-FX speed while held, otherwise episode step."""
+        from orng_led.input.contract import LIVE_FX_SPEED_STEP
+
+        if self.engine.overlays.strobe_held or self.engine.overlays.sweep_held:
+            step = LIVE_FX_SPEED_STEP if delta > 0 else -LIVE_FX_SPEED_STEP
+            return self.apply_nudge_live_fx_speed(step, client_command_id=client_command_id)
+        return self.apply_nudge_episode(delta, client_command_id=client_command_id)
+
     def apply_sweep_hit(
         self,
         color: tuple[float, float, float] | None = None,
@@ -1320,13 +1493,12 @@ class AppRuntime:
         cached = self._idempotent(client_command_id)
         if cached is not None:
             return cached, True
-        rgb = Rgbw(r=color[0], g=color[1], b=color[2]) if color else None
-        self.engine.trigger_sweep_hit(rgb)
-        self._publish_frame(self._published_frame())
-        self.sequence += 1
-        state = self.build_state()
-        self._remember(client_command_id, state)
-        return state, False
+        return self.apply_sweep(
+            "press",
+            mode="horizontal",
+            color=color,
+            client_command_id=client_command_id,
+        )
 
     def stage_layout(self) -> dict:
         """Static stage geometry for the simulator (no DMX values here)."""

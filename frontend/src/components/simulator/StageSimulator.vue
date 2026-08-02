@@ -46,7 +46,7 @@ const emit = defineEmits<{
   "update:previewSpeed": [value: number];
 }>();
 
-const SPEED_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+const SPEED_OPTIONS = [1, 2, 3, 4, 5];
 const showCables = ref(true);
 
 const meta = computed(() => {

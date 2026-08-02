@@ -6,22 +6,25 @@ import type { LiveEffectsState } from "../../vite-env";
 
 const props = defineProps<{
   strobeHeld: boolean;
-  whiteHitActive: boolean;
-  dropActive: boolean;
-  colorHitActive: boolean;
   sweepActive: boolean;
+  verticalSweepActive: boolean;
+  colorHitActive: boolean;
+  strobeSpeed: number;
+  sweepSpeed: number;
   liveEffects?: LiveEffectsState | null;
   disabled?: boolean;
 }>();
 
 const emit = defineEmits<{
-  whiteHit: [];
   strobePress: [];
   strobeRelease: [];
-  dropPress: [];
-  dropRelease: [];
+  sweepPress: [];
+  sweepRelease: [];
+  verticalSweepPress: [];
+  verticalSweepRelease: [];
   colorHit: [];
-  sweepHit: [];
+  "update:strobeSpeed": [value: number];
+  "update:sweepSpeed": [value: number];
 }>();
 
 const warnings = computed(() => props.liveEffects?.warnings ?? []);
@@ -35,15 +38,15 @@ const warnings = computed(() => props.liveEffects?.warnings ?? []);
     <header class="card__head">
       <h2>Живі ефекти</h2>
       <p class="card__sub">
-        Самостійний шар поверх пресету. Утримання = momentary. Не залежить від того, які
-        прилади вже горіли в епізоді.
+        Утримання = momentary. Швидкість зберігається. Zoom-енкодер під час ефекту
+        крутить швидкість (0 = вимкнено, макс = суцільне світло).
       </p>
     </header>
 
     <div class="fx-grid">
       <MomentaryButton
         label="STROBE"
-        hint="утримуйте"
+        hint="білий · утримуйте · ⌫"
         variant="danger"
         :active="strobeHeld"
         :disabled="disabled"
@@ -51,24 +54,21 @@ const warnings = computed(() => props.liveEffects?.warnings ?? []);
         @release="emit('strobeRelease')"
       />
       <MomentaryButton
-        label="DROP"
-        hint="утримуйте"
-        variant="danger"
-        :active="dropActive"
+        label="SWEEP"
+        hint="зліва→направо · Enter"
+        :active="sweepActive"
         :disabled="disabled"
-        @press="emit('dropPress')"
-        @release="emit('dropRelease')"
+        @press="emit('sweepPress')"
+        @release="emit('sweepRelease')"
       />
-      <button
-        type="button"
-        class="fx-btn fx-btn--accent"
-        :class="{ active: whiteHitActive }"
+      <MomentaryButton
+        label="V-SWEEP"
+        hint="знизу→вгору · сегменти"
+        :active="verticalSweepActive"
         :disabled="disabled"
-        @click="emit('whiteHit')"
-      >
-        <span class="fx-btn__label">WHITE HIT</span>
-        <span class="fx-btn__hint">спалах</span>
-      </button>
+        @press="emit('verticalSweepPress')"
+        @release="emit('verticalSweepRelease')"
+      />
       <button
         type="button"
         class="fx-btn"
@@ -79,16 +79,33 @@ const warnings = computed(() => props.liveEffects?.warnings ?? []);
         <span class="fx-btn__label">COLOR HIT</span>
         <span class="fx-btn__hint">контрастний колір</span>
       </button>
-      <button
-        type="button"
-        class="fx-btn"
-        :class="{ active: sweepActive }"
-        :disabled="disabled"
-        @click="emit('sweepHit')"
-      >
-        <span class="fx-btn__label">SWEEP HIT</span>
-        <span class="fx-btn__hint">прохід зліва направо</span>
-      </button>
+    </div>
+
+    <div class="fx-speeds">
+      <label class="field">
+        <span>Швидкість Strobe {{ Math.round(strobeSpeed * 100) }}%</span>
+        <input
+          type="range"
+          min="0"
+          max="1"
+          step="0.01"
+          :value="strobeSpeed"
+          :disabled="disabled"
+          @input="emit('update:strobeSpeed', Number(($event.target as HTMLInputElement).value))"
+        >
+      </label>
+      <label class="field">
+        <span>Швидкість Sweep {{ Math.round(sweepSpeed * 100) }}%</span>
+        <input
+          type="range"
+          min="0"
+          max="1"
+          step="0.01"
+          :value="sweepSpeed"
+          :disabled="disabled"
+          @input="emit('update:sweepSpeed', Number(($event.target as HTMLInputElement).value))"
+        >
+      </label>
     </div>
 
     <div
@@ -111,3 +128,11 @@ const warnings = computed(() => props.liveEffects?.warnings ?? []);
     </div>
   </section>
 </template>
+
+<style scoped>
+.fx-speeds {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 0.85rem;
+}
+</style>

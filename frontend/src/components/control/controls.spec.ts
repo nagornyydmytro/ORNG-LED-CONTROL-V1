@@ -52,19 +52,21 @@ describe("StrobeButton", () => {
 });
 
 describe("PresetPad", () => {
-  it("renders Без пресету plus catalog presets including custom ones", async () => {
+  it("renders Без пресету plus exactly the configured pad slots", async () => {
     const wrapper = mount(PresetPad, {
       props: {
         activeId: "P05",
-        availableIds: new Set(["NONE", "P05", "C01"]),
+        availableIds: new Set(["NONE", "P05", "C01", "P01"]),
+        padPresetIds: ["P05", "C01", "P01", "P02", "P03", "P04", "P06", "P07", "P08"],
         presets: [
           { id: "P05", label: "Універсальний", builtin: true },
           { id: "C01", label: "Мій пресет", builtin: false },
+          { id: "P01", label: "Дуже плавний", builtin: true },
         ],
       },
     });
     const buttons = wrapper.findAll("button.preset-btn");
-    expect(buttons.length).toBeGreaterThanOrEqual(3);
+    expect(buttons.length).toBe(10);
     expect(wrapper.text()).toContain("Без пресету");
     expect(wrapper.text()).toContain("C01");
     expect(wrapper.text()).toContain("Мій пресет");
@@ -81,6 +83,7 @@ describe("PresetPad", () => {
       props: {
         activeId: "NONE",
         availableIds: new Set(["NONE", "P01"]),
+        padPresetIds: ["P01", "P02", "P03", "P04", "P05", "P06", "P07", "P08", "P09"],
         presets: [{ id: "P01", label: "Дуже плавний", builtin: true }],
       },
     });
@@ -94,6 +97,7 @@ describe("PresetPad", () => {
       props: {
         activeId: null,
         availableIds: new Set(["NONE", "P05"]),
+        padPresetIds: ["P05", "P01", "P02", "P03", "P04", "P06", "P07", "P08", "P09"],
         presets: [{ id: "P05", label: "Універсальний", builtin: true }],
       },
     });

@@ -59,7 +59,7 @@ export async function postInputKeyboard(payload: {
   );
 }
 
-/** Canon §9 pad: presets 1–10, face, white hit, strobe, blackout, brightness ± */
+/** Physical pad buttons 1–9 map to home pad slots (configured ids), not fixed P01–P09. */
 export const PRESET_BUTTONS: Record<string, number> = {
   P01: 1,
   P02: 2,
@@ -70,7 +70,6 @@ export const PRESET_BUTTONS: Record<string, number> = {
   P07: 7,
   P08: 8,
   P09: 9,
-  P10: 10,
 };
 
 export const BUTTON_FACE = 11;

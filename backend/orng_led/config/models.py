@@ -377,11 +377,28 @@ class ArtNetSettings(StrictModel):
     hardware_verified: bool = False
 
 
+DEFAULT_PAD_PRESETS: tuple[str, ...] = (
+    "P01",
+    "P02",
+    "P03",
+    "P04",
+    "P05",
+    "P06",
+    "P07",
+    "P08",
+    "P09",
+)
+
+
 class AppConfig(StrictModel):
     schema_version: int = SCHEMA_VERSION
     transport: TransportMode = TransportMode.MOCK
     output_armed: bool = False
     master_brightness: Annotated[float, Field(ge=0.0, le=1.0)] = 1.0
+    # Home pad: NONE is always first in the UI; these 9 slots are the selectable presets.
+    pad_presets: list[str] = Field(default_factory=lambda: list(DEFAULT_PAD_PRESETS))
+    strobe_speed: Annotated[float, Field(ge=0.0, le=1.0)] = 0.7
+    sweep_speed: Annotated[float, Field(ge=0.0, le=1.0)] = 0.7
     artnet: ArtNetSettings = Field(default_factory=ArtNetSettings)
     config_dir: str | None = None
 
@@ -389,6 +406,23 @@ class AppConfig(StrictModel):
     @classmethod
     def _check_schema(cls, value: int) -> int:
         return require_supported_schema_version(value)
+
+    @field_validator("pad_presets")
+    @classmethod
+    def _check_pad_presets(cls, value: list[str]) -> list[str]:
+        if len(value) != 9:
+            raise ConfigError("pad_presets must contain exactly 9 preset ids.")
+        cleaned: list[str] = []
+        seen: set[str] = set()
+        for item in value:
+            preset_id = str(item).strip()
+            if not preset_id or preset_id == "NONE":
+                raise ConfigError("pad_presets cannot include NONE or empty ids.")
+            if preset_id in seen:
+                raise ConfigError(f"Duplicate pad preset id: {preset_id}")
+            seen.add(preset_id)
+            cleaned.append(preset_id)
+        return cleaned
 
     @model_validator(mode="after")
     def _safe_defaults(self) -> AppConfig:

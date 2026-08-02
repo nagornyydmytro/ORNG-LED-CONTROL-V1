@@ -2,9 +2,22 @@ schema_version: 1
 transport: mock
 output_armed: false
 master_brightness: 1.0
+pad_presets:
+- P01
+- P02
+- P03
+- P04
+- P05
+- P06
+- P07
+- P08
+- P09
+strobe_speed: 0.7
+sweep_speed: 0.7
 artnet:
   target_ip: null
   universe: 0
   fps: 30
   udp_port: 6454
   hardware_verified: false
+config_dir: null

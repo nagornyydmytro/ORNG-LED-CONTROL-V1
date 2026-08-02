@@ -29,6 +29,9 @@ export interface EngineState {
   drop_active?: boolean;
   color_hit_active?: boolean;
   sweep_active?: boolean;
+  vertical_sweep_active?: boolean;
+  strobe_speed?: number;
+  sweep_speed?: number;
 }
 
 export interface OutputState {
@@ -232,6 +235,9 @@ export interface AppState {
   frame: number[];
   sequence: number;
   preview_speed: number;
+  pad_presets?: string[];
+  strobe_speed?: number;
+  sweep_speed?: number;
   simulator: SimulatorView;
   raw_tester?: {
     active: boolean;

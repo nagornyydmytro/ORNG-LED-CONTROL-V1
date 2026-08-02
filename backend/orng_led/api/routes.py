@@ -30,6 +30,8 @@ from orng_led.api.schemas import (
     HealthResponse,
     IdentifyFixtureCommand,
     IdentifyGroupCommand,
+    LiveFxSpeedCommand,
+    PadPresetsCommand,
     InputButtonRequest,
     InputDispatchResponse,
     InputKeyboardRequest,
@@ -50,6 +52,7 @@ from orng_led.api.schemas import (
     SeekEpisodeCommand,
     SelectPresetCommand,
     StrobeCommand,
+    SweepCommand,
     SweepHitCommand,
     ValidatePatchRequest,
     WhiteHitCommand,
@@ -472,6 +475,46 @@ def build_api_router() -> APIRouter:
             await runtime.broadcast_state()
         return CommandAck(state=state, idempotent_replay=replay)
 
+    @router.post("/commands/sweep", response_model=CommandAck)
+    async def sweep(body: SweepCommand, request: Request) -> CommandAck:
+        runtime = get_runtime(request)
+        state, replay = runtime.apply_sweep(
+            body.action,
+            mode=body.mode,
+            color=body.rgb(),
+            client_command_id=body.client_command_id,
+        )
+        if not replay:
+            await runtime.broadcast_state()
+        return CommandAck(state=state, idempotent_replay=replay)
+
+    @router.post("/commands/pad-presets", response_model=CommandAck)
+    async def pad_presets(body: PadPresetsCommand, request: Request) -> CommandAck:
+        runtime = get_runtime(request)
+        try:
+            state, replay = runtime.apply_pad_presets(
+                body.preset_ids,
+                client_command_id=body.client_command_id,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if not replay:
+            await runtime.broadcast_state()
+        return CommandAck(state=state, idempotent_replay=replay)
+
+    @router.post("/commands/live-fx-speed", response_model=CommandAck)
+    async def live_fx_speed(body: LiveFxSpeedCommand, request: Request) -> CommandAck:
+        runtime = get_runtime(request)
+        state, replay = runtime.apply_live_fx_speeds(
+            strobe_speed=body.strobe_speed,
+            sweep_speed=body.sweep_speed,
+            persist=body.persist,
+            client_command_id=body.client_command_id,
+        )
+        if not replay:
+            await runtime.broadcast_state()
+        return CommandAck(state=state, idempotent_replay=replay)
+
     @router.post("/commands/blackout", response_model=CommandAck)
     async def blackout(body: BlackoutCommand, request: Request) -> CommandAck:
         runtime = get_runtime(request)
@@ -746,21 +789,23 @@ def build_api_router() -> APIRouter:
         return CommandAck(state=state)
 
     @router.get("/input/mapping")
-    def input_mapping() -> dict:
+    def input_mapping(request: Request) -> dict:
         from orng_led.input.contract import (
             ALL_BUTTON_IDS,
             BRIGHTNESS_STEP,
-            BUTTON_PRESET_IDS,
+            BUTTON_PAD_SLOTS,
         )
         from orng_led.input.mapping import KEYBOARD_CODE_MAP
 
+        runtime = get_runtime(request)
         return {
             "buttons": list(ALL_BUTTON_IDS),
-            "presets": BUTTON_PRESET_IDS,
+            "pad_slots": BUTTON_PAD_SLOTS,
+            "pad_presets": list(runtime.show.app.pad_presets),
             "brightness_step": BRIGHTNESS_STEP,
             "keyboard": {
-                code: {"button_id": button_id, "edge": edge}
-                for code, (button_id, edge) in KEYBOARD_CODE_MAP.items()
+                code: {"action": action.value, "edge": edge}
+                for code, (action, edge) in KEYBOARD_CODE_MAP.items()
             },
             "gpio": {
                 "implemented": False,

@@ -2,7 +2,7 @@
 
 Priority, lowest first::
 
-    preset → sweep hit → colour hit → white hit → strobe → drop
+    preset → sweep → colour hit → white hit → strobe → drop
            → face → master → blackout
 
 Blackout is not a layer here: the engine zeroes the *base* before composition,
@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from typing import Literal
 
 from orng_led.config.models import FixtureInstance, FixtureKind, ShowConfig
 from orng_led.engine.intents import BarIntent, BeamIntent, ParIntent, Rgbw, StageIntent
@@ -23,13 +24,17 @@ STROBE_MAX_HZ = 4.0
 STROBE_HOLD_TIMEOUT_S = 8.0
 
 # Quick live effects (canon §5.3 momentary rules).
-# Drop is hold-to-kill; keep a wall-clock failsafe in line with Strobe.
 DROP_MAX_DURATION_S = 8.0
 COLOR_HIT_DURATION_S = 0.35
-SWEEP_HIT_DURATION_S = 0.75
+SWEEP_HOLD_TIMEOUT_S = 8.0
 SWEEP_WIDTH = 0.22
+# Sweep cycle period at speed=0.5; faster speeds shorten the period.
+SWEEP_PERIOD_SLOW_S = 2.4
+SWEEP_PERIOD_FAST_S = 0.28
 
-WHITE = Rgbw(r=1.0, g=1.0, b=1.0, w=1.0)
+WHITE = Rgbw(r=1.0, g=1.0, b=1.0)
+
+SweepMode = Literal["horizontal", "vertical"]
 
 # Live-effect identity for debug / UI (not tied to nonzero preset channels).
 LIVE_EFFECT_META: dict[str, dict[str, object]] = {
@@ -42,7 +47,11 @@ LIVE_EFFECT_META: dict[str, dict[str, object]] = {
         "target_groups": ["rear", "all_rear", "par", "bar", "beam"],
     },
     "sweep_hit": {
-        "label": "Sweep Hit",
+        "label": "Sweep",
+        "target_groups": ["rear", "all_rear", "par", "bar", "beam"],
+    },
+    "vertical_sweep": {
+        "label": "Vertical Sweep",
         "target_groups": ["rear", "all_rear", "par", "bar", "beam"],
     },
     "strobe": {
@@ -65,6 +74,7 @@ class OverlayState:
     white_hit_until: float | None = None
     strobe_held: bool = False
     strobe_started_at: float | None = None
+    strobe_speed: float = 0.7
     face_on: bool = False
     face_brightness: float = 0.55
     master_brightness: float = 1.0
@@ -74,8 +84,15 @@ class OverlayState:
     drop_started_at: float | None = None
     color_hit_until: float | None = None
     color_hit_color: Rgbw = field(default_factory=lambda: Rgbw(r=1.0, g=1.0, b=1.0))
+    sweep_held: bool = False
     sweep_started_at: float | None = None
+    sweep_mode: SweepMode = "horizontal"
+    sweep_speed: float = 0.7
     sweep_color: Rgbw = field(default_factory=lambda: Rgbw(r=1.0, g=1.0, b=1.0))
+
+
+def _clamp01(value: float) -> float:
+    return max(0.0, min(1.0, float(value)))
 
 
 def _strobe_active(overlays: OverlayState, now: float) -> bool:
@@ -83,7 +100,7 @@ def _strobe_active(overlays: OverlayState, now: float) -> bool:
         return False
     if now - overlays.strobe_started_at >= STROBE_HOLD_TIMEOUT_S:
         return False
-    return True
+    return overlays.strobe_speed > 0.0
 
 
 def drop_active(overlays: OverlayState, now: float) -> bool:
@@ -92,18 +109,40 @@ def drop_active(overlays: OverlayState, now: float) -> bool:
     return now - overlays.drop_started_at < DROP_MAX_DURATION_S
 
 
+def _sweep_active(overlays: OverlayState, now: float) -> bool:
+    if not overlays.sweep_held or overlays.sweep_started_at is None:
+        return False
+    if now - overlays.sweep_started_at >= SWEEP_HOLD_TIMEOUT_S:
+        return False
+    return overlays.sweep_speed > 0.0
+
+
 def sweep_progress(overlays: OverlayState, now: float) -> float | None:
-    if overlays.sweep_started_at is None:
+    """Return looping 0..1 progress while sweep is held, or None when inactive.
+
+    At speed ≈ 1.0 the stage is fully filled (progress sentinel 1.0 with full look).
+    """
+    if not _sweep_active(overlays, now):
         return None
-    elapsed = now - overlays.sweep_started_at
-    if elapsed < 0.0 or elapsed >= SWEEP_HIT_DURATION_S:
-        return None
-    return elapsed / SWEEP_HIT_DURATION_S
+    speed = _clamp01(overlays.sweep_speed)
+    if speed >= 0.999:
+        return 1.0
+    # Map mid speeds to a looping wavefront.
+    period = SWEEP_PERIOD_SLOW_S + (SWEEP_PERIOD_FAST_S - SWEEP_PERIOD_SLOW_S) * speed
+    started = overlays.sweep_started_at
+    elapsed = max(0.0, now - float(started if started is not None else now))
+    return (elapsed / max(0.05, period)) % 1.0
 
 
-def _strobe_gate(now: float) -> float:
-    # 4 Hz square wave: on for half period.
-    phase = math.floor(now * STROBE_MAX_HZ * 2) % 2
+def _strobe_gate(now: float, speed: float) -> float:
+    """0 = off, 1 = solid white, mid = blink rate up to STROBE_MAX_HZ."""
+    speed = _clamp01(speed)
+    if speed <= 0.0:
+        return 0.0
+    if speed >= 0.999:
+        return 1.0
+    hz = max(0.25, STROBE_MAX_HZ * speed)
+    phase = math.floor(now * hz * 2) % 2
     return 1.0 if phase == 0 else 0.0
 
 
@@ -126,30 +165,38 @@ def _force_rear_look(
     color: Rgbw,
     level: float,
     strobe: float = 0.0,
+    pan: float | None = None,
+    tilt: float | None = None,
+    segments: tuple[float, ...] | None = None,
 ) -> None:
     """Independent full look for every rear fixture — never gated by the preset.
 
-    Beam Live Effects must never touch Pan/Tilt: motion stays on the engine's
-    last-valid pose. Only colour, dimmer and (when requested) strobe change.
+    Beam Live Effects normally leave Pan/Tilt alone (None). Vertical Sweep may
+    pass an explicit tilt while keeping the previous pan axis.
     """
     level = max(0.0, min(1.0, level))
     if fixture.kind is FixtureKind.PAR:
         stage.fixtures[fixture.id] = ParIntent(color=color, intensity=level, strobe=strobe)
     elif fixture.kind is FixtureKind.BAR:
-        segments = (level,) * 8 if level > 0 else (0.0,) * 8
+        if segments is None:
+            segs = (level,) * 8 if level > 0 else (0.0,) * 8
+        else:
+            segs = tuple(max(0.0, min(1.0, s)) for s in segments[:8])
+            if len(segs) < 8:
+                segs = segs + (0.0,) * (8 - len(segs))
+        dimmer = max(segs) if segs else level
         stage.fixtures[fixture.id] = BarIntent(
-            segments=segments,
-            dimmer=level,
+            segments=segs,
+            dimmer=dimmer,
             color=color,
             strobe=strobe,
             whole=False,
         )
     elif fixture.kind is FixtureKind.BEAM:
-        # Beams stay at full brightness when lit; level is on/off only (strobe gate).
         on = level > 0.02
         stage.fixtures[fixture.id] = BeamIntent(
-            pan=None,
-            tilt=None,
+            pan=pan,
+            tilt=tilt,
             dimmer=1.0 if on else 0.0,
             color=color,
             shutter_open=on,
@@ -174,39 +221,98 @@ def apply_color_hit(stage: StageIntent, show: ShowConfig, color: Rgbw) -> StageI
     return stage
 
 
+def _fixture_axis(show: ShowConfig, fixture: FixtureInstance, axis: str) -> float:
+    placement = show.layout.placement_for(fixture.id)
+    if placement is not None:
+        return float(getattr(placement, axis))
+    order = fixture.spatial.order or 1
+    return (order - 1) / 3.0
+
+
 def apply_sweep_hit(
     stage: StageIntent,
     show: ShowConfig,
     progress: float,
     color: Rgbw,
 ) -> StageIntent:
-    """One fast pass across the semantic layout, left → right by stage x."""
+    """Hold sweep across the semantic layout, left → right by stage x."""
+    if progress >= 0.999:
+        for fixture in show.patch.fixtures:
+            if not _is_rear(fixture.kind):
+                continue
+            _force_rear_look(stage, fixture, color=color, level=1.0)
+        return stage
+
     front = -SWEEP_WIDTH + progress * (1.0 + 2.0 * SWEEP_WIDTH)
     for fixture in show.patch.fixtures:
         if not _is_rear(fixture.kind):
             continue
-        placement = show.layout.placement_for(fixture.id)
-        if placement is not None:
-            position = placement.x
-        else:
-            order = fixture.spatial.order or 1
-            position = (order - 1) / 3.0
+        position = _fixture_axis(show, fixture, "x")
         distance = abs(position - front)
         if distance >= SWEEP_WIDTH:
             continue
         boost = 1.0 - (distance / SWEEP_WIDTH)
-        # Independent: wavefront forces light even if the preset left this fixture dark.
+        _force_rear_look(stage, fixture, color=color, level=boost)
+    return stage
+
+
+def apply_vertical_sweep(
+    stage: StageIntent,
+    show: ShowConfig,
+    progress: float,
+    color: Rgbw,
+) -> StageIntent:
+    """Hold sweep bottom → top: bar segments climb; beams tilt up, pan kept."""
+    full = progress >= 0.999
+    for fixture in show.patch.fixtures:
+        if not _is_rear(fixture.kind):
+            continue
+
+        if fixture.kind is FixtureKind.BAR:
+            if full:
+                segments = (1.0,) * 8
+            else:
+                # Segment 0 = bottom, 7 = top.
+                head = progress * 8.0
+                segments_list: list[float] = []
+                for index in range(8):
+                    distance = abs(index + 0.5 - head)
+                    segments_list.append(max(0.0, 1.0 - distance / 1.6))
+                segments = tuple(segments_list)
+            _force_rear_look(stage, fixture, color=color, level=max(segments), segments=segments)
+            continue
+
+        if fixture.kind is FixtureKind.BEAM:
+            prev = stage.fixtures.get(fixture.id)
+            pan = prev.pan if isinstance(prev, BeamIntent) else None
+            tilt = 0.12 + 0.76 * (1.0 if full else progress)
+            level = 1.0 if full else max(0.35, 0.55 + 0.45 * math.sin(progress * math.pi))
+            _force_rear_look(
+                stage,
+                fixture,
+                color=color,
+                level=level,
+                pan=pan,
+                tilt=max(0.0, min(1.0, tilt)),
+            )
+            continue
+
+        # PARs / others: soft rise by layout y.
+        if full:
+            _force_rear_look(stage, fixture, color=color, level=1.0)
+            continue
+        position = _fixture_axis(show, fixture, "y")
+        front = -SWEEP_WIDTH + progress * (1.0 + 2.0 * SWEEP_WIDTH)
+        distance = abs(position - front)
+        if distance >= SWEEP_WIDTH:
+            continue
+        boost = 1.0 - (distance / SWEEP_WIDTH)
         _force_rear_look(stage, fixture, color=color, level=boost)
     return stage
 
 
 def apply_drop(stage: StageIntent, show: ShowConfig) -> StageIntent:
-    """Momentary kill of the rear stage look; the preset clock keeps running.
-
-    Explicit dark intents (not only pop) so the renderer never keeps a stale
-    rear look if another layer re-touched the map earlier in the compose pass.
-    Face PAR stays available for the DJ.
-    """
+    """Momentary kill of the rear stage look; the preset clock keeps running."""
     for fixture in show.patch.fixtures:
         if not _is_rear(fixture.kind):
             continue
@@ -238,11 +344,11 @@ def apply_drop(stage: StageIntent, show: ShowConfig) -> StageIntent:
     return stage
 
 
-def apply_strobe(stage: StageIntent, show: ShowConfig, now: float) -> StageIntent:
-    """Independent full-scene strobe — does not use the preset frame as a fixture mask."""
-    gate = _strobe_gate(now)
+def apply_strobe(stage: StageIntent, show: ShowConfig, now: float, speed: float) -> StageIntent:
+    """Independent full-scene white strobe. Speed 0=off … 1=solid white."""
+    gate = _strobe_gate(now, speed)
     level = 1.0 if gate > 0 else 0.0
-    strobe = 0.85 if gate > 0 else 0.0
+    strobe = 0.85 if 0.0 < gate < 1.0 else 0.0
     for fixture in show.patch.fixtures:
         if not _is_rear(fixture.kind):
             continue
@@ -272,8 +378,11 @@ def apply_master_brightness(stage: StageIntent, master: float) -> StageIntent:
 
 def active_live_effect_ids(overlays: OverlayState, now: float) -> list[str]:
     active: list[str] = []
-    if sweep_progress(overlays, now) is not None:
-        active.append("sweep_hit")
+    if _sweep_active(overlays, now):
+        if overlays.sweep_mode == "vertical":
+            active.append("vertical_sweep")
+        else:
+            active.append("sweep_hit")
     if overlays.color_hit_until is not None and now < overlays.color_hit_until:
         active.append("color_hit")
     if overlays.white_hit_until is not None and now < overlays.white_hit_until:
@@ -305,7 +414,10 @@ def compose_layers(
 
     progress = sweep_progress(overlays, now)
     if progress is not None:
-        stage = apply_sweep_hit(stage, show, progress, overlays.sweep_color)
+        if overlays.sweep_mode == "vertical":
+            stage = apply_vertical_sweep(stage, show, progress, overlays.sweep_color)
+        else:
+            stage = apply_sweep_hit(stage, show, progress, overlays.sweep_color)
 
     if overlays.color_hit_until is not None and now < overlays.color_hit_until:
         stage = apply_color_hit(stage, show, overlays.color_hit_color)
@@ -314,7 +426,7 @@ def compose_layers(
         stage = apply_white_hit(stage, show)
 
     if _strobe_active(overlays, now):
-        stage = apply_strobe(stage, show, now)
+        stage = apply_strobe(stage, show, now, overlays.strobe_speed)
 
     if drop_active(overlays, now):
         stage = apply_drop(stage, show)

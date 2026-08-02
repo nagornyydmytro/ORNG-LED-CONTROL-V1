@@ -14,9 +14,10 @@ from orng_led.engine.layers import (
     COLOR_HIT_DURATION_S,
     DROP_MAX_DURATION_S,
     STROBE_HOLD_TIMEOUT_S,
-    SWEEP_HIT_DURATION_S,
+    SWEEP_HOLD_TIMEOUT_S,
     WHITE_HIT_DURATION_S,
     OverlayState,
+    SweepMode,
     compose_layers,
     drop_active,
     sweep_progress,
@@ -51,6 +52,9 @@ class EngineSnapshot:
     drop_active: bool = False
     color_hit_active: bool = False
     sweep_active: bool = False
+    vertical_sweep_active: bool = False
+    strobe_speed: float = 0.7
+    sweep_speed: float = 0.7
 
 
 @dataclass
@@ -223,15 +227,42 @@ class Engine:
         return chosen
 
     def trigger_sweep_hit(self, color: Rgbw | None = None) -> Rgbw:
+        """Legacy one-shot: start a held horizontal sweep (release via timeout)."""
+        return self.sweep_press(mode="horizontal", color=color)
+
+    def sweep_press(self, *, mode: SweepMode = "horizontal", color: Rgbw | None = None) -> Rgbw:
         chosen = color or self.contrast_color()
         self.overlays.sweep_color = chosen
+        self.overlays.sweep_mode = mode
+        self.overlays.sweep_held = True
         self.overlays.sweep_started_at = self.clock.time()
         return chosen
+
+    def sweep_release(self) -> None:
+        self.overlays.sweep_held = False
+        self.overlays.sweep_started_at = None
+
+    def set_strobe_speed(self, value: float) -> None:
+        self.overlays.strobe_speed = max(0.0, min(1.0, float(value)))
+
+    def set_sweep_speed(self, value: float) -> None:
+        self.overlays.sweep_speed = max(0.0, min(1.0, float(value)))
+
+    def nudge_live_fx_speed(self, delta: float) -> float | None:
+        """Adjust speed of the currently held live effect. Returns new speed or None."""
+        if self.overlays.strobe_held:
+            self.set_strobe_speed(self.overlays.strobe_speed + delta)
+            return self.overlays.strobe_speed
+        if self.overlays.sweep_held:
+            self.set_sweep_speed(self.overlays.sweep_speed + delta)
+            return self.overlays.sweep_speed
+        return None
 
     def release_momentary(self) -> None:
         """Release every held momentary control (failsafe path)."""
         self.strobe_release()
         self.drop_release()
+        self.sweep_release()
 
     def on_control_disconnect(self) -> None:
         """UI/WebSocket disconnect must clear held momentary controls (canon §5.3)."""
@@ -270,10 +301,11 @@ class Engine:
         if self.overlays.color_hit_until is not None and now >= self.overlays.color_hit_until:
             self.overlays.color_hit_until = None
         if (
-            self.overlays.sweep_started_at is not None
-            and now - self.overlays.sweep_started_at >= SWEEP_HIT_DURATION_S
+            self.overlays.sweep_held
+            and self.overlays.sweep_started_at is not None
+            and now - self.overlays.sweep_started_at >= SWEEP_HOLD_TIMEOUT_S
         ):
-            self.overlays.sweep_started_at = None
+            self.sweep_release()
         if (
             self.overlays.drop_held
             and self.overlays.drop_started_at is not None
@@ -427,7 +459,16 @@ class Engine:
             color_hit_active=(
                 self.overlays.color_hit_until is not None and time_s < self.overlays.color_hit_until
             ),
-            sweep_active=sweep_progress(self.overlays, time_s) is not None,
+            sweep_active=(
+                sweep_progress(self.overlays, time_s) is not None
+                and self.overlays.sweep_mode == "horizontal"
+            ),
+            vertical_sweep_active=(
+                sweep_progress(self.overlays, time_s) is not None
+                and self.overlays.sweep_mode == "vertical"
+            ),
+            strobe_speed=self.overlays.strobe_speed,
+            sweep_speed=self.overlays.sweep_speed,
         )
 
     def tick(

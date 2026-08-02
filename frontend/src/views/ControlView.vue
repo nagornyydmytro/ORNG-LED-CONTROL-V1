@@ -29,17 +29,17 @@ const {
   liveFrame,
   selectPreset,
   seekEpisode,
-  whiteHit,
   strobePress,
   strobeRelease,
   toggleBlackout,
   setFace,
   setMasterBrightness,
   setPreviewSpeed,
-  dropPress,
-  dropRelease,
   colorHit,
-  sweepHit,
+  sweepPress,
+  sweepRelease,
+  verticalSweepPress,
+  setLiveFxSpeeds,
 } = api;
 
 const route = useRoute();
@@ -51,6 +51,9 @@ const highlightId = computed(() => {
   const q = route.query.highlight;
   return typeof q === "string" && q.length ? q : null;
 });
+const padPresetIds = computed(() => state.value?.pad_presets ?? []);
+const strobeSpeed = computed(() => state.value?.strobe_speed ?? engine.value?.strobe_speed ?? 0.7);
+const sweepSpeed = computed(() => state.value?.sweep_speed ?? engine.value?.sweep_speed ?? 0.7);
 
 const presetDoc = ref<PresetDocument | null>(null);
 const episodes = computed<EpisodeCard[]>(() => presetDoc.value?.episodes ?? []);
@@ -154,9 +157,8 @@ function goNextEpisode() {
           :blackout="engine?.blackout ?? false"
           :strobe-held="engine?.strobe_held ?? false"
           :white-hit-active="engine?.white_hit_active ?? false"
-          :drop-active="engine?.drop_active ?? false"
           :color-hit-active="engine?.color_hit_active ?? false"
-          :sweep-active="engine?.sweep_active ?? false"
+          :sweep-active="(engine?.sweep_active || engine?.vertical_sweep_active) ?? false"
           :face-on="engine?.face_on ?? false"
           :preview-speed="state?.preview_speed ?? 1"
           :disabled="offline"
@@ -180,13 +182,14 @@ function goNextEpisode() {
           <header class="card__head">
             <h2>Пресети</h2>
             <p class="card__sub">
-              Вбудовані та власні · епізоди на пульті
+              NONE + 9 обраних · клавіші 0–9
             </p>
           </header>
           <PresetPad
             :active-id="engine?.preset_id ?? null"
             :available-ids="availableIds"
             :presets="availablePresets"
+            :pad-preset-ids="padPresetIds"
             :highlight-id="highlightId"
             :disabled="offline"
             @select="selectPreset"
@@ -259,19 +262,22 @@ function goNextEpisode() {
 
         <LiveFxPanel
           :strobe-held="engine?.strobe_held ?? false"
-          :white-hit-active="engine?.white_hit_active ?? false"
-          :drop-active="engine?.drop_active ?? false"
-          :color-hit-active="engine?.color_hit_active ?? false"
           :sweep-active="engine?.sweep_active ?? false"
+          :vertical-sweep-active="engine?.vertical_sweep_active ?? false"
+          :color-hit-active="engine?.color_hit_active ?? false"
+          :strobe-speed="strobeSpeed"
+          :sweep-speed="sweepSpeed"
           :live-effects="state?.live_effects ?? null"
           :disabled="offline"
-          @white-hit="whiteHit"
           @strobe-press="strobePress"
           @strobe-release="strobeRelease"
-          @drop-press="dropPress"
-          @drop-release="dropRelease"
+          @sweep-press="() => sweepPress('horizontal')"
+          @sweep-release="sweepRelease"
+          @vertical-sweep-press="verticalSweepPress"
+          @vertical-sweep-release="sweepRelease"
           @color-hit="() => colorHit()"
-          @sweep-hit="() => sweepHit()"
+          @update:strobe-speed="(v) => setLiveFxSpeeds({ strobe_speed: v })"
+          @update:sweep-speed="(v) => setLiveFxSpeeds({ sweep_speed: v })"
         />
 
         <section

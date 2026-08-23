@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from orng_led.api.runtime import AppRuntime
 from orng_led.config import load_show_config
 from orng_led.engine.layers import STROBE_HOLD_TIMEOUT_S
@@ -148,14 +150,11 @@ def test_preview_speed_does_not_accelerate_strobe_timeout() -> None:
     runtime.engine.set_blackout(False)
     runtime.apply_preview_speed(120.0)
     runtime.engine.strobe_press()
-    # 7 wall seconds at ×120 must NOT trip the 8s strobe failsafe.
-    for _ in range(7):
+    # Preview × must not auto-release a held live FX (no wall-clock hold timeout).
+    for _ in range(8):
         runtime.tick(dt_s=1.0)
     assert runtime.engine.overlays.strobe_held is True
-    # One more wall second reaches the timeout.
-    runtime.tick(dt_s=1.0)
-    assert runtime.engine.overlays.strobe_held is False
-    assert STROBE_HOLD_TIMEOUT_S == 8.0
+    assert STROBE_HOLD_TIMEOUT_S == 0.0
 
 
 def test_preview_speed_sixty_advances_show_not_wall() -> None:
@@ -166,3 +165,27 @@ def test_preview_speed_sixty_advances_show_not_wall() -> None:
     runtime.tick(dt_s=1.0)
     assert abs(runtime.engine.preset_elapsed_s - 60.0) < 1e-9
     assert abs(runtime.engine.clock.time() - 1.0) < 1e-9
+
+
+def test_live_program_speed_keeps_episode_wall_duration() -> None:
+    """Live × (≤5) must not shorten episodes — only effect intensity/rate."""
+    runtime = AppRuntime.create(autostart_loop=False)
+    runtime.engine.set_blackout(False)
+    runtime.engine.select_preset("P05", reset_clock=True)
+    runtime.apply_preview_speed(5.0)
+    before = runtime.engine.preset_elapsed_s
+    runtime.tick(dt_s=1.0)
+    assert abs(runtime.engine.preset_elapsed_s - before - 1.0) < 1e-9
+    assert abs(runtime.engine.clock.time() - 1.0) < 1e-9
+    assert runtime.engine.effect_rate_scale == pytest.approx(5.0)
+
+
+def test_select_preset_resets_program_speed_to_one() -> None:
+    runtime = AppRuntime.create(autostart_loop=False)
+    runtime.apply_preview_speed(3.5)
+    runtime.apply_select_preset("P05", reset_clock=True)
+    assert runtime.preview_speed == pytest.approx(1.0)
+    assert runtime.engine.effect_rate_scale == pytest.approx(1.0)
+    runtime.apply_preview_speed(2.0)
+    runtime.apply_select_preset("NONE", reset_clock=True)
+    assert runtime.preview_speed == pytest.approx(1.0)

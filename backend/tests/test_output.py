@@ -214,11 +214,15 @@ def test_disconnect_focus_visibility_release_strobe() -> None:
     assert engine.overlays.strobe_held is False
 
 
-def test_strobe_timeout_failsafe() -> None:
+def test_strobe_hold_survives_wall_clock_without_timeout() -> None:
+    """Strobe/sweep must not auto-release on a timer — only keyup / focus / disconnect."""
     engine = Engine(show=create_engine().show, clock=FakeClock())
     engine.strobe_press()
     engine.tick(dt_s=8.0)
-    assert engine.overlays.strobe_held is False
+    assert engine.overlays.strobe_held is True
+    engine.sweep_press()
+    engine.tick(dt_s=20.0)
+    assert engine.overlays.sweep_held is True
 
 
 def test_release_held_controls_preserves_preset_clock() -> None:

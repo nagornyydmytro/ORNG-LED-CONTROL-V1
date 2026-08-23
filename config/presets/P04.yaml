@@ -12,7 +12,7 @@ episodes:
   effect: pulse
   speed: 0.4
   intensity: 0.62
-  transition: soft
+  transition: cut
   notes: null
 - id: ep2
   duration_s: 18.0
@@ -23,7 +23,7 @@ episodes:
   effect: wave
   speed: 0.42
   intensity: 0.6
-  transition: soft
+  transition: cut
   notes: null
 - id: ep3
   duration_s: 18.0
@@ -33,7 +33,7 @@ episodes:
   effect: pulse
   speed: 0.38
   intensity: 0.58
-  transition: fade
+  transition: cut
   notes: null
 - id: ep4
   duration_s: 18.0
@@ -44,7 +44,7 @@ episodes:
   effect: chase
   speed: 0.4
   intensity: 0.61
-  transition: soft
+  transition: cut
   notes: null
 - id: ep5
   duration_s: 18.0
@@ -54,7 +54,7 @@ episodes:
   effect: mirror_sweep
   speed: 0.35
   intensity: 0.57
-  transition: soft
+  transition: cut
   notes: null
 - id: ep6
   duration_s: 18.0
@@ -64,7 +64,7 @@ episodes:
   effect: breathe
   speed: 0.36
   intensity: 0.6
-  transition: fade
+  transition: cut
   notes: null
 - id: ep7
   duration_s: 18.0
@@ -74,7 +74,7 @@ episodes:
   effect: pulse
   speed: 0.42
   intensity: 0.63
-  transition: soft
+  transition: cut
   notes: null
 - id: ep8
   duration_s: 18.0
@@ -84,7 +84,7 @@ episodes:
   effect: wave
   speed: 0.44
   intensity: 0.62
-  transition: soft
+  transition: cut
   notes: null
 - id: ep9
   duration_s: 18.0
@@ -95,7 +95,7 @@ episodes:
   effect: pulse
   speed: 0.4
   intensity: 0.59
-  transition: fade
+  transition: cut
   notes: null
 - id: ep10
   duration_s: 18.0
@@ -105,5 +105,5 @@ episodes:
   effect: pulse
   speed: 0.4
   intensity: 0.62
-  transition: soft
+  transition: cut
   notes: null

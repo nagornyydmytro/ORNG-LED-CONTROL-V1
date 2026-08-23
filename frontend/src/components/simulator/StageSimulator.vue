@@ -46,7 +46,9 @@ const emit = defineEmits<{
   "update:previewSpeed": [value: number];
 }>();
 
-const SPEED_OPTIONS = [1, 2, 3, 4, 5];
+const SPEED_OPTIONS = [
+  0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.25, 2.5, 2.75, 3, 3.25, 3.5, 3.75, 4, 4.25, 4.5, 4.75, 5,
+];
 const showCables = ref(true);
 
 const meta = computed(() => {
@@ -54,7 +56,9 @@ const meta = computed(() => {
   const count = props.episodeCount ?? 10;
   const time = (props.presetTimeS ?? 0).toFixed(1);
   const cycle = formatClock(props.cycleDurationS ?? 180);
-  return `${props.enginePresetId ?? "—"} · епізод ${episode}/${count} · ${time} с / ${cycle} · ×${props.previewSpeed ?? 1}`;
+  const speed = Number(props.previewSpeed ?? 1);
+  const speedLabel = Number.isInteger(speed) ? String(speed) : speed.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
+  return `${props.enginePresetId ?? "—"} · епізод ${episode}/${count} · ${time} с / ${cycle} · ×${speedLabel}`;
 });
 
 function onSpeed(value: string) {
@@ -90,18 +94,19 @@ function onSpeed(value: string) {
           v-if="previewSpeed !== undefined"
           class="field field--inline"
         >
-          <span>Швидкість preview</span>
+          <span>Інтенсивність ефектів</span>
           <select
-            :value="previewSpeed"
+            :key="`speed-${Number(previewSpeed ?? 1)}`"
+            :value="String(Number(previewSpeed ?? 1))"
             :disabled="disabled"
             @change="onSpeed(($event.target as HTMLSelectElement).value)"
           >
             <option
               v-for="opt in SPEED_OPTIONS"
               :key="opt"
-              :value="opt"
+              :value="String(opt)"
             >
-              ×{{ opt }}
+              ×{{ Number.isInteger(opt) ? opt : opt.toFixed(2) }}
             </option>
           </select>
         </label>

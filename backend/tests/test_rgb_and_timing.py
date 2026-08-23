@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from orng_led.config import default_config_dir, load_show_config
 from orng_led.config.models import ChannelRole
 from orng_led.engine.engine import Engine
@@ -168,6 +170,39 @@ def test_p10_cannot_regress_to_one_cycle_per_ten_seconds() -> None:
     assert turns_10s > 20.0, turns_10s
 
 
+def test_effect_rate_scale_multiplies_turns_not_episode_position() -> None:
+    program = _programs()["P05"]
+    base = program.effect_turns(9.0)
+    scaled = program.effect_turns(9.0, rate_scale=2.0)
+    assert scaled == pytest.approx(base * 2.0)
+    assert program.cycle_position(9.0).episode_index == program.cycle_position(9.0).episode_index
+    assert program.cycle_position(9.0).episode_time_s == pytest.approx(9.0)
+
+
+def test_live_speed_change_does_not_restart_effect_phase() -> None:
+    """Raising program × mid-episode must speed future motion, not rewrite past phase."""
+    program = _programs()["P05"]
+    engine = _engine("P05")
+    dt = 0.1
+    for _ in range(50):  # 5s at ×1
+        engine.tick(dt_s=dt, effect_rate_scale=1.0)
+    phase_before = engine.effect_phase_turns
+    episode_before = engine.render_at(engine.clock.time(), dt_s=0.0).episode_time_s
+
+    # Absolute ×2 rewrite of history would jump near 2×; integrated path stays put.
+    rewritten = program.effect_turns(engine.preset_elapsed_s, rate_scale=2.0)
+    engine.tick(dt_s=dt, effect_rate_scale=2.0)
+    phase_after = engine.effect_phase_turns
+    episode_after = engine.render_at(engine.clock.time(), dt_s=0.0).episode_time_s
+
+    assert episode_after == pytest.approx(episode_before + dt, abs=1e-6)
+    assert phase_after == pytest.approx(
+        phase_before + (program.effect_turns(5.0 + dt) - program.effect_turns(5.0)) * 2.0,
+        abs=1e-6,
+    )
+    assert abs(phase_after - phase_before) < abs(rewritten - phase_before) * 0.5
+
+
 def test_effect_phase_is_continuous_across_episode_and_loop_boundaries() -> None:
     program = _programs()["P06"]
     for boundary in (18.0, 36.0, 180.0):
@@ -185,17 +220,14 @@ def test_loop_boundary_returns_to_episode_zero() -> None:
     assert program.cycle_position(180.01).episode_time_s < 0.05
 
 
-def test_preview_speed_does_not_accelerate_safety_timers() -> None:
+def test_preview_speed_does_not_auto_release_held_strobe() -> None:
     engine = _engine("P05")
     engine.strobe_press()
-    # 60× preview speed for 4 real seconds: show time flies, the hold does not.
-    for _ in range(120):
+    # Editor scrub ×60 advances show time; hold stays until keyup / focus loss.
+    for _ in range(270):
         engine.tick(dt_s=(1 / 30) * 60, wall_dt_s=1 / 30)
     assert engine.overlays.strobe_held is True
-    assert engine.preset_elapsed_s > 200.0
-    for _ in range(150):
-        engine.tick(dt_s=(1 / 30) * 60, wall_dt_s=1 / 30)
-    assert engine.overlays.strobe_held is False  # 8s wall-clock failsafe
+    assert engine.preset_elapsed_s > 500.0
 
 
 def test_high_preview_speed_keeps_frames_in_bounds() -> None:

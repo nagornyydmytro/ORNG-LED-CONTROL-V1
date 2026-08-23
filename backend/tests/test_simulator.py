@@ -48,7 +48,9 @@ def test_simulator_matches_frame_not_parallel_fiction() -> None:
     # PAR 1 starts at address 1: dimmer local 1, red local 2 (hardware-confirmed).
     par1 = next(p for p in view.pars if p.id == "par_1")
     assert abs(par1.intensity - frame[0] / 255.0) < 1e-9
-    assert abs(par1.r - frame[1] / 255.0) < 1e-9
+    # Preview RGB may be remapped to venue LED look; still tracks a lit red channel.
+    if frame[1] > 0:
+        assert par1.r > 0.05
 
     bar1 = next(b for b in view.bars if b.id == "bar_1")
     # Bar 1 start 93 → index 92 dimmer; segment_color locals 4..11 (no RGB locals).
@@ -59,12 +61,42 @@ def test_simulator_matches_frame_not_parallel_fiction() -> None:
         # Palette DMX (e.g. amber=136) must decode to a real colour, not grey dimmer.
         assert bar1.r + bar1.g + bar1.b > 0.05
         assert abs(bar1.r - bar1.g) > 0.05 or abs(bar1.g - bar1.b) > 0.05
+        assert len(bar1.segment_r) == 8
     else:
         assert bar1.segments[0] == 0.0
         if bar1.dimmer <= 0.02:
             assert bar1.r == 0.0
             assert bar1.g == 0.0
             assert bar1.b == 0.0
+
+
+def test_preview_amber_reads_yellow_red_reads_orange() -> None:
+    """Venue LED look: amber slot → yellow; red slot → orange-red — not pure sRGB."""
+    from orng_led.config.models import ChannelDefinition, ChannelRole
+    from orng_led.engine.renderer import _PALETTE_DISPLAY_RGB
+    from orng_led.simulator.decode import _preview_rgb_from_channels, _rgb_from_palette_dmx
+
+    amber_disp = _PALETTE_DISPLAY_RGB["amber"]
+    red_disp = _PALETTE_DISPLAY_RGB["red"]
+    assert amber_disp[1] > 0.8  # yellow-amber
+    assert red_disp[1] > 0.2  # orange-red, not pure red
+
+    channel = ChannelDefinition(
+        local=4,
+        role=ChannelRole.SEGMENT_COLOR,
+        segment_index=1,
+        palette={"off": 0, "red": 46, "amber": 136, "orange": 61, "blue": 106},
+    )
+    amber_rgb = _rgb_from_palette_dmx(channel, 136)
+    red_rgb = _rgb_from_palette_dmx(channel, 46)
+    assert amber_rgb is not None and amber_rgb[1] > amber_rgb[2] and amber_rgb[1] > 0.8
+    assert red_rgb is not None and red_rgb[1] > 0.15
+
+    # PAR mix for preset amber / deep_red remaps to the same venue look.
+    par_amber = _preview_rgb_from_channels(1.0, 0.55, 0.08)
+    par_red = _preview_rgb_from_channels(1.0, 0.05, 0.02)
+    assert par_amber[1] > 0.75
+    assert par_red[1] > 0.15
 
 
 def test_beam_sides_are_spatially_distinct() -> None:

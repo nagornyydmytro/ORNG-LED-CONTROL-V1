@@ -37,14 +37,21 @@ function stop(event?: PointerEvent) {
   if (
     event &&
     activePointerId !== null &&
+    typeof event.pointerId === "number" &&
     event.pointerId !== activePointerId &&
     event.type !== "lostpointercapture"
   ) {
     return;
   }
-  if (activePointerId !== null && buttonRef.value?.hasPointerCapture(activePointerId)) {
+  const el = buttonRef.value;
+  if (
+    activePointerId !== null &&
+    el &&
+    typeof el.hasPointerCapture === "function" &&
+    el.hasPointerCapture(activePointerId)
+  ) {
     try {
-      buttonRef.value.releasePointerCapture(activePointerId);
+      el.releasePointerCapture(activePointerId);
     } catch {
       // already released
     }

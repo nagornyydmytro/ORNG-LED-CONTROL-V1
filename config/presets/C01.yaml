@@ -1,0 +1,106 @@
+schema_version: 1
+id: C01
+label: Мій пресет
+hardware_tuned: false
+builtin: false
+episodes:
+- id: ep1
+  duration_s: 18.0
+  groups:
+  - all_rear
+  palette: warm_orange
+  effect: pulse
+  speed: 0.4
+  intensity: 0.55
+  transition: soft
+  notes: null
+- id: ep2
+  duration_s: 18.0
+  groups:
+  - all_rear
+  palette: amber
+  effect: wave
+  speed: 0.5
+  intensity: 0.63
+  transition: soft
+  notes: null
+- id: ep3
+  duration_s: 18.0
+  groups:
+  - all_rear
+  palette: warm_orange
+  effect: pulse
+  speed: 0.6000000000000001
+  intensity: 0.7100000000000001
+  transition: soft
+  notes: null
+- id: ep4
+  duration_s: 18.0
+  groups:
+  - all_rear
+  palette: amber
+  effect: wave
+  speed: 0.7000000000000001
+  intensity: 0.79
+  transition: soft
+  notes: null
+- id: ep5
+  duration_s: 18.0
+  groups:
+  - all_rear
+  palette: warm_orange
+  effect: pulse
+  speed: 0.8
+  intensity: 0.55
+  transition: soft
+  notes: null
+- id: ep6
+  duration_s: 18.0
+  groups:
+  - all_rear
+  palette: amber
+  effect: wave
+  speed: 0.4
+  intensity: 0.63
+  transition: soft
+  notes: null
+- id: ep7
+  duration_s: 18.0
+  groups:
+  - all_rear
+  palette: warm_orange
+  effect: pulse
+  speed: 0.5
+  intensity: 0.7100000000000001
+  transition: soft
+  notes: null
+- id: ep8
+  duration_s: 18.0
+  groups:
+  - all_rear
+  palette: amber
+  effect: wave
+  speed: 0.6000000000000001
+  intensity: 0.79
+  transition: soft
+  notes: null
+- id: ep9
+  duration_s: 18.0
+  groups:
+  - all_rear
+  palette: warm_orange
+  effect: pulse
+  speed: 0.7000000000000001
+  intensity: 0.55
+  transition: soft
+  notes: null
+- id: ep10
+  duration_s: 18.0
+  groups:
+  - all_rear
+  palette: amber
+  effect: wave
+  speed: 0.8
+  intensity: 0.63
+  transition: soft
+  notes: null

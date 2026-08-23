@@ -34,7 +34,7 @@ class InputAction(StrEnum):
     PROGRAM_SPEED_UP = "program_speed_up"
     LIVE_FX_SPEED_DOWN = "live_fx_speed_down"
     LIVE_FX_SPEED_UP = "live_fx_speed_up"
-    # Zoom encoder: episode ±1, or live-FX speed while a hold effect is active.
+    # Zoom encoder: episode ±1 (live-FX speed uses volume while a hold is active).
     ZOOM_DOWN = "zoom_down"
     ZOOM_UP = "zoom_up"
 
@@ -63,8 +63,11 @@ BRIGHTNESS_STEP = 0.05
 BRIGHTNESS_MIN = 0.0
 BRIGHTNESS_MAX = 1.0
 LIVE_FX_SPEED_STEP = 0.05
-PROGRAM_SPEED_MIN = 1
-PROGRAM_SPEED_MAX = 5
+LIVE_FX_SPEED_MIN = 0.05
+LIVE_FX_SPEED_MAX = 1.0
+PROGRAM_SPEED_MIN = 0.5
+PROGRAM_SPEED_MAX = 5.0
+PROGRAM_SPEED_STEP = 0.25
 PAD_SLOT_COUNT = 9
 
 # Physical pad layout from canon §9 (presets 1–9 → home pad slots; 10 → NONE).

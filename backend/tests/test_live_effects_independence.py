@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 
 from orng_led.api.runtime import AppRuntime
@@ -9,7 +10,16 @@ from orng_led.config import default_config_dir, global_channel, load_show_config
 from orng_led.config.models import ChannelDefinition, ChannelRole, FixtureKind
 from orng_led.engine.engine import Engine
 from orng_led.engine.intents import BarIntent, BeamIntent, ParIntent, Rgbw, StageIntent
-from orng_led.engine.layers import WHITE, apply_strobe, apply_white_hit
+from orng_led.engine.layers import (
+    WHITE,
+    OverlayState,
+    apply_strobe,
+    apply_vertical_sweep,
+    apply_sweep_hit,
+    apply_white_hit,
+    compose_layers,
+    motion_only_stage,
+)
 from orng_led.engine.presets import NONE_PRESET_ID
 from orng_led.engine.renderer import (
     analyze_live_effect_coverage,
@@ -95,6 +105,169 @@ def test_strobe_lights_targets_on_zero_base() -> None:
     assert stage.fixtures["par_2"].intensity == 1.0
 
 
+def test_motion_only_stage_keeps_beam_axes_drops_colors() -> None:
+    show = load_show_config()
+    base = StageIntent(
+        fixtures={
+            "par_1": ParIntent(color=Rgbw(r=1, g=0, b=0), intensity=1.0),
+            "bar_1": BarIntent(
+                segments=(1.0,) * 8, dimmer=1.0, color=Rgbw(r=0, g=1, b=0)
+            ),
+            "beam_left": BeamIntent(
+                pan=0.3, tilt=0.7, dimmer=1.0, color=Rgbw(r=1, g=0, b=1), shutter_open=True
+            ),
+        }
+    )
+    stage = motion_only_stage(base, show)
+    assert "par_1" not in stage.fixtures
+    assert "bar_1" not in stage.fixtures
+    left = stage.fixtures["beam_left"]
+    assert isinstance(left, BeamIntent)
+    assert left.pan == pytest.approx(0.3)
+    assert left.tilt == pytest.approx(0.7)
+    assert left.dimmer == 0.0
+    assert left.shutter_open is False
+
+
+def test_strobe_live_preset_ignores_pad_colors_in_dark_gap() -> None:
+    """Held strobe is a live preset: dark gaps must not show pad colours."""
+    show = load_show_config()
+    base = StageIntent(
+        fixtures={
+            "par_1": ParIntent(color=Rgbw(r=1, g=0, b=0), intensity=1.0),
+            "bar_1": BarIntent(
+                segments=(1.0,) * 8, dimmer=1.0, color=Rgbw(r=0, g=1, b=0)
+            ),
+            "beam_left": BeamIntent(
+                pan=0.4, tilt=0.6, dimmer=1.0, color=Rgbw(r=1, g=1, b=0), shutter_open=True
+            ),
+        }
+    )
+    overlays = OverlayState(
+        strobe_held=True,
+        strobe_started_at=0.0,
+        strobe_speed=0.5,
+        strobe_phase=0.5,  # mid-cycle → dark (period ≥ 2)
+    )
+    stage = compose_layers(base, show, overlays, now=0.0)
+    par = stage.fixtures["par_1"]
+    assert isinstance(par, ParIntent)
+    assert par.intensity == 0.0
+    assert par.color == WHITE
+    bar = stage.fixtures["bar_1"]
+    assert isinstance(bar, BarIntent)
+    assert bar.dimmer == 0.0
+    assert bar.color == WHITE
+    beam = stage.fixtures["beam_left"]
+    assert isinstance(beam, BeamIntent)
+    assert beam.pan == pytest.approx(0.4)
+    assert beam.tilt == pytest.approx(0.6)
+
+
+def test_horizontal_sweep_overrides_preset_outside_wavefront() -> None:
+    """While sweep is active, fixtures outside the band must not show the preset."""
+    show = load_show_config()
+    base = StageIntent(
+        fixtures={
+            "par_1": ParIntent(color=Rgbw(r=1, g=0, b=0), intensity=1.0),
+            "par_4": ParIntent(color=Rgbw(r=0, g=1, b=0), intensity=1.0),
+            "bar_1": BarIntent(
+                segments=(1.0,) * 8,
+                dimmer=1.0,
+                color=Rgbw(r=1, g=1, b=0),
+            ),
+        }
+    )
+    # Early progress: wavefront is still on the far left — right fixtures must go dark.
+    stage = apply_sweep_hit(StageIntent(fixtures=dict(base.fixtures)), show, 0.05, WHITE)
+    right = stage.fixtures.get("par_4")
+    assert isinstance(right, ParIntent)
+    assert right.intensity == 0.0
+    bar = stage.fixtures.get("bar_4") or stage.fixtures.get("bar_1")
+    assert isinstance(bar, BarIntent)
+    # bar_1 may be near the left front; bar_4 must be claimed dark at progress 0.05.
+    bar4 = stage.fixtures["bar_4"]
+    assert isinstance(bar4, BarIntent)
+    assert bar4.dimmer == 0.0
+
+
+def test_vertical_sweep_drives_bar_segments() -> None:
+    show = load_show_config()
+    # Preset would keep bars fully lit — vertical sweep must replace them.
+    base = StageIntent(
+        fixtures={
+            "bar_1": BarIntent(
+                segments=(1.0,) * 8,
+                dimmer=1.0,
+                color=Rgbw(r=1, g=0, b=0),
+            ),
+            "beam_left": BeamIntent(
+                pan=0.4,
+                tilt=0.5,
+                dimmer=1.0,
+                color=Rgbw(r=1, g=0, b=0),
+                shutter_open=True,
+            ),
+            "par_2": ParIntent(color=Rgbw(r=1, g=0, b=0), intensity=1.0),
+            "par_1": ParIntent(color=Rgbw(r=1, g=0, b=0), intensity=1.0),
+        }
+    )
+    early = apply_vertical_sweep(
+        StageIntent(fixtures=dict(base.fixtures)), show, 0.15, WHITE
+    )
+    early_bar = early.fixtures["bar_1"]
+    assert isinstance(early_bar, BarIntent)
+    assert early_bar.dimmer == 0.0  # claimed; climb has not started
+    assert early_bar.color == WHITE
+    early_beam = early.fixtures["beam_left"]
+    assert isinstance(early_beam, BeamIntent)
+    # Ceiling heads stay dark until the front reaches the upper band.
+    assert early_beam.dimmer == 0.0
+    assert early_beam.shutter_open is False
+    assert early_beam.pan == pytest.approx(0.4)
+    assert early_beam.tilt == pytest.approx(0.5)
+
+    # Lower PARs fade by brightness (not hard on/off) before bars climb.
+    rising = apply_vertical_sweep(
+        StageIntent(fixtures=dict(base.fixtures)), show, 0.14, WHITE
+    )
+    par2 = rising.fixtures["par_2"]
+    assert isinstance(par2, ParIntent)
+    assert 0.0 < par2.intensity < 1.0
+    assert rising.fixtures["bar_1"].dimmer == 0.0  # type: ignore[union-attr]
+
+    # Still in the longer PAR intro — bars must stay dark.
+    mid_par = apply_vertical_sweep(
+        StageIntent(fixtures=dict(base.fixtures)), show, 0.42, WHITE
+    )
+    assert mid_par.fixtures["bar_1"].dimmer == 0.0  # type: ignore[union-attr]
+    par1 = mid_par.fixtures["par_1"]
+    assert isinstance(par1, ParIntent)
+    assert par1.intensity > 0.0
+
+    mid = apply_vertical_sweep(
+        StageIntent(fixtures=dict(base.fixtures)), show, 0.78, WHITE
+    )
+    mid_bar = mid.fixtures["bar_1"]
+    assert isinstance(mid_bar, BarIntent)
+    assert mid_bar.dimmer > 0.2
+    assert mid_bar.color == WHITE
+    assert max(mid_bar.segments) > 0.2
+    # After bar climb starts, the intro PAR fades are done.
+    assert isinstance(mid.fixtures["par_2"], ParIntent)
+    assert mid.fixtures["par_2"].intensity == 0.0  # type: ignore[union-attr]
+
+    late = apply_vertical_sweep(
+        StageIntent(fixtures=dict(base.fixtures)), show, 0.90, WHITE
+    )
+    late_beam = late.fixtures["beam_left"]
+    assert isinstance(late_beam, BeamIntent)
+    assert late_beam.dimmer > 0.0
+    assert late_beam.shutter_open is True
+    assert late_beam.pan == pytest.approx(0.4)
+    assert late_beam.tilt == pytest.approx(0.5)
+
+
 def test_face_only_targets_face_group() -> None:
     engine = _engine(NONE_PRESET_ID)
     engine.set_face(True, brightness=1.0)
@@ -137,6 +310,37 @@ def test_episode_change_during_white_hit_keeps_effect() -> None:
     snap = engine.tick(dt_s=0.02)
     assert snap.white_hit_active is True
     assert _fixture_sum(snap.frame, engine.show, "par_1") > 0
+
+
+def test_episode_change_during_sweep_and_color_hit_keeps_effects() -> None:
+    engine = _engine("P05")
+    engine.sweep_press(mode="horizontal")
+    engine.trigger_color_hit()
+    before_speed = engine.overlays.sweep_speed
+    engine.tick(dt_s=0.02)
+    engine.seek_episode(4)
+    snap = engine.tick(dt_s=0.02)
+    assert engine.overlays.sweep_held is True
+    assert engine.overlays.sweep_speed == pytest.approx(before_speed)
+    assert snap.sweep_active is True
+    assert snap.color_hit_active is True
+    assert snap.episode_index == 4
+
+
+def test_auto_episode_advance_keeps_held_live_fx() -> None:
+    """Clock crossing an episode boundary must not drop a held Strobe/Sweep."""
+    engine = _engine("P05")
+    engine.strobe_press()
+    engine.sweep_press(mode="vertical")
+    start = engine.tick(dt_s=0.0)
+    assert start.episode_index == 0
+    # Staff episodes are 18s — cross into episode 2 while keys stay "held".
+    snap = engine.tick(dt_s=36.0)
+    assert snap.episode_index >= 1
+    assert engine.overlays.strobe_held is True
+    assert engine.overlays.sweep_held is True
+    assert snap.strobe_held is True
+    assert snap.vertical_sweep_active is True
 
 
 def test_incomplete_beam_mapping_reported() -> None:

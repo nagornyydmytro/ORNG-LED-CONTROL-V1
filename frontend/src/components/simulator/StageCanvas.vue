@@ -3,6 +3,7 @@ import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 import type { SimulatorView, StageLayout, StagePlacement } from "../../vite-env";
 import {
   barSegmentLevel,
+  barSegmentRgb,
   beamRay,
   cablePolyline,
   css,
@@ -183,6 +184,9 @@ function drawBar(
     b: number;
     dimmer: number;
     segments: number[];
+    segment_r?: number[];
+    segment_g?: number[];
+    segment_b?: number[];
     label: string;
   },
 ) {
@@ -190,7 +194,6 @@ function drawBar(
   const w = box.width * placement.width;
   const h = box.height * placement.height;
   const top = centre.y - h / 2;
-  const colour = safeRgb({ ...bar, w: 0 });
   const segments = 8;
   const gap = h * 0.012;
   const segH = (h - gap * (segments - 1)) / segments;
@@ -200,12 +203,14 @@ function drawBar(
 
   for (let i = 0; i < segments; i += 1) {
     // Segment 1 is the bottom of a vertically mounted Bar.
-    const level = barSegmentLevel(bar as never, segments - 1 - i);
+    const segIndex = segments - 1 - i;
+    const level = barSegmentLevel(bar as never, segIndex);
     const y = top + i * (segH + gap);
+    const segColour = safeRgb({ ...barSegmentRgb(bar as never, segIndex), w: 0 });
     if (level > 0.03) {
-      drawGlow(ctx, centre.x, y + segH / 2, w * (1.6 + 5 * level), colour, level * 0.9);
+      drawGlow(ctx, centre.x, y + segH / 2, w * (1.6 + 5 * level), segColour, level * 0.9);
     }
-    ctx.fillStyle = level > 0.02 ? css(colour, 0.2 + 0.8 * level) : "rgba(54, 57, 66, 0.9)";
+    ctx.fillStyle = level > 0.02 ? css(segColour, 0.2 + 0.8 * level) : "rgba(54, 57, 66, 0.9)";
     ctx.fillRect(centre.x - w / 2, y, w, segH);
   }
 

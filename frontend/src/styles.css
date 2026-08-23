@@ -188,6 +188,11 @@ input {
   min-height: 100vh;
   background: var(--bg-0);
   background-image: var(--shell-glow);
+  transition: grid-template-columns 0.18s ease;
+}
+
+.shell--nav-collapsed {
+  --sidebar-w: 72px;
 }
 
 .sidebar {
@@ -203,12 +208,64 @@ input {
   position: sticky;
   top: 0;
   height: 100vh;
+  transition: padding 0.18s ease;
+}
+
+.sidebar--collapsed {
+  padding: var(--s-4) var(--s-2);
+  align-items: stretch;
+}
+
+.sidebar__top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s-2);
+}
+
+.sidebar--collapsed .sidebar__top {
+  flex-direction: column;
+  align-items: center;
+}
+
+.sidebar__toggle {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--bg-1);
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.sidebar__toggle:hover {
+  color: var(--text);
+  background: var(--bg-2);
+  border-color: var(--orng-line);
 }
 
 .sidebar__brand {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  min-width: 0;
+}
+
+.sidebar--collapsed .sidebar__brand {
+  align-items: center;
+}
+
+.sidebar--collapsed .nav-link {
+  justify-content: center;
+  padding: 0;
+}
+
+.sidebar--collapsed .theme-switch {
+  justify-content: center;
+  padding: 4px;
 }
 
 .sidebar__mark {
@@ -1630,11 +1687,14 @@ select {
     --sidebar-w: 0px;
   }
 
-  .shell {
+  .shell,
+  .shell--nav-collapsed {
+    --sidebar-w: 0px;
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .sidebar {
+  .sidebar,
+  .sidebar--collapsed {
     position: fixed;
     inset: auto 0 0 0;
     height: auto;
@@ -1648,6 +1708,8 @@ select {
     z-index: 20;
   }
 
+  .sidebar__top,
+  .sidebar__toggle,
   .sidebar__brand,
   .sidebar__foot {
     display: none;

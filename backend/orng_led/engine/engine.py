@@ -18,6 +18,8 @@ from orng_led.engine.layers import (
     WHITE_HIT_DURATION_S,
     OverlayState,
     SweepMode,
+    advance_strobe_phase,
+    advance_sweep_phase,
     compose_layers,
     drop_active,
     sweep_progress,
@@ -53,8 +55,8 @@ class EngineSnapshot:
     color_hit_active: bool = False
     sweep_active: bool = False
     vertical_sweep_active: bool = False
-    strobe_speed: float = 0.7
-    sweep_speed: float = 0.7
+    strobe_speed: float = 0.10
+    sweep_speed: float = 0.10
 
 
 @dataclass
@@ -71,6 +73,12 @@ class Engine:
     # Does not replace the pad selection; only the base look source.
     editor_preview_program: PresetProgram | None = None
     editor_preview_elapsed_s: float = 0.0
+    # Live program ×: scales effect/movement rate without changing episode length.
+    effect_rate_scale: float = 1.0
+    # Integrated effect/movement phase — advanced per tick by Δturns × current ×.
+    # Changing preview_speed must not rewrite past phase (no visual "restart").
+    effect_phase_turns: float = 0.0
+    movement_phase_turns: float = 0.0
 
     def __post_init__(self) -> None:
         if not self.presets:
@@ -84,6 +92,7 @@ class Engine:
                     float(fixture.spatial.home_tilt),
                 )
         self.overlays.master_brightness = self.show.app.master_brightness
+        self._resync_phase_turns()
 
     def beam_limits_for(self, fixture_id: str) -> BeamMotionLimits:
         fixture = next((fx for fx in self.show.patch.fixtures if fx.id == fixture_id), None)
@@ -121,19 +130,54 @@ class Engine:
         self.active_preset_id = preset_id
         if reset_clock:
             self.preset_elapsed_s = 0.0
+        self._resync_phase_turns()
 
     def start_editor_preview(self, program: PresetProgram) -> None:
         """Replace base look with a looping single-episode draft (pad selection kept)."""
         self.editor_preview_program = program
         self.editor_preview_elapsed_s = 0.0
+        self._resync_phase_turns()
 
     def stop_editor_preview(self) -> None:
         self.editor_preview_program = None
         self.editor_preview_elapsed_s = 0.0
+        self._resync_phase_turns()
 
     @property
     def editor_preview_active(self) -> bool:
         return self.editor_preview_program is not None
+
+    def _phase_source(self) -> tuple[PresetProgram, float]:
+        if self.editor_preview_program is not None:
+            return self.editor_preview_program, self.editor_preview_elapsed_s
+        return self.active_preset, self.preset_elapsed_s
+
+    def _resync_phase_turns(self) -> None:
+        """Snap integrated phase to nominal (×1) turns at the current show time."""
+        preset, elapsed = self._phase_source()
+        effect_fn = getattr(preset, "effect_turns", None)
+        movement_fn = getattr(preset, "movement_turns", None)
+        if callable(effect_fn) and callable(movement_fn):
+            self.effect_phase_turns = float(effect_fn(elapsed, rate_scale=1.0))
+            self.movement_phase_turns = float(movement_fn(elapsed, rate_scale=1.0))
+        else:
+            self.effect_phase_turns = 0.0
+            self.movement_phase_turns = 0.0
+
+    def _accumulate_phase_turns(self, t0: float, t1: float, *, scale: float) -> None:
+        """Advance integrated phase by the ×1 Δturns between t0→t1, times live ×."""
+        if t1 <= t0:
+            return
+        preset, _elapsed = self._phase_source()
+        effect_fn = getattr(preset, "effect_turns", None)
+        movement_fn = getattr(preset, "movement_turns", None)
+        if not callable(effect_fn) or not callable(movement_fn):
+            return
+        rate = max(0.0, float(scale))
+        self.effect_phase_turns += (float(effect_fn(t1)) - float(effect_fn(t0))) * rate
+        self.movement_phase_turns += (
+            float(movement_fn(t1)) - float(movement_fn(t0))
+        ) * rate
 
     def seek_episode(self, episode_index: int) -> None:
         """Jump to the start of ``episode_index``; auto-continue afterwards."""
@@ -158,8 +202,10 @@ class Engine:
                     break
                 elapsed += float(episode.duration_s)
             self.preset_elapsed_s = elapsed
+            self._resync_phase_turns()
             return
         self.preset_elapsed_s = float(index) * duration
+        self._resync_phase_turns()
 
     def trigger_white_hit(self) -> None:
         now = self.clock.time()
@@ -167,12 +213,19 @@ class Engine:
 
     def strobe_press(self) -> None:
         now = self.clock.time()
+        # Each hold starts from the configured default — encoder nudges are per-hold only.
+        self.overlays.strobe_speed = float(self.show.app.strobe_speed)
         self.overlays.strobe_held = True
         self.overlays.strobe_started_at = now
+        self.overlays.strobe_phase = 0.0
+        self.overlays.strobe_tick = 0
 
     def strobe_release(self) -> None:
         self.overlays.strobe_held = False
         self.overlays.strobe_started_at = None
+        self.overlays.strobe_speed = float(self.show.app.strobe_speed)
+        self.overlays.strobe_phase = 0.0
+        self.overlays.strobe_tick = 0
 
     # --- quick live effects -------------------------------------------------
 
@@ -234,19 +287,32 @@ class Engine:
         chosen = color or self.contrast_color()
         self.overlays.sweep_color = chosen
         self.overlays.sweep_mode = mode
+        # Each hold starts from the configured default — encoder nudges are per-hold only.
+        self.overlays.sweep_speed = float(self.show.app.sweep_speed)
         self.overlays.sweep_held = True
         self.overlays.sweep_started_at = self.clock.time()
+        self.overlays.sweep_phase = 0.0
         return chosen
 
     def sweep_release(self) -> None:
         self.overlays.sweep_held = False
         self.overlays.sweep_started_at = None
+        self.overlays.sweep_speed = float(self.show.app.sweep_speed)
+        self.overlays.sweep_phase = 0.0
 
     def set_strobe_speed(self, value: float) -> None:
-        self.overlays.strobe_speed = max(0.0, min(1.0, float(value)))
+        from orng_led.input.contract import LIVE_FX_SPEED_MAX, LIVE_FX_SPEED_MIN
+
+        self.overlays.strobe_speed = max(
+            LIVE_FX_SPEED_MIN, min(LIVE_FX_SPEED_MAX, float(value))
+        )
 
     def set_sweep_speed(self, value: float) -> None:
-        self.overlays.sweep_speed = max(0.0, min(1.0, float(value)))
+        from orng_led.input.contract import LIVE_FX_SPEED_MAX, LIVE_FX_SPEED_MIN
+
+        self.overlays.sweep_speed = max(
+            LIVE_FX_SPEED_MIN, min(LIVE_FX_SPEED_MAX, float(value))
+        )
 
     def nudge_live_fx_speed(self, delta: float) -> float | None:
         """Adjust speed of the currently held live effect. Returns new speed or None."""
@@ -293,7 +359,8 @@ class Engine:
         if self.overlays.white_hit_until is not None and now >= self.overlays.white_hit_until:
             self.overlays.white_hit_until = None
         if (
-            self.overlays.strobe_held
+            STROBE_HOLD_TIMEOUT_S > 0.0
+            and self.overlays.strobe_held
             and self.overlays.strobe_started_at is not None
             and now - self.overlays.strobe_started_at >= STROBE_HOLD_TIMEOUT_S
         ):
@@ -301,7 +368,8 @@ class Engine:
         if self.overlays.color_hit_until is not None and now >= self.overlays.color_hit_until:
             self.overlays.color_hit_until = None
         if (
-            self.overlays.sweep_held
+            SWEEP_HOLD_TIMEOUT_S > 0.0
+            and self.overlays.sweep_held
             and self.overlays.sweep_started_at is not None
             and now - self.overlays.sweep_started_at >= SWEEP_HOLD_TIMEOUT_S
         ):
@@ -313,29 +381,28 @@ class Engine:
         ):
             self.drop_release()
 
-    def _live_fx_active_at(self, time_s: float) -> bool:
-        from orng_led.engine.layers import _strobe_active, drop_active, sweep_progress
+    def _live_fx_parks_beam_motion_at(self, time_s: float) -> bool:
+        """Live FX that park beam axes (hits / drop). Strobe & sweep do not."""
+        from orng_led.engine.layers import drop_active
 
         overlays = self.overlays
         if overlays.white_hit_until is not None and time_s < overlays.white_hit_until:
             return True
         if overlays.color_hit_until is not None and time_s < overlays.color_hit_until:
             return True
-        if sweep_progress(overlays, time_s) is not None:
-            return True
-        if _strobe_active(overlays, time_s):
-            return True
         if drop_active(overlays, time_s):
             return True
         return False
 
     def _live_fx_freezes_beam_motion(self, time_s: float, *, dt_s: float = 0.0) -> bool:
-        """Any Live Effect freezes Beam axes for its duration (including the expiry tick)."""
-        if self._live_fx_active_at(time_s):
+        """Park axes for hit/drop only (including the expiry tick).
+
+        Strobe and Sweep are light overlays — episode pan/tilt keeps advancing.
+        """
+        if self._live_fx_parks_beam_motion_at(time_s):
             return True
-        # If this engine step crossed the expiry boundary, keep axes frozen for the step.
         start = time_s - max(0.0, dt_s)
-        return self._live_fx_active_at(start)
+        return self._live_fx_parks_beam_motion_at(start)
 
     def _beam_axes_mapped(self, fixture) -> bool:
         from orng_led.engine.beam_transform import missing_pan_tilt_roles
@@ -353,10 +420,10 @@ class Engine:
         return state
 
     def _advance_beams(self, stage: StageIntent, dt_s: float, *, time_s: float) -> None:
-        """Move only when a BeamIntent supplies pan/tilt and no Live FX is active.
+        """Move when a BeamIntent supplies pan/tilt and motion is not parked.
 
-        Absence of a Beam intent is never a command to Home or 0/0. Live Effects
-        freeze axes for their full duration so Sweep/Drop never steer heads.
+        Absence of a Beam intent is never a command to Home or 0/0. White/Color
+        Hit and Drop park axes; Strobe/Sweep keep following the episode path.
         """
         freeze = self._live_fx_freezes_beam_motion(time_s, dt_s=dt_s)
         for fixture in self.show.patch.fixtures:
@@ -383,17 +450,33 @@ class Engine:
                 self.beam_limits_for(fixture.id),
             )
 
-    def render_at(self, time_s: float, *, dt_s: float = 0.0) -> EngineSnapshot:
+    def render_at(
+        self,
+        time_s: float,
+        *,
+        dt_s: float = 0.0,
+        wall_dt_s: float | None = None,
+    ) -> EngineSnapshot:
         """Render a deterministic frame for an absolute clock time."""
         self._expire_overlays(time_s)
         preview = self.editor_preview_program
         pad_preset = self.active_preset
+        scale = max(0.0, float(self.effect_rate_scale))
+        phase_kwargs = {
+            "effect_rate_scale": scale,
+            "effect_turns": self.effect_phase_turns,
+            "movement_turns": self.movement_phase_turns,
+        }
         if preview is not None:
-            base = preview.evaluate(self.editor_preview_elapsed_s, self.show)
+            base = preview.evaluate(
+                self.editor_preview_elapsed_s, self.show, **phase_kwargs
+            )
         elif self.active_preset_id == NONE_PRESET_ID:
             base = StageIntent()
         else:
-            base = pad_preset.evaluate(self.preset_elapsed_s, self.show)
+            base = pad_preset.evaluate(
+                self.preset_elapsed_s, self.show, **phase_kwargs
+            )
 
         # Blackout zeroes the preset/base look only. Live Effects still compose
         # on top and can produce light while Blackout remains engaged.
@@ -401,6 +484,14 @@ class Engine:
             base = StageIntent()
 
         composed = compose_layers(base, self.show, self.overlays, time_s)
+        # Advance live-FX phase after composing this frame so speed changes only
+        # affect future steps (press starts at phase 0 = first flash / wavefront).
+        fx_dt = float(wall_dt_s) if wall_dt_s is not None else float(dt_s)
+        if fx_dt > 0.0:
+            if self.overlays.strobe_held:
+                advance_strobe_phase(self.overlays)
+            if self.overlays.sweep_held:
+                advance_sweep_phase(self.overlays, fx_dt)
         self._advance_beams(composed, dt_s, time_s=time_s)
         frame = render_stage(
             self.show,
@@ -476,25 +567,34 @@ class Engine:
         dt_s: float = FRAME_DT,
         *,
         wall_dt_s: float | None = None,
+        effect_rate_scale: float | None = None,
     ) -> EngineSnapshot:
         """Advance clocks and render.
 
-        ``dt_s`` advances show/preset time (may be scaled by preview_speed).
+        ``dt_s`` advances show/preset episode time.
         ``wall_dt_s`` advances the real safety clock used by White Hit / Strobe
         timeouts. When omitted, both clocks use ``dt_s``.
+        ``effect_rate_scale`` (live program ×) speeds effect modulation only.
         """
         if dt_s < 0:
             raise ValueError("dt_s must be >= 0")
         wall = dt_s if wall_dt_s is None else wall_dt_s
         if wall < 0:
             raise ValueError("wall_dt_s must be >= 0")
+        if effect_rate_scale is not None:
+            self.effect_rate_scale = max(0.0, float(effect_rate_scale))
+        scale = max(0.0, float(self.effect_rate_scale))
         now = self.clock.advance(wall)
         # Editor hardware preview pauses the pad preset clock and advances its own.
         if self.editor_preview_active:
+            t0 = self.editor_preview_elapsed_s
             self.editor_preview_elapsed_s += dt_s
+            self._accumulate_phase_turns(t0, self.editor_preview_elapsed_s, scale=scale)
         elif self.active_preset_id != NONE_PRESET_ID:
+            t0 = self.preset_elapsed_s
             self.preset_elapsed_s += dt_s
-        return self.render_at(now, dt_s=dt_s)
+            self._accumulate_phase_turns(t0, self.preset_elapsed_s, scale=scale)
+        return self.render_at(now, dt_s=dt_s, wall_dt_s=wall)
 
     def frame_at_preset_time(self, preset_time_s: float) -> list[int]:
         """Pure helper: same preset time ⇒ same base+layers frame (no beam step)."""

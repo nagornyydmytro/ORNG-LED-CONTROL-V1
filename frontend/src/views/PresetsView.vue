@@ -480,7 +480,7 @@ onBeforeUnmount(() => {
       <header class="card__head">
         <h2>Склад пульта</h2>
         <p class="card__sub">
-          На головній завжди NONE (клавіша 0), далі рівно 9 обраних (клавіші 1–9).
+          На головній завжди NONE (клавіша P), далі рівно 9 обраних (клавіші Q–O).
           NONE тут не налаштовується.
         </p>
       </header>
@@ -858,6 +858,10 @@ onBeforeUnmount(() => {
               </option>
             </select>
           </label>
+          <p class="card__sub">
+            Ефекти й переходи пишуть лише в канали з призначеною роллю в «Налаштування каналів».
+            Канали unused / без мапінгу завжди 0.
+          </p>
           <label class="field">
             <span>Швидкість {{ ep.speed.toFixed(2) }}</span>
             <input

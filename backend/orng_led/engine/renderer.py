@@ -24,15 +24,33 @@ from orng_led.engine.intents import (
     StageIntent,
 )
 
+# Semantic targets for nearest-name → DMX slot selection (must stay stable).
 _PALETTE_RGB: dict[str, tuple[float, float, float]] = {
     "off": (0.0, 0.0, 0.0),
     "red": (1.0, 0.0, 0.0),
+    # Matches preset ``warm_orange`` — distinct from yellower ``amber``.
+    "orange": (1.0, 0.35, 0.05),
     "green": (0.0, 1.0, 0.0),
     "blue": (0.0, 0.0, 1.0),
     "white": (1.0, 1.0, 1.0),
     "amber": (1.0, 0.55, 0.0),
     "cyan": (0.0, 1.0, 1.0),
     "purple": (0.7, 0.0, 1.0),
+}
+
+# How those slots actually look on venue LEDs — stage preview only (not DMX write).
+_PALETTE_DISPLAY_RGB: dict[str, tuple[float, float, float]] = {
+    "off": (0.0, 0.0, 0.0),
+    # Cheap red dies read orange on the floor.
+    "red": (1.0, 0.30, 0.02),
+    "orange": (1.0, 0.42, 0.0),
+    # Fixture amber / warm yellow, not the orange sRGB mix used for matching.
+    "amber": (1.0, 0.90, 0.12),
+    "green": (0.12, 1.0, 0.18),
+    "blue": (0.12, 0.28, 1.0),
+    "white": (1.0, 0.96, 0.90),
+    "cyan": (0.0, 0.95, 0.95),
+    "purple": (0.78, 0.12, 1.0),
 }
 
 
@@ -116,16 +134,21 @@ def _control_byte(channel: ChannelDefinition, key: str, default: int | None = No
     return int(DEFAULT_CONTROL_VALUES.get(key, 0))
 
 
-def _nearest_palette_name(color: Rgbw) -> str:
+def _nearest_palette_name(color: Rgbw, *, available: set[str] | None = None) -> str:
+    """Pick the closest named swatch; optionally restrict to keys present on the channel."""
+    if color.r + color.g + color.b < 0.05:
+        return "off"
     best_name = "off"
     best_distance = 1e9
     for name, (r, g, b) in _PALETTE_RGB.items():
+        if name == "off":
+            continue
+        if available is not None and name not in available:
+            continue
         distance = (color.r - r) ** 2 + (color.g - g) ** 2 + (color.b - b) ** 2
         if distance < best_distance:
             best_distance = distance
             best_name = name
-    if color.r + color.g + color.b < 0.05:
-        return "off"
     return best_name
 
 
@@ -133,13 +156,15 @@ def _palette_dmx(channel: ChannelDefinition, color: Rgbw, *, active: bool) -> in
     """Resolve a semantic colour via the operator-saved palette only.
 
     Missing palette entries are skipped (off) — never invent DMX values.
+    Nearest-name matching only considers swatches that exist on this channel,
+    so ``warm_orange`` prefers ``orange`` when calibrated (not yellower ``amber``).
     """
     import logging
 
     table = _palette_table(channel)
     if not active:
         return int(table.get("off", 0))
-    name = _nearest_palette_name(color)
+    name = _nearest_palette_name(color, available=set(table))
     if name not in table:
         logging.getLogger(__name__).info(
             "Show colour %r not in saved palette for ch%s (%s); skipping",
@@ -360,6 +385,19 @@ def _write_strobe_speed(
     _write_role(frame, fixture, roles, ChannelRole.STROBE_SPEED, level)
 
 
+def _output_gain(fixture: FixtureInstance, channel: str) -> float:
+    """Per-fixture hardware colour gain from patch ``output_gains`` (default ×1)."""
+    gains = fixture.output_gains or {}
+    try:
+        return max(0.0, float(gains.get(channel, 1.0)))
+    except (TypeError, ValueError):
+        return 1.0
+
+
+def _gained_level(fixture: FixtureInstance, channel: str, level: float) -> float:
+    return max(0.0, min(1.0, float(level) * _output_gain(fixture, channel)))
+
+
 def _write_rgbw_look(
     frame: list[int],
     fixture: FixtureInstance,
@@ -373,16 +411,34 @@ def _write_rgbw_look(
     scaled = color.scaled(level)
     has_rgb = ChannelRole.RED in roles and ChannelRole.GREEN in roles and ChannelRole.BLUE in roles
     if has_rgb:
-        _write_role(frame, fixture, roles, ChannelRole.RED, scaled.r)
-        _write_role(frame, fixture, roles, ChannelRole.GREEN, scaled.g)
-        _write_role(frame, fixture, roles, ChannelRole.BLUE, scaled.b)
+        _write_role(
+            frame, fixture, roles, ChannelRole.RED, _gained_level(fixture, "red", scaled.r)
+        )
+        _write_role(
+            frame, fixture, roles, ChannelRole.GREEN, _gained_level(fixture, "green", scaled.g)
+        )
+        _write_role(
+            frame, fixture, roles, ChannelRole.BLUE, _gained_level(fixture, "blue", scaled.b)
+        )
     if ChannelRole.WHITE in roles:
         # Prefer explicit white channel for near-white looks; otherwise fold w.
         white_level = scaled.w if scaled.w > 0.02 else (min(scaled.r, scaled.g, scaled.b))
         if white_level > 0.02:
-            _write_role(frame, fixture, roles, ChannelRole.WHITE, white_level)
+            _write_role(
+                frame,
+                fixture,
+                roles,
+                ChannelRole.WHITE,
+                _gained_level(fixture, "white", white_level),
+            )
     if ChannelRole.AMBER in roles and scaled.r > 0.3 and scaled.g > 0.15 and scaled.b < 0.25:
-        _write_role(frame, fixture, roles, ChannelRole.AMBER, scaled.r * 0.5)
+        _write_role(
+            frame,
+            fixture,
+            roles,
+            ChannelRole.AMBER,
+            _gained_level(fixture, "amber", scaled.r * 0.5),
+        )
 
 
 def render_par(

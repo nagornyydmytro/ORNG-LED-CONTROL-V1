@@ -52,8 +52,8 @@ const highlightId = computed(() => {
   return typeof q === "string" && q.length ? q : null;
 });
 const padPresetIds = computed(() => state.value?.pad_presets ?? []);
-const strobeSpeed = computed(() => state.value?.strobe_speed ?? engine.value?.strobe_speed ?? 0.7);
-const sweepSpeed = computed(() => state.value?.sweep_speed ?? engine.value?.sweep_speed ?? 0.7);
+const strobeSpeed = computed(() => state.value?.strobe_speed ?? engine.value?.strobe_speed ?? 0.10);
+const sweepSpeed = computed(() => state.value?.sweep_speed ?? engine.value?.sweep_speed ?? 0.10);
 
 const presetDoc = ref<PresetDocument | null>(null);
 const episodes = computed<EpisodeCard[]>(() => presetDoc.value?.episodes ?? []);
@@ -108,16 +108,17 @@ function onToggleFace() {
 }
 
 function goPrevEpisode() {
+  const count = episodes.value.length || engine.value?.episode_count || 0;
+  if (count <= 0) return;
   const index = engine.value?.episode_index ?? 0;
-  if (index <= 0) return;
-  void seekEpisode(index - 1);
+  void seekEpisode((index - 1 + count) % count);
 }
 
 function goNextEpisode() {
-  const index = engine.value?.episode_index ?? 0;
   const count = episodes.value.length || engine.value?.episode_count || 0;
-  if (index >= count - 1) return;
-  void seekEpisode(index + 1);
+  if (count <= 0) return;
+  const index = engine.value?.episode_index ?? 0;
+  void seekEpisode((index + 1) % count);
 }
 </script>
 
@@ -182,7 +183,7 @@ function goNextEpisode() {
           <header class="card__head">
             <h2>Пресети</h2>
             <p class="card__sub">
-              NONE + 9 обраних · клавіші 0–9
+              NONE + 9 обраних · клавіші P / Q–O
             </p>
           </header>
           <PresetPad
@@ -221,7 +222,7 @@ function goNextEpisode() {
               <button
                 type="button"
                 class="action-btn"
-                :disabled="offline || (engine?.episode_index ?? 0) <= 0"
+                :disabled="offline"
                 @click="goPrevEpisode"
               >
                 ← Попередній
@@ -229,11 +230,7 @@ function goNextEpisode() {
               <button
                 type="button"
                 class="action-btn"
-                :disabled="
-                  offline ||
-                    (engine?.episode_index ?? 0) >=
-                    (episodes.length || engine?.episode_count || 1) - 1
-                "
+                :disabled="offline"
                 @click="goNextEpisode"
               >
                 Наступний →
@@ -296,7 +293,7 @@ function goNextEpisode() {
             @click="onToggleFace"
           >
             <span class="fx-btn__label">DJ FACE</span>
-            <span class="fx-btn__hint">світло на обличчя</span>
+            <span class="fx-btn__hint">світло на обличчя · Esc</span>
           </button>
           <label class="field">
             <span>Яскравість Face</span>
@@ -305,7 +302,7 @@ function goNextEpisode() {
               min="0"
               max="1"
               step="0.01"
-              :value="engine?.face_brightness ?? 0.55"
+              :value="engine?.face_brightness ?? 1"
               :disabled="offline || !engine?.face_on"
               @input="onFaceBrightness(Number(($event.target as HTMLInputElement).value))"
             >

@@ -18,7 +18,15 @@ NONE_PRESET_ID = "NONE"
 class PresetProgram(Protocol):
     id: str
 
-    def evaluate(self, cycle_time_s: float, show: ShowConfig) -> StageIntent: ...
+    def evaluate(
+        self,
+        cycle_time_s: float,
+        show: ShowConfig,
+        *,
+        effect_rate_scale: float = 1.0,
+        effect_turns: float | None = None,
+        movement_turns: float | None = None,
+    ) -> StageIntent: ...
 
 
 @dataclass(frozen=True)
@@ -46,8 +54,16 @@ class NonePresetProgram:
     episode_count: int = 0
     total_duration_s: float = 0.0
 
-    def evaluate(self, cycle_time_s: float, show: ShowConfig) -> StageIntent:
-        del cycle_time_s, show
+    def evaluate(
+        self,
+        cycle_time_s: float,
+        show: ShowConfig,
+        *,
+        effect_rate_scale: float = 1.0,
+        effect_turns: float | None = None,
+        movement_turns: float | None = None,
+    ) -> StageIntent:
+        del cycle_time_s, show, effect_rate_scale, effect_turns, movement_turns
         return StageIntent()
 
     def cycle_position(self, time_s: float) -> CyclePosition:
@@ -62,7 +78,16 @@ class BasePulsePreset:
     id: str = "P05"
     label: str = "Універсальний (engine scaffold)"
 
-    def evaluate(self, cycle_time_s: float, show: ShowConfig) -> StageIntent:
+    def evaluate(
+        self,
+        cycle_time_s: float,
+        show: ShowConfig,
+        *,
+        effect_rate_scale: float = 1.0,
+        effect_turns: float | None = None,
+        movement_turns: float | None = None,
+    ) -> StageIntent:
+        del effect_rate_scale, effect_turns, movement_turns
         pos = cycle_position(cycle_time_s)
         pulse = 0.5 + 0.5 * math.sin(2 * math.pi * pos.episode_progress)
         wave = pos.episode_progress

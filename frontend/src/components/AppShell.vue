@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { onMounted, ref, watch } from "vue";
 import { RouterLink, RouterView } from "vue-router";
 import ToastStack from "./ToastStack.vue";
 import type { ConnectionStatus } from "../composables/useAppState";
@@ -17,6 +18,9 @@ defineProps<{
 }>();
 
 const { isLight, setTheme } = useTheme();
+
+const SIDEBAR_KEY = "orng-sidebar-collapsed";
+const collapsed = ref(false);
 
 const links = [
   { to: "/", label: "Пульт", glyph: "◉" },
@@ -42,14 +46,55 @@ function onThemeToggle(event: Event) {
   const checked = (event.target as HTMLInputElement).checked;
   setTheme(checked ? "light" : "dark");
 }
+
+function toggleSidebar() {
+  collapsed.value = !collapsed.value;
+}
+
+onMounted(() => {
+  try {
+    collapsed.value = sessionStorage.getItem(SIDEBAR_KEY) === "1";
+  } catch {
+    collapsed.value = false;
+  }
+});
+
+watch(collapsed, (value) => {
+  try {
+    sessionStorage.setItem(SIDEBAR_KEY, value ? "1" : "0");
+  } catch {
+    // ignore quota / private mode
+  }
+});
 </script>
 
 <template>
-  <div class="shell">
-    <aside class="sidebar">
-      <div class="sidebar__brand">
-        <span class="sidebar__mark">ORNG</span>
-        <span class="sidebar__sub">LED CONTROL</span>
+  <div
+    class="shell"
+    :class="{ 'shell--nav-collapsed': collapsed }"
+  >
+    <aside
+      class="sidebar"
+      :class="{ 'sidebar--collapsed': collapsed }"
+      :aria-expanded="!collapsed"
+    >
+      <div class="sidebar__top">
+        <div class="sidebar__brand">
+          <span class="sidebar__mark">ORNG</span>
+          <span
+            v-if="!collapsed"
+            class="sidebar__sub"
+          >LED CONTROL</span>
+        </div>
+        <button
+          type="button"
+          class="sidebar__toggle"
+          :aria-label="collapsed ? 'Розкрити меню' : 'Сховати меню'"
+          :title="collapsed ? 'Розкрити меню' : 'Сховати меню'"
+          @click="toggleSidebar"
+        >
+          {{ collapsed ? "»" : "«" }}
+        </button>
       </div>
 
       <nav
@@ -61,18 +106,25 @@ function onThemeToggle(event: Event) {
           :key="link.to"
           :to="link.to"
           class="nav-link"
+          :title="link.label"
         >
           <span
             class="nav-link__glyph"
             aria-hidden="true"
           >{{ link.glyph }}</span>
-          <span class="nav-link__label">{{ link.label }}</span>
+          <span
+            v-if="!collapsed"
+            class="nav-link__label"
+          >{{ link.label }}</span>
         </RouterLink>
       </nav>
 
       <div class="sidebar__theme">
         <label class="theme-switch">
-          <span class="theme-switch__label">
+          <span
+            v-if="!collapsed"
+            class="theme-switch__label"
+          >
             <span class="theme-switch__title">Тема</span>
             <span class="theme-switch__hint">{{ isLight ? "Світла · glass" : "Темна" }}</span>
           </span>
@@ -94,7 +146,10 @@ function onThemeToggle(event: Event) {
         </label>
       </div>
 
-      <div class="sidebar__foot">
+      <div
+        v-if="!collapsed"
+        class="sidebar__foot"
+      >
         <p class="sidebar__note">
           Локальний пульт · офлайн-режим
         </p>

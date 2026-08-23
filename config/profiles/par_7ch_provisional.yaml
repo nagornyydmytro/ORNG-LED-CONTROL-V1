@@ -16,6 +16,7 @@ channels:
   notes: null
   fixed_value: null
   palette: null
+  control_values: null
 - local: 2
   role: red
   label: Red
@@ -23,27 +24,31 @@ channels:
   notes: null
   fixed_value: null
   palette: null
+  control_values: null
 - local: 3
-  role: unused
+  role: green
   label: Не призначено
   segment_index: null
   notes: null
   fixed_value: null
   palette: null
+  control_values: null
 - local: 4
-  role: unused
+  role: blue
   label: Не призначено
   segment_index: null
   notes: null
   fixed_value: null
   palette: null
+  control_values: null
 - local: 5
-  role: unused
+  role: strobe_speed
   label: Не призначено
   segment_index: null
   notes: null
   fixed_value: null
   palette: null
+  control_values: null
 - local: 6
   role: unused
   label: Не призначено
@@ -51,6 +56,7 @@ channels:
   notes: null
   fixed_value: null
   palette: null
+  control_values: null
 - local: 7
   role: unused
   label: Не призначено
@@ -58,6 +64,7 @@ channels:
   notes: null
   fixed_value: null
   palette: null
+  control_values: null
 segment_count: 0
 notes: CH1 dimmer and CH2 red confirmed on hardware. Remaining channels are assigned
   via «Налаштування каналів».

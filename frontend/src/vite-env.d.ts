@@ -81,6 +81,10 @@ export interface BarFixtureView {
   g: number;
   b: number;
   segments: number[];
+  /** Per-segment venue preview RGB (parallel to segments). */
+  segment_r?: number[];
+  segment_g?: number[];
+  segment_b?: number[];
 }
 
 export interface BeamFixtureView {

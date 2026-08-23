@@ -75,6 +75,7 @@ class ChannelRole(StrEnum):
 DEFAULT_COLOR_PALETTE: dict[str, int] = {
     "off": 0,
     "red": 16,
+    "orange": 24,
     "green": 32,
     "blue": 48,
     "white": 64,
@@ -280,6 +281,28 @@ class FixtureInstance(StrictModel):
     spatial: SpatialPlacement
     enabled: bool = True
     notes: str | None = None
+    # Per-fixture DMX colour compensation (hardware weak channels), e.g. {"red": 2.0}.
+    # Applied in the renderer to RGBW/amber levels before the 0..255 write.
+    output_gains: dict[str, float] = Field(default_factory=dict)
+
+    @field_validator("output_gains")
+    @classmethod
+    def _output_gains(cls, value: dict[str, float]) -> dict[str, float]:
+        allowed = {"red", "green", "blue", "white", "amber"}
+        cleaned: dict[str, float] = {}
+        for key, raw in (value or {}).items():
+            name = str(key).strip().lower()
+            if name not in allowed:
+                raise ConfigError(
+                    f"output_gains key {key!r} must be one of {sorted(allowed)}"
+                )
+            number = float(raw)
+            if number <= 0.0 or number > 4.0:
+                raise ConfigError(
+                    f"output_gains[{name!r}] must be in (0, 4], got {number}"
+                )
+            cleaned[name] = number
+        return cleaned
 
 
 Normalized = Annotated[float, Field(ge=-1.0, le=2.0)]
@@ -397,8 +420,8 @@ class AppConfig(StrictModel):
     master_brightness: Annotated[float, Field(ge=0.0, le=1.0)] = 1.0
     # Home pad: NONE is always first in the UI; these 9 slots are the selectable presets.
     pad_presets: list[str] = Field(default_factory=lambda: list(DEFAULT_PAD_PRESETS))
-    strobe_speed: Annotated[float, Field(ge=0.0, le=1.0)] = 0.7
-    sweep_speed: Annotated[float, Field(ge=0.0, le=1.0)] = 0.7
+    strobe_speed: Annotated[float, Field(ge=0.05, le=1.0)] = 0.10
+    sweep_speed: Annotated[float, Field(ge=0.05, le=1.0)] = 0.10
     artnet: ArtNetSettings = Field(default_factory=ArtNetSettings)
     config_dir: str | None = None
 

@@ -52,12 +52,40 @@ class InputDispatcher:
         now = float(self.clock())
         key = self._debounce_key(event)
 
+        encoder_actions = {
+            InputAction.PROGRAM_SPEED_UP,
+            InputAction.PROGRAM_SPEED_DOWN,
+            InputAction.ZOOM_UP,
+            InputAction.ZOOM_DOWN,
+            InputAction.LIVE_FX_SPEED_UP,
+            InputAction.LIVE_FX_SPEED_DOWN,
+        }
+
         if event.action in _HOLD_PRESS:
             if not self.debouncer.accept_press(key, now):
                 return DispatchResult(accepted=False, reason=f"{event.action.value}_ignored_repeat")
         elif event.action in _HOLD_RELEASE:
             if not self.debouncer.accept_release(key, now):
-                return DispatchResult(accepted=False, reason=f"{event.action.value}_ignored")
+                # Debounce thinks we are not held, but engine may still be —
+                # clear a stuck hold from out-of-order press/release races.
+                engine_held = False
+                if event.action is InputAction.STROBE_RELEASE:
+                    engine_held = bool(self.runtime.engine.overlays.strobe_held)
+                elif event.action in (
+                    InputAction.SWEEP_RELEASE,
+                    InputAction.VERTICAL_SWEEP_RELEASE,
+                ):
+                    engine_held = bool(self.runtime.engine.overlays.sweep_held)
+                if not engine_held:
+                    return DispatchResult(
+                        accepted=False, reason=f"{event.action.value}_ignored"
+                    )
+        elif event.action in encoder_actions:
+            # Encoders tick faster than button debounce; keep a short floor only.
+            last = self.debouncer._last_accept.get(key)  # noqa: SLF001
+            if last is not None and now - last < 0.02:
+                return DispatchResult(accepted=False, reason="encoder_debounced")
+            self.debouncer._last_accept[key] = now  # noqa: SLF001
         else:
             if not self.debouncer.accept_pulse(key, now):
                 return DispatchResult(accepted=False, reason="debounced")
@@ -133,11 +161,19 @@ class InputDispatcher:
         if event.action is InputAction.EPISODE_NEXT:
             return self.runtime.apply_nudge_episode(1, client_command_id=cid)
         if event.action is InputAction.PROGRAM_SPEED_DOWN:
-            return self.runtime.apply_nudge_program_speed(-1, client_command_id=cid)
+            from orng_led.input.contract import PROGRAM_SPEED_STEP
+
+            return self.runtime.apply_nudge_program_speed(
+                -PROGRAM_SPEED_STEP, client_command_id=cid
+            )
         if event.action is InputAction.PROGRAM_SPEED_UP:
-            return self.runtime.apply_nudge_program_speed(1, client_command_id=cid)
+            from orng_led.input.contract import PROGRAM_SPEED_STEP
+
+            return self.runtime.apply_nudge_program_speed(PROGRAM_SPEED_STEP, client_command_id=cid)
         if event.action is InputAction.LIVE_FX_SPEED_DOWN:
-            return self.runtime.apply_nudge_live_fx_speed(-LIVE_FX_SPEED_STEP, client_command_id=cid)
+            return self.runtime.apply_nudge_live_fx_speed(
+                -LIVE_FX_SPEED_STEP, client_command_id=cid
+            )
         if event.action is InputAction.LIVE_FX_SPEED_UP:
             return self.runtime.apply_nudge_live_fx_speed(LIVE_FX_SPEED_STEP, client_command_id=cid)
         raise ValueError(f"Unsupported action {event.action}")

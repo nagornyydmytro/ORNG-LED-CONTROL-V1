@@ -1,7 +1,10 @@
 """Validate presets against the show-mode whitelist contract.
 
 Semantic YAML presets must not carry raw DMX or fixture-internal roles.
-The renderer still scrubs the final frame; this rejects bad documents early.
+Episode effects/transitions never address channel locals directly — the renderer
+writes only roles that exist in each fixture's saved channel mapping, then
+``scrub_show_frame`` zeros unused / forbidden roles. This module rejects bad
+documents early; wire safety is enforced in the renderer.
 """
 
 from __future__ import annotations

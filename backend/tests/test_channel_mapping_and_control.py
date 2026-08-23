@@ -158,6 +158,30 @@ def test_seek_then_auto_continues_to_next_episode() -> None:
     assert runtime.build_state().engine.episode_index == 2
 
 
+def test_auto_and_manual_episode_nudge_wrap_around() -> None:
+    """Last → next returns to first for both the clock and Zoom/UI nudge."""
+    runtime = _runtime()
+    runtime.apply_select_preset("P05", reset_clock=True)
+    runtime.engine.set_blackout(False)
+    doc = runtime.preset_store.documents["P05"]
+    count = len(doc.episodes)
+    assert count >= 2
+
+    # Automatic: cross the end of the last episode → episode 0.
+    total = sum(float(ep.duration_s) for ep in doc.episodes)
+    runtime.engine.preset_elapsed_s = total - 0.05
+    runtime.engine._resync_phase_turns()
+    runtime.tick(dt_s=0.1)
+    assert runtime.build_state().engine.episode_index == 0
+
+    # Manual nudge: last → +1 wraps to first; first → -1 wraps to last.
+    runtime.apply_seek_episode(count - 1)
+    runtime.apply_nudge_episode(1)
+    assert runtime.build_state().engine.episode_index == 0
+    runtime.apply_nudge_episode(-1)
+    assert runtime.build_state().engine.episode_index == count - 1
+
+
 def test_none_preset_hides_episode_activity() -> None:
     runtime = _runtime()
     runtime.apply_select_preset(NONE_PRESET_ID)

@@ -141,7 +141,7 @@ def test_cycle_boundary_beam_no_teleport(preset_id: str, show, staff_docs) -> No
 
 @pytest.mark.parametrize("preset_id", STAFF_PRESET_IDS)
 def test_staff_intents_keep_strobe_in_unit_range(preset_id: str, show, staff_docs) -> None:
-    """Preset pulse may drive mapped bar strobe_speed; Live FX hold limits stay fixed."""
+    """Preset looks never drive fixture strobe; Live FX hold limits stay fixed."""
     from orng_led.engine.intents import BarIntent
 
     program = YamlPresetProgram(staff_docs[preset_id])
@@ -151,16 +151,16 @@ def test_staff_intents_keep_strobe_in_unit_range(preset_id: str, show, staff_doc
         assert 0.0 <= strobe <= 1.0
         if not isinstance(fixture_intent, BarIntent):
             assert strobe == 0.0
-    assert STROBE_MAX_HZ == 4.0
-    assert STROBE_HOLD_TIMEOUT_S == 8.0
+    assert STROBE_MAX_HZ == 15.0
+    assert STROBE_HOLD_TIMEOUT_S == 0.0
 
 
-def test_loop_edge_episodes_share_soft_bridge(staff_docs) -> None:
-    """ep10 → ep1 uses soft/fade bridge and related palette family where practical."""
+def test_all_staff_episode_transitions_are_cut(staff_docs) -> None:
+    """Every staff episode hard-cuts into the next (including loop ep10 → ep1)."""
     for preset_id, doc in staff_docs.items():
+        for ep in doc.episodes:
+            assert ep.transition == "cut", f"{preset_id}/{ep.id}"
         ep1, ep10 = doc.episodes[0], doc.episodes[-1]
-        assert ep10.transition in {"soft", "fade"}
-        assert ep1.transition in {"soft", "fade", "cut"}
         # Same primary group family or identical palette keeps loop readable.
         shared_groups = set(ep1.groups) & set(ep10.groups)
         assert shared_groups or ep1.palette == ep10.palette, preset_id

@@ -19,6 +19,7 @@ const emit = defineEmits<{
 }>();
 
 const NONE_PRESET = { id: "NONE", label: "Без пресету" } as const;
+const PAD_KEYS = ["Q", "W", "E", "R", "T", "Y", "U", "I", "O"] as const;
 
 const padPresets = computed(() => {
   const fromApi = props.presets ?? [];
@@ -56,10 +57,10 @@ const padPresets = computed(() => {
       }"
       :disabled="disabled || !availableIds.has(NONE_PRESET.id)"
       :aria-pressed="activeId === NONE_PRESET.id"
-      :title="'Клавіша 0'"
+      :title="'Клавіша P'"
       @click="emit('select', NONE_PRESET.id)"
     >
-      <span class="preset-id">0 · {{ NONE_PRESET.id }}</span>
+      <span class="preset-id">P · {{ NONE_PRESET.id }}</span>
       <span class="preset-label">{{ NONE_PRESET.label }}</span>
     </button>
     <button
@@ -75,10 +76,10 @@ const padPresets = computed(() => {
       }"
       :disabled="disabled || !availableIds.has(preset.id)"
       :aria-pressed="activeId === preset.id"
-      :title="`Клавіша ${preset.slot}`"
+      :title="`Клавіша ${PAD_KEYS[preset.slot - 1] ?? preset.slot}`"
       @click="emit('select', preset.id)"
     >
-      <span class="preset-id">{{ preset.slot }} · {{ preset.id }}</span>
+      <span class="preset-id">{{ PAD_KEYS[preset.slot - 1] ?? preset.slot }} · {{ preset.id }}</span>
       <span class="preset-label">{{ preset.label }}</span>
     </button>
   </section>

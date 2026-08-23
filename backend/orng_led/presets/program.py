@@ -163,18 +163,42 @@ class YamlPresetProgram:
         turns += pos.episode_time_s * rate_of(episodes[pos.episode_index])
         return turns
 
-    def effect_turns(self, time_s: float) -> float:
-        return self._accumulated_turns(time_s, lambda ep: effect_rate_hz(ep.speed, ep.effect))
+    def effect_turns(self, time_s: float, *, rate_scale: float = 1.0) -> float:
+        scale = max(0.0, float(rate_scale))
+        return self._accumulated_turns(
+            time_s, lambda ep: effect_rate_hz(ep.speed, ep.effect) * scale
+        )
 
-    def movement_turns(self, time_s: float) -> float:
-        return self._accumulated_turns(time_s, lambda ep: movement_rate_hz(ep.speed))
+    def movement_turns(self, time_s: float, *, rate_scale: float = 1.0) -> float:
+        scale = max(0.0, float(rate_scale))
+        return self._accumulated_turns(
+            time_s, lambda ep: movement_rate_hz(ep.speed) * scale
+        )
 
-    def evaluate(self, cycle_time_s: float, show: ShowConfig) -> StageIntent:
+    def evaluate(
+        self,
+        cycle_time_s: float,
+        show: ShowConfig,
+        *,
+        effect_rate_scale: float = 1.0,
+        effect_turns: float | None = None,
+        movement_turns: float | None = None,
+    ) -> StageIntent:
         pos = self.cycle_position(cycle_time_s)
         episode = self.document.episodes[pos.episode_index]
+        # Prefer externally integrated turns (engine) so live × changes do not
+        # rewrite past phase — only future deltas speed up / slow down.
         clock = EffectPhase(
-            effect_turns=self.effect_turns(cycle_time_s),
-            movement_turns=self.movement_turns(cycle_time_s),
+            effect_turns=(
+                float(effect_turns)
+                if effect_turns is not None
+                else self.effect_turns(cycle_time_s, rate_scale=effect_rate_scale)
+            ),
+            movement_turns=(
+                float(movement_turns)
+                if movement_turns is not None
+                else self.movement_turns(cycle_time_s, rate_scale=effect_rate_scale)
+            ),
         )
         current = _evaluate_episode(episode, pos, clock, show)
 
@@ -307,17 +331,31 @@ def _effect_level(effect: str, turns: float, speed: float) -> float:
     if effect == "static":
         return 1.0
     if effect == "breathe":
-        return 0.30 + 0.70 * unipolar_sine(turns)
+        # Deep troughs so hardware dimmer travel is obvious on LED Bars.
+        return 0.06 + 0.94 * unipolar_sine(turns)
     if effect == "pulse":
         # Sharper the faster it runs, so P08–P10 read as accents, not a hum.
-        return 0.12 + 0.88 * accent(turns, 1.6 + 2.6 * speed)
+        return 0.02 + 0.98 * accent(turns, 1.6 + 2.6 * speed)
+    # Wave / chase / mirror: full 0..1 so the dark part of the run is truly off.
     if effect == "wave":
-        return 0.25 + 0.75 * unipolar_sine(turns)
+        return unipolar_sine(turns)
     if effect == "chase":
-        return 0.20 + 0.80 * accent(turns, 1.4 + 2.0 * speed)
+        return accent(turns, 1.4 + 2.0 * speed)
     if effect == "mirror_sweep":
-        return 0.35 + 0.65 * unipolar_sine(turns)
+        return unipolar_sine(turns)
     return 0.7
+
+
+def _bar_dimmer(episode: EpisodeCard, level: float) -> float:
+    """High-contrast bar master: peak near full; trough may be exactly 0."""
+    peak = max(0.95, min(1.0, float(episode.intensity)))
+    # Gamma pulls mid/low levels down so the swing reads on LED Bars.
+    shaped = max(0.0, min(1.0, float(level))) ** 1.45
+    return peak * shaped
+
+
+# Patterned bar looks: kill soft falloff glow so the wave/chase trough is black.
+_BAR_SEGMENT_BLACK_FLOOR = 0.05
 
 
 def _spatial_offset(fixture: FixtureInstance, show: ShowConfig) -> float:
@@ -360,15 +398,15 @@ def _evaluate_episode(
             segments = _bar_segments(episode, local_turns, level)
             # Chase/wave/mirror use segments; static/breathe/pulse prefer solid look.
             whole = episode.effect in {"static", "breathe", "pulse"}
-            if episode.effect == "pulse":
-                # Physical LED Bars need the mapped strobe_speed channel for a
-                # hard flash. Soft dimmer accents alone look like a dull pulse and
-                # leave CH2 (Strobe) at 0 — P09 ep1/ep6 read as "bars should strobe".
-                strobe = max(0.45, min(1.0, 0.40 + 0.60 * episode.speed))
-                dimmer = max(0.65, float(episode.intensity))
+            # Never drive fixture strobe on bars — CH2 blink fights dimmer pulse.
+            # Solid looks modulate master dimmer; patterned looks follow the lit
+            # segment peak so dark parts of the wave/chase go fully off (dimmer 0).
+            strobe = 0.0
+            if whole:
+                dimmer = _bar_dimmer(episode, level)
             else:
-                strobe = 0.0
-                dimmer = max(intensity, 0.15 * episode.intensity)
+                peak = max(segments) if segments else 0.0
+                dimmer = _bar_dimmer(episode, peak)
             intent.fixtures[fixture.id] = BarIntent(
                 segments=(0.0,) * 8 if whole else segments,
                 dimmer=dimmer,
@@ -383,17 +421,15 @@ def _evaluate_episode(
             sweep = 0.5 + 0.42 * math.sin(2.0 * math.pi * clock.movement_turns)
             pan = 1.0 - sweep if fixture.spatial.side.value == "left" else sweep
             tilt = 0.44 + 0.20 * math.sin(2.0 * math.pi * clock.movement_turns * 0.63 + 0.7)
-            if episode.effect == "pulse":
-                strobe = max(0.45, min(1.0, 0.40 + 0.60 * episode.speed))
-            else:
-                strobe = 0.0
+            # Never drive fixture strobe_speed — hardware blink is much faster than
+            # the episode pulse the stage preview shows (software intensity only).
             intent.fixtures[fixture.id] = BeamIntent(
                 pan=max(0.0, min(1.0, pan)),
                 tilt=max(0.0, min(1.0, tilt)),
                 dimmer=1.0,
                 color=color,
                 shutter_open=True,
-                strobe=strobe,
+                strobe=0.0,
             )
     return intent
 
@@ -418,4 +454,10 @@ def _bar_segments(episode: EpisodeCard, turns: float, level: float) -> tuple[flo
         segments = [0.85] * 8
     else:
         segments = [max(0.08, level)] * 8
-    return tuple(max(0.0, min(1.0, value)) for value in segments)
+    clipped = [max(0.0, min(1.0, value)) for value in segments]
+    if effect in {"chase", "wave", "mirror_sweep"}:
+        # Soft falloff tails → hard black so the wave trough is truly off.
+        clipped = [
+            0.0 if value < _BAR_SEGMENT_BLACK_FLOOR else value for value in clipped
+        ]
+    return tuple(clipped)

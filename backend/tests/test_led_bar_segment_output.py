@@ -135,6 +135,71 @@ def test_saved_bar_mapping_has_segments_and_shared_profile() -> None:
         assert all(ch.palette for ch in segs)
 
 
+def test_wave_chase_bar_troughs_reach_true_black() -> None:
+    """Patterned bar looks must hit dimmer/segment 0 at the dark part of the wave."""
+    from orng_led.presets.models import EpisodeCard, PresetDocument
+    from orng_led.presets.program import YamlPresetProgram, _bar_segments
+
+    show = load_show_config()
+    for effect in ("wave", "chase", "mirror_sweep"):
+        segs_low = _bar_segments(
+            EpisodeCard(
+                id="t",
+                duration_s=18.0,
+                groups=["bar"],
+                palette="warm_orange",
+                effect=effect,
+                speed=0.5,
+                intensity=1.0,
+                transition="cut",
+            ),
+            turns=0.75 if effect != "chase" else 0.0,
+            level=0.0,
+        )
+        assert min(segs_low) == 0.0, effect
+
+    doc = PresetDocument.model_validate(
+        {
+            "schema_version": 1,
+            "id": "T01",
+            "label": "t",
+            "hardware_tuned": False,
+            "builtin": False,
+            "episodes": [
+                {
+                    "id": "e1",
+                    "duration_s": 18.0,
+                    "groups": ["bar"],
+                    "palette": "warm_orange",
+                    "effect": "wave",
+                    "speed": 0.6,
+                    "intensity": 1.0,
+                    "transition": "cut",
+                }
+            ],
+        }
+    )
+    program = YamlPresetProgram(document=doc)
+    saw_black_segment = False
+    saw_lit_segment = False
+    for step in range(60):
+        stage = program.evaluate(step * 0.05, show)
+        for fixture in show.patch.fixtures:
+            if fixture.kind is not FixtureKind.BAR:
+                continue
+            intent = stage.fixtures.get(fixture.id)
+            if intent is None:
+                continue
+            assert isinstance(intent, BarIntent)
+            if min(intent.segments) == 0.0:
+                saw_black_segment = True
+            if max(intent.segments) > 0.2:
+                saw_lit_segment = True
+            # Master follows the lit peak — no stuck 0.55 floor on dark tails.
+            assert intent.dimmer <= max(intent.segments) + 1e-9
+    assert saw_black_segment and saw_lit_segment
+
+
 def test_chase_moves_segment_palette_values_on_all_four_bars() -> None:
     show = load_show_config()
     programs = _programs()
@@ -301,24 +366,31 @@ def test_p01_p10_keep_whole_color_zero_and_ch3_mapping() -> None:
             _assert_ch3_service(show, frame, fixture.id)
 
 
-def test_p09_pulse_episodes_drive_bar_strobe_speed() -> None:
-    """P09 ep1/ep6 are harsh pulse — bars must light solid and write strobe_speed."""
+def test_p09_pulse_episodes_light_bars_without_fixture_strobe() -> None:
+    """P09 ep1/ep6 pulse — bars stay lit via dimmer/segments; CH2 strobe stays off."""
     show = load_show_config()
     for episode_index in (0, 5):
         engine = _engine("P09")
         engine.seek_episode(episode_index)
-        for _ in range(10):
-            frame = engine.tick(dt_s=0.2, wall_dt_s=0.2).frame
-        for fixture in show.patch.fixtures:
-            if fixture.kind is not FixtureKind.BAR:
-                continue
-            strobe = _read_role_values(show, frame, fixture.id, ChannelRole.STROBE_SPEED)
-            assert strobe and strobe[0][2] > 40, (episode_index, fixture.id, strobe)
-            dimmer = _read_role_values(show, frame, fixture.id, ChannelRole.DIMMER)[0][2]
-            assert dimmer > 100, (episode_index, fixture.id, dimmer)
-            segs = _segment_values(show, frame, fixture.id)
-            assert all(v > 0 for v in segs), (episode_index, fixture.id, segs)
-            assert _read_role_values(show, frame, fixture.id, ChannelRole.WHOLE_COLOR)[0][2] == 0
+        dimmers: list[int] = []
+        for _ in range(12):
+            frame = engine.tick(dt_s=0.15, wall_dt_s=0.15).frame
+            for fixture in show.patch.fixtures:
+                if fixture.kind is not FixtureKind.BAR:
+                    continue
+                strobe = _read_role_values(show, frame, fixture.id, ChannelRole.STROBE_SPEED)
+                assert strobe and strobe[0][2] == 0, (episode_index, fixture.id, strobe)
+                dimmer = _read_role_values(show, frame, fixture.id, ChannelRole.DIMMER)[0][2]
+                dimmers.append(dimmer)
+                segs = _segment_values(show, frame, fixture.id)
+                # At deep troughs segments may still be coloured while dimmer is low.
+                if dimmer > 30:
+                    assert all(v > 0 for v in segs), (episode_index, fixture.id, segs)
+                assert _read_role_values(show, frame, fixture.id, ChannelRole.WHOLE_COLOR)[0][2] == 0
+        # High-contrast software pulse: near-full peak, clearly darker trough.
+        assert max(dimmers) > 220, (episode_index, dimmers[:8])
+        assert min(dimmers) < 100, (episode_index, dimmers[:8])
+        assert max(dimmers) - min(dimmers) > 100, (episode_index, dimmers[:8])
 
 
 def test_live_fx_does_not_enable_program_or_break_segment_exclusivity() -> None:

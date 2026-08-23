@@ -66,7 +66,10 @@ class AppRuntime:
     _running: bool = False
     _shutting_down: bool = False
     _last_wall: float | None = None
+    _last_ws_broadcast: float | None = None
     autostart_loop: bool = True
+    # UI/WebSocket refresh; Art-Net keeps full engine FPS via tick().
+    _ws_broadcast_dt: float = 1.0 / 15.0
     max_idempotency_keys: int = 256
     preview_speed: float = 1.0
     raw_tester: RawTesterSession = field(default_factory=RawTesterSession)
@@ -126,6 +129,14 @@ class AppRuntime:
         self._last_wall = time.monotonic()
         if self.autostart_loop:
             self._loop_task = asyncio.create_task(self._tick_loop(), name="orng-led-tick")
+            # Local Windows: capture hardware volume encoder → program speed ×0.5–×5.
+            # Skipped in tests (autostart_loop=False) so pytest never steals media keys.
+            try:
+                from orng_led.input.windows_media_keys import start_volume_hook_for_runtime
+
+                start_volume_hook_for_runtime(self)
+            except Exception:  # noqa: BLE001 — hook is optional
+                pass
 
     @property
     def is_ready(self) -> bool:
@@ -137,22 +148,45 @@ class AppRuntime:
     async def _tick_loop(self) -> None:
         try:
             while self._running and not self._shutting_down:
-                now = time.monotonic()
-                last = self._last_wall or now
-                dt = max(0.0, min(0.25, now - last))
-                self._last_wall = now
+                loop_start = time.monotonic()
+                last = self._last_wall or loop_start
+                dt = max(0.0, min(0.25, loop_start - last))
+                self._last_wall = loop_start
                 if dt > 0:
+                    # Art-Net / DMX every engine frame — never wait on WebSocket.
                     self.tick(dt_s=dt)
-                    await self.broadcast_state()
-                await asyncio.sleep(FRAME_DT)
+                    ws_due = (
+                        self._last_ws_broadcast is None
+                        or (loop_start - self._last_ws_broadcast) >= self._ws_broadcast_dt
+                    )
+                    if ws_due:
+                        self._last_ws_broadcast = loop_start
+                        await self.broadcast_state()
+                # Sleep only the remainder so work+sleep ≈ FRAME_DT (stable strobe).
+                elapsed = time.monotonic() - loop_start
+                await asyncio.sleep(max(0.0, FRAME_DT - elapsed))
         except asyncio.CancelledError:
             raise
 
     def tick(self, dt_s: float = FRAME_DT) -> EngineSnapshot:
-        # preview_speed advances show time only; wall clock drives safety timers.
+        from orng_led.input.contract import PROGRAM_SPEED_MAX
+
+        # Wall clock always drives safety timers.
         wall = max(0.0, dt_s)
-        scaled = wall * self.preview_speed
-        snapshot = self.engine.tick(dt_s=scaled, wall_dt_s=wall)
+        # Live program × (≤5): episode duration stays at ×1 wall time; × only
+        # scales effect intensity/rate inside the episode.
+        # Editor scrub (>5, e.g. ×30/×60): keep accelerating the show timeline.
+        if float(self.preview_speed) > PROGRAM_SPEED_MAX + 1e-9:
+            show_dt = wall * float(self.preview_speed)
+            effect_rate_scale = 1.0
+        else:
+            show_dt = wall
+            effect_rate_scale = max(0.0, float(self.preview_speed))
+        snapshot = self.engine.tick(
+            dt_s=show_dt,
+            wall_dt_s=wall,
+            effect_rate_scale=effect_rate_scale,
+        )
         self._publish_frame(self._published_frame(snapshot))
         self.sequence += 1
         return snapshot
@@ -620,7 +654,9 @@ class AppRuntime:
         cached = self._idempotent(client_command_id)
         if cached is not None:
             return cached, True
-        self.preview_speed = max(1.0, min(120.0, float(value)))
+        from orng_led.input.contract import PROGRAM_SPEED_MIN
+
+        self.preview_speed = max(PROGRAM_SPEED_MIN, min(120.0, float(value)))
         state = self.build_state()
         self._remember(client_command_id, state)
         return state, False
@@ -1233,6 +1269,9 @@ class AppRuntime:
         if preset_id == NONE_PRESET_ID:
             self.engine.presets[NONE_PRESET_ID] = NonePresetProgram()
         self.engine.select_preset(preset_id, reset_clock=reset_clock)
+        # New look always starts at ×1 intensity (encoder speed does not carry over).
+        self.preview_speed = 1.0
+        self.engine.effect_rate_scale = 1.0
         state = self.build_state()
         self._remember(client_command_id, state)
         return state, False
@@ -1280,6 +1319,9 @@ class AppRuntime:
             self.engine.strobe_release()
         else:
             raise ValueError(f"Unknown strobe action: {action}")
+        # Publish immediately (same as sweep) so hold edges are not one tick late.
+        self._publish_frame(self._published_frame())
+        self.sequence += 1
         state = self.build_state()
         self._remember(client_command_id, state)
         return state, False
@@ -1321,7 +1363,6 @@ class AppRuntime:
         state = self.build_state()
         self._remember(client_command_id, state)
         return state, False
-
 
     def apply_select_pad_slot(
         self,
@@ -1431,23 +1472,38 @@ class AppRuntime:
         if cached is not None:
             return cached, True
         snap = self.engine.render_at(self.engine.clock.time(), dt_s=0.0)
-        target = max(0, min(snap.episode_count - 1, snap.episode_index + int(delta)))
+        count = max(1, int(snap.episode_count))
+        # Loop the show: last → next wraps to first, first → prev wraps to last.
+        target = (int(snap.episode_index) + int(delta)) % count
         return self.apply_seek_episode(target, client_command_id=client_command_id)
 
     def apply_nudge_program_speed(
         self,
-        delta: int,
+        delta: float,
         *,
         client_command_id: str | None = None,
     ) -> tuple[AppStateResponse, bool]:
-        from orng_led.input.contract import PROGRAM_SPEED_MAX, PROGRAM_SPEED_MIN
+        from orng_led.input.contract import (
+            LIVE_FX_SPEED_STEP,
+            PROGRAM_SPEED_MAX,
+            PROGRAM_SPEED_MIN,
+        )
+
+        # Volume encoder while Strobe/Sweep held → live-FX speed only (not preset ×).
+        if self.engine.overlays.strobe_held or self.engine.overlays.sweep_held:
+            step = LIVE_FX_SPEED_STEP if delta > 0 else -LIVE_FX_SPEED_STEP
+            return self.apply_nudge_live_fx_speed(step, client_command_id=client_command_id)
 
         cached = self._idempotent(client_command_id)
         if cached is not None:
             return cached, True
-        current = int(round(self.preview_speed))
-        value = max(PROGRAM_SPEED_MIN, min(PROGRAM_SPEED_MAX, current + int(delta)))
-        return self.apply_preview_speed(float(value), client_command_id=client_command_id)
+        value = max(
+            PROGRAM_SPEED_MIN,
+            min(PROGRAM_SPEED_MAX, float(self.preview_speed) + float(delta)),
+        )
+        # Keep quarter-step UI values stable (×0.5 … ×5.0).
+        value = round(value * 4.0) / 4.0
+        return self.apply_preview_speed(value, client_command_id=client_command_id)
 
     def apply_nudge_live_fx_speed(
         self,
@@ -1463,10 +1519,11 @@ class AppRuntime:
             state = self.build_state()
             self._remember(client_command_id, state)
             return state, False
+        # Per-hold only — do not write app.yaml; next press restores the default.
         return self.apply_live_fx_speeds(
             strobe_speed=self.engine.overlays.strobe_speed,
             sweep_speed=self.engine.overlays.sweep_speed,
-            persist=True,
+            persist=False,
             client_command_id=client_command_id,
         )
 
@@ -1476,12 +1533,12 @@ class AppRuntime:
         *,
         client_command_id: str | None = None,
     ) -> tuple[AppStateResponse, bool]:
-        """Zoom encoder: live-FX speed while held, otherwise episode step."""
-        from orng_led.input.contract import LIVE_FX_SPEED_STEP
+        """Zoom encoder always steps episodes — never interrupts live FX holds.
 
-        if self.engine.overlays.strobe_held or self.engine.overlays.sweep_held:
-            step = LIVE_FX_SPEED_STEP if delta > 0 else -LIVE_FX_SPEED_STEP
-            return self.apply_nudge_live_fx_speed(step, client_command_id=client_command_id)
+        Live-FX speed while Strobe/Sweep is held is owned by the volume encoder
+        (see ``apply_nudge_program_speed``), so Ctrl+wheel / ZoomIn/Out can change
+        the underlying episode without zeroing or releasing the overlay.
+        """
         return self.apply_nudge_episode(delta, client_command_id=client_command_id)
 
     def apply_sweep_hit(
@@ -1794,7 +1851,9 @@ class AppRuntime:
         self.engine.select_preset(preset_id, reset_clock=True)
         # Preview is an explicit operator action: clear startup blackout so Mock is visible.
         self.engine.set_blackout(False)
-        self.preview_speed = max(1.0, min(120.0, float(speed)))
+        from orng_led.input.contract import PROGRAM_SPEED_MIN
+
+        self.preview_speed = max(PROGRAM_SPEED_MIN, min(120.0, float(speed)))
         self._publish_frame(self._published_frame())
         self.sequence += 1
         return self.build_state()
@@ -1831,6 +1890,12 @@ class AppRuntime:
             return []
         self._shutting_down = True
         self._running = False
+        try:
+            from orng_led.input.windows_media_keys import stop_volume_hook_for_runtime
+
+            stop_volume_hook_for_runtime(self)
+        except Exception:  # noqa: BLE001
+            pass
         if self.engine.editor_preview_active:
             self.engine.stop_editor_preview()
             self._editor_preview_meta = {}

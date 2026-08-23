@@ -142,6 +142,7 @@ export const FALLBACK_CHANNEL_ROLES: ChannelRoleOption[] = [
 export const PALETTE_KEYS = [
   "off",
   "red",
+  "orange",
   "green",
   "blue",
   "white",
@@ -153,6 +154,7 @@ export const PALETTE_KEYS = [
 export const DEFAULT_CHANNEL_PALETTE: Record<(typeof PALETTE_KEYS)[number], number> = {
   off: 0,
   red: 16,
+  orange: 24,
   green: 32,
   blue: 48,
   white: 64,

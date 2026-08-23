@@ -115,7 +115,8 @@ def test_live_effects_apply_to_all_configured_rear_fixtures() -> None:
             assert intent.dimmer > 0.9  # type: ignore[union-attr]
 
 
-def test_each_live_effect_never_moves_beam_axes() -> None:
+def test_parking_live_effects_never_move_beam_axes() -> None:
+    """White/Color Hit and Drop park axes; Strobe/Sweep keep episode motion."""
     engine = _engine("P05")
     # Drive beams away from home so hold is observable.
     for _ in range(40):
@@ -127,23 +128,41 @@ def test_each_live_effect_never_moves_beam_axes() -> None:
         for fid, (pan, tilt) in before.items()
     )
 
-    triggers = [
+    parking = [
         lambda: engine.trigger_white_hit(),
         lambda: engine.trigger_color_hit(Rgbw(r=1, g=0, b=0)),
-        lambda: engine.trigger_sweep_hit(Rgbw(r=0, g=0, b=1)),
-        lambda: engine.strobe_press(),
         lambda: engine.drop_press(),
     ]
-    for trigger in triggers:
+    for trigger in parking:
         snap_before = _beam_poses(engine)
         trigger()
         for _ in range(5):
             engine.tick(dt_s=0.02, wall_dt_s=0.02)
             _assert_poses_unchanged(snap_before, _beam_poses(engine))
-        engine.strobe_release()
         engine.drop_release()
         # Expire timed hits; motion may resume afterward from the frozen pose.
         engine.tick(dt_s=2.0, wall_dt_s=2.0)
+
+
+def test_strobe_and_sweep_keep_episode_beam_motion() -> None:
+    engine = _engine("P05")
+    for _ in range(20):
+        engine.tick(dt_s=0.25, wall_dt_s=0.25)
+
+    engine.strobe_press()
+    before = _beam_poses(engine)
+    for _ in range(12):
+        engine.tick(dt_s=0.25, wall_dt_s=0.25)
+    after_strobe = _beam_poses(engine)
+    assert after_strobe != before
+    engine.strobe_release()
+
+    engine.trigger_sweep_hit(Rgbw(r=0, g=0, b=1))
+    before_sweep = _beam_poses(engine)
+    for _ in range(8):
+        engine.tick(dt_s=0.05, wall_dt_s=0.05)
+    after_sweep = _beam_poses(engine)
+    assert after_sweep != before_sweep
 
 
 def test_missing_beam_in_episode_holds_last_valid_not_home() -> None:
@@ -156,24 +175,9 @@ def test_missing_beam_in_episode_holds_last_valid_not_home() -> None:
         for fx in engine.show.patch.fixtures
         if fx.kind is FixtureKind.BEAM
     }
-    # Find an episode without beams by scanning.
-    doc = engine.active_preset.document  # type: ignore[attr-defined]
-    target_ep = None
-    for index, _episode in enumerate(doc.episodes):
-        look = engine.active_preset.evaluate(  # type: ignore[attr-defined]
-            sum(ep.duration_s for ep in doc.episodes[:index]), engine.show
-        )
-        if not any(
-            fx.kind is FixtureKind.BEAM and fx.id in look.fixtures
-            for fx in engine.show.patch.fixtures
-        ):
-            target_ep = index
-            break
-    if target_ep is None:
-        # Force NONE as "no beam intent" stand-in.
-        engine.select_preset("NONE")
-    else:
-        engine.seek_episode(target_ep)
+    # Episode boundaries can still blend beams from the neighbour card — use
+    # NONE so the hold path is tested without transition residue.
+    engine.select_preset("NONE")
     for _ in range(30):
         engine.tick(dt_s=0.5, wall_dt_s=0.5)
         now = _beam_last_valid(engine)
@@ -312,14 +316,30 @@ def test_after_live_effect_episode_light_restores_position_continuous() -> None:
 
 
 def test_color_hit_and_strobe_intents_hold_beam_axes() -> None:
+    from orng_led.engine.intents import BeamIntent
+
     show = load_show_config()
     stage = apply_color_hit(StageIntent(), show, Rgbw(r=0, g=1, b=0))
     for fixture in show.patch.fixtures:
         if fixture.kind is FixtureKind.BEAM:
             intent = stage.fixtures[fixture.id]
             assert intent.pan is None and intent.tilt is None  # type: ignore[union-attr]
+    # Empty stage: strobe invents no axes.
     strobe = apply_strobe(StageIntent(), show, now=0.0, speed=0.7)
     for fixture in show.patch.fixtures:
         if fixture.kind is FixtureKind.BEAM:
             intent = strobe.fixtures[fixture.id]
             assert intent.pan is None and intent.tilt is None  # type: ignore[union-attr]
+    # Episode look present: strobe preserves pan/tilt.
+    base = StageIntent(
+        fixtures={
+            fx.id: BeamIntent(pan=0.3, tilt=0.7, dimmer=0.5, color=Rgbw(r=1), shutter_open=True)
+            for fx in show.patch.fixtures
+            if fx.kind is FixtureKind.BEAM
+        }
+    )
+    strobe_over_episode = apply_strobe(base, show, now=0.0, speed=0.7)
+    for fixture in show.patch.fixtures:
+        if fixture.kind is FixtureKind.BEAM:
+            intent = strobe_over_episode.fixtures[fixture.id]
+            assert intent.pan == 0.3 and intent.tilt == 0.7  # type: ignore[union-attr]

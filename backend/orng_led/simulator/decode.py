@@ -7,7 +7,13 @@ from pydantic import BaseModel, ConfigDict, Field
 from orng_led.config.models import ChannelDefinition, ChannelRole, FixtureKind, ShowConfig
 from orng_led.config.schema import DMX_UNIVERSE_SIZE
 from orng_led.config.validation import global_channel
-from orng_led.engine.renderer import _PALETTE_RGB, _palette_table
+from orng_led.engine.intents import Rgbw
+from orng_led.engine.renderer import (
+    _PALETTE_DISPLAY_RGB,
+    _PALETTE_RGB,
+    _nearest_palette_name,
+    _palette_table,
+)
 from orng_led.simulator.geometry import beam_vector
 
 
@@ -42,6 +48,10 @@ class BarFixtureView(StrictView):
     g: float = 0.0
     b: float = 0.0
     segments: list[float] = Field(min_length=8, max_length=8)
+    # Per-segment preview RGB (venue LED look), parallel to ``segments``.
+    segment_r: list[float] = Field(default_factory=lambda: [0.0] * 8, min_length=8, max_length=8)
+    segment_g: list[float] = Field(default_factory=lambda: [0.0] * 8, min_length=8, max_length=8)
+    segment_b: list[float] = Field(default_factory=lambda: [0.0] * 8, min_length=8, max_length=8)
 
 
 class BeamFixtureView(StrictView):
@@ -103,7 +113,7 @@ def _rgb_from_palette_dmx(
     channel: ChannelDefinition | None,
     dmx_value: int,
 ) -> tuple[float, float, float] | None:
-    """Map a fixture palette byte back to approximate linear RGB for the stage sim."""
+    """Map a fixture palette byte to venue-accurate preview RGB."""
     if channel is None or dmx_value <= 0:
         return None
     table = _palette_table(channel)
@@ -117,13 +127,44 @@ def _rgb_from_palette_dmx(
     # Palette slots on LED Bars are ~30 DMX apart; reject far mismatches.
     if best_name is None or best_name == "off" or best_dist > 15:
         return None
-    rgb = _PALETTE_RGB.get(best_name)
+    rgb = _PALETTE_DISPLAY_RGB.get(best_name) or _PALETTE_RGB.get(best_name)
     if rgb is None:
         return None
     return float(rgb[0]), float(rgb[1]), float(rgb[2])
 
 
-def _first_channel(channels: list[ChannelDefinition], role: ChannelRole) -> ChannelDefinition | None:
+def _preview_rgb_from_channels(
+    r: float, g: float, b: float, *, w: float = 0.0
+) -> tuple[float, float, float]:
+    """Map linear DMX RGB to how the venue LEDs actually read on stage.
+
+    When the mix is close to a named palette swatch, show the calibrated display
+    colour (amber→yellow, red→orange-red). Arbitrary mixes stay as written.
+    """
+    if r + g + b + w < 0.02:
+        return r, g, b
+    name = _nearest_palette_name(Rgbw(r=r, g=g, b=b))
+    match = _PALETTE_RGB.get(name)
+    display = _PALETTE_DISPLAY_RGB.get(name)
+    if match is None or display is None or name == "off":
+        return r, g, b
+    dist = (r - match[0]) ** 2 + (g - match[1]) ** 2 + (b - match[2]) ** 2
+    if dist > 0.08:
+        return r, g, b
+    # Keep overall brightness of the written mix.
+    src = max(r, g, b, 1e-6)
+    dst = max(display[0], display[1], display[2], 1e-6)
+    scale = src / dst
+    return (
+        min(1.0, display[0] * scale),
+        min(1.0, display[1] * scale),
+        min(1.0, display[2] * scale),
+    )
+
+
+def _first_channel(
+    channels: list[ChannelDefinition], role: ChannelRole
+) -> ChannelDefinition | None:
     for channel in channels:
         if channel.role is role:
             return channel
@@ -146,6 +187,11 @@ def decode_simulator_view(show: ShowConfig, frame: list[int]) -> SimulatorView:
 
         if fixture.kind in (FixtureKind.PAR, FixtureKind.FACE_PAR):
             intensity = _u8(frame, start, _first(_role_locals(channels, ChannelRole.DIMMER)))
+            raw_r = _u8(frame, start, _first(_role_locals(channels, ChannelRole.RED)))
+            raw_g = _u8(frame, start, _first(_role_locals(channels, ChannelRole.GREEN)))
+            raw_b = _u8(frame, start, _first(_role_locals(channels, ChannelRole.BLUE)))
+            raw_w = _u8(frame, start, _first(_role_locals(channels, ChannelRole.WHITE)))
+            pr, pg, pb = _preview_rgb_from_channels(raw_r, raw_g, raw_b, w=raw_w)
             view = ParFixtureView(
                 id=fixture.id,
                 label=fixture.label,
@@ -154,10 +200,10 @@ def decode_simulator_view(show: ShowConfig, frame: list[int]) -> SimulatorView:
                 ring=fixture.spatial.ring.value,
                 face=fixture.spatial.face or fixture.kind is FixtureKind.FACE_PAR,
                 order=fixture.spatial.order,
-                r=_u8(frame, start, _first(_role_locals(channels, ChannelRole.RED))),
-                g=_u8(frame, start, _first(_role_locals(channels, ChannelRole.GREEN))),
-                b=_u8(frame, start, _first(_role_locals(channels, ChannelRole.BLUE))),
-                w=_u8(frame, start, _first(_role_locals(channels, ChannelRole.WHITE))),
+                r=pr,
+                g=pg,
+                b=pb,
+                w=raw_w,
                 intensity=intensity,
             )
             if fixture.kind is FixtureKind.FACE_PAR:
@@ -203,7 +249,7 @@ def decode_simulator_view(show: ShowConfig, frame: list[int]) -> SimulatorView:
                 whole_rgb = _rgb_from_palette_dmx(whole_channel, whole_dmx)
                 if whole_rgb is not None:
                     segment_rgbs = [whole_rgb] * 8
-            # Palette-only bars: decode saved palette slots → real RGB for the пульт.
+            # Palette-only bars: decode saved palette slots → venue RGB for the пульт.
             if dimmer > 0.02 and r + g + b < 0.05:
                 picked: tuple[float, float, float] | None = None
                 for level, rgb in zip(segments, segment_rgbs, strict=True):
@@ -217,6 +263,19 @@ def decode_simulator_view(show: ShowConfig, frame: list[int]) -> SimulatorView:
                 elif sum(segments) > 0.05:
                     # Lit but unknown palette slot — keep a neutral fallback.
                     r = g = b = dimmer
+            else:
+                r, g, b = _preview_rgb_from_channels(r, g, b)
+
+            seg_r = [0.0] * 8
+            seg_g = [0.0] * 8
+            seg_b = [0.0] * 8
+            for idx in range(8):
+                rgb = segment_rgbs[idx]
+                if rgb is not None and segments[idx] > 0.02:
+                    seg_r[idx], seg_g[idx], seg_b[idx] = rgb
+                elif segments[idx] > 0.02:
+                    seg_r[idx], seg_g[idx], seg_b[idx] = r, g, b
+
             bars.append(
                 BarFixtureView(
                     id=fixture.id,
@@ -230,6 +289,9 @@ def decode_simulator_view(show: ShowConfig, frame: list[int]) -> SimulatorView:
                     g=g,
                     b=b,
                     segments=segments,
+                    segment_r=seg_r,
+                    segment_g=seg_g,
+                    segment_b=seg_b,
                 )
             )
 
@@ -278,7 +340,18 @@ def decode_simulator_view(show: ShowConfig, frame: list[int]) -> SimulatorView:
             if dimmer < 0.02 and (r + g + b) > 0.05:
                 dimmer = 1.0
             if dimmer > 0.02 and r + g + b < 0.05 and color_wheel:
-                r = g = b = dimmer
+                wheel_ch = _first_channel(channels, ChannelRole.COLOR) or _first_channel(
+                    channels, ChannelRole.WHOLE_COLOR
+                )
+                wheel_local = wheel_ch.local if wheel_ch is not None else None
+                wheel_dmx = _read(frame, start, wheel_local) if wheel_local is not None else 0
+                wheel_rgb = _rgb_from_palette_dmx(wheel_ch, wheel_dmx)
+                if wheel_rgb is not None:
+                    r, g, b = wheel_rgb
+                else:
+                    r = g = b = dimmer
+            else:
+                r, g, b = _preview_rgb_from_channels(r, g, b)
             if not shutter and dimmer > 0.02:
                 shutter_level = 1.0
 

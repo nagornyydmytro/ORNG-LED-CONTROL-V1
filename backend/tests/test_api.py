@@ -88,6 +88,20 @@ def test_config_and_presets_endpoints(client) -> None:
     assert any(item["id"] == "P05" for item in presets)
 
 
+def test_select_preset_resets_preview_speed_in_ack(client) -> None:
+    test_client, runtime = client
+    test_client.post("/api/commands/preview-speed", json={"value": 3.5}).json()
+    assert runtime.preview_speed == 3.5
+    ack = test_client.post(
+        "/api/commands/select-preset",
+        json={"preset_id": "P05", "reset_clock": True},
+    ).json()
+    assert ack["ok"] is True
+    assert ack["state"]["preview_speed"] == 1.0
+    assert runtime.preview_speed == 1.0
+    assert runtime.engine.effect_rate_scale == 1.0
+
+
 def test_commands_update_state(client) -> None:
     test_client, runtime = client
     ack = test_client.post(

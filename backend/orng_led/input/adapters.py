@@ -7,9 +7,9 @@ from typing import Protocol
 
 from orng_led.input.contract import Edge, InputAction, InputEvent, InputSource
 from orng_led.input.mapping import (
-    DIGIT_PAD_SLOT,
     HOLD_RELEASE_CODES,
     KEYBOARD_CODE_MAP,
+    PAD_KEY_SLOT,
     button_to_event,
 )
 
@@ -87,13 +87,26 @@ class KeyboardInputAdapter:
         if mapped is None:
             return []
         action, edge = mapped
+        # Hold keys: ignore OS auto-repeat while already down.
         if edge == "press" and repeat:
             return []
-        if edge == "pulse" and repeat:
+        # Encoder / media keys often arrive as repeat=true after the first tick —
+        # still accept them so a spinning volume/zoom knob keeps nudging.
+        encoder_actions = {
+            InputAction.PROGRAM_SPEED_UP,
+            InputAction.PROGRAM_SPEED_DOWN,
+            InputAction.ZOOM_UP,
+            InputAction.ZOOM_DOWN,
+            InputAction.LIVE_FX_SPEED_UP,
+            InputAction.LIVE_FX_SPEED_DOWN,
+            InputAction.EPISODE_PREV,
+            InputAction.EPISODE_NEXT,
+        }
+        if edge == "pulse" and repeat and action not in encoder_actions:
             return []
 
-        pad_slot = DIGIT_PAD_SLOT.get(code)
-        preset_id = "NONE" if action is InputAction.SELECT_PRESET and code == "Digit0" else None
+        pad_slot = PAD_KEY_SLOT.get(code)
+        preset_id = "NONE" if action is InputAction.SELECT_PRESET and code == "KeyP" else None
         return [
             InputEvent(
                 action=action,

@@ -111,23 +111,34 @@ def button_to_event(
 
 
 # Keyboard defaults for HOME adapter (Browser KeyboardEvent.code values).
-# Digits 1–9 → pad slots; Digit0 → NONE; Space blackout; Backspace strobe; Enter sweep.
-# Zoom encoder → episode / live-FX speed; Volume encoder → program speed ×1–×5.
+# Q–O → pad slots 1–9; P → NONE;
+# Space = single-press blackout toggle (pulse; repeats ignored);
+# Hold FX:
+#   Z = strobe, X = horizontal sweep, Delete = vertical sweep (C also works).
+# Escape = face PARs toggle (KeyF also works).
+# Zoom → episode ±1 (does not release or retarget live FX);
+# Volume → program ×0.5–×5, or live-FX speed while Strobe/Sweep held.
 KEYBOARD_CODE_MAP: dict[str, tuple[InputAction, Edge]] = {
-    "Digit1": (InputAction.SELECT_PAD_SLOT, "pulse"),
-    "Digit2": (InputAction.SELECT_PAD_SLOT, "pulse"),
-    "Digit3": (InputAction.SELECT_PAD_SLOT, "pulse"),
-    "Digit4": (InputAction.SELECT_PAD_SLOT, "pulse"),
-    "Digit5": (InputAction.SELECT_PAD_SLOT, "pulse"),
-    "Digit6": (InputAction.SELECT_PAD_SLOT, "pulse"),
-    "Digit7": (InputAction.SELECT_PAD_SLOT, "pulse"),
-    "Digit8": (InputAction.SELECT_PAD_SLOT, "pulse"),
-    "Digit9": (InputAction.SELECT_PAD_SLOT, "pulse"),
-    "Digit0": (InputAction.SELECT_PRESET, "pulse"),
+    "KeyQ": (InputAction.SELECT_PAD_SLOT, "pulse"),
+    "KeyW": (InputAction.SELECT_PAD_SLOT, "pulse"),
+    "KeyE": (InputAction.SELECT_PAD_SLOT, "pulse"),
+    "KeyR": (InputAction.SELECT_PAD_SLOT, "pulse"),
+    "KeyT": (InputAction.SELECT_PAD_SLOT, "pulse"),
+    "KeyY": (InputAction.SELECT_PAD_SLOT, "pulse"),
+    "KeyU": (InputAction.SELECT_PAD_SLOT, "pulse"),
+    "KeyI": (InputAction.SELECT_PAD_SLOT, "pulse"),
+    "KeyO": (InputAction.SELECT_PAD_SLOT, "pulse"),
+    "KeyP": (InputAction.SELECT_PRESET, "pulse"),
     "Space": (InputAction.BLACKOUT_TOGGLE, "pulse"),
+    "KeyZ": (InputAction.STROBE_PRESS, "press"),
+    "KeyX": (InputAction.SWEEP_PRESS, "press"),
+    "Delete": (InputAction.VERTICAL_SWEEP_PRESS, "press"),
+    "KeyC": (InputAction.VERTICAL_SWEEP_PRESS, "press"),
+    # Legacy aliases (less reliable for hold in the browser).
     "Backspace": (InputAction.STROBE_PRESS, "press"),
     "Enter": (InputAction.SWEEP_PRESS, "press"),
     "NumpadEnter": (InputAction.SWEEP_PRESS, "press"),
+    "Escape": (InputAction.FACE_TOGGLE, "pulse"),
     "KeyF": (InputAction.FACE_TOGGLE, "pulse"),
     "Minus": (InputAction.ZOOM_DOWN, "pulse"),
     "Equal": (InputAction.ZOOM_UP, "pulse"),
@@ -141,13 +152,31 @@ KEYBOARD_CODE_MAP: dict[str, tuple[InputAction, Edge]] = {
     "VolumeUp": (InputAction.PROGRAM_SPEED_UP, "pulse"),
 }
 
-DIGIT_PAD_SLOT: dict[str, int] = {f"Digit{n}": n - 1 for n in range(1, 10)}
+# Letter-row pad: Q=slot0 … O=slot8; P selects NONE (handled separately).
+PAD_KEY_SLOT: dict[str, int] = {
+    "KeyQ": 0,
+    "KeyW": 1,
+    "KeyE": 2,
+    "KeyR": 3,
+    "KeyT": 4,
+    "KeyY": 5,
+    "KeyU": 6,
+    "KeyI": 7,
+    "KeyO": 8,
+}
+
+# Back-compat alias for older imports/tests.
+DIGIT_PAD_SLOT = PAD_KEY_SLOT
 
 HOLD_RELEASE_CODES: dict[str, InputAction] = {
+    "KeyZ": InputAction.STROBE_RELEASE,
+    "KeyX": InputAction.SWEEP_RELEASE,
+    "Delete": InputAction.VERTICAL_SWEEP_RELEASE,
+    "KeyC": InputAction.VERTICAL_SWEEP_RELEASE,
     "Backspace": InputAction.STROBE_RELEASE,
     "Enter": InputAction.SWEEP_RELEASE,
     "NumpadEnter": InputAction.SWEEP_RELEASE,
 }
 
 # Back-compat alias used by older tests/docs.
-STROBE_RELEASE_CODES = frozenset({"Backspace"})
+STROBE_RELEASE_CODES = frozenset({"KeyZ", "Backspace"})

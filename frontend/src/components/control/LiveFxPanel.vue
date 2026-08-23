@@ -38,15 +38,15 @@ const warnings = computed(() => props.liveEffects?.warnings ?? []);
     <header class="card__head">
       <h2>Живі ефекти</h2>
       <p class="card__sub">
-        Утримання = momentary. Швидкість зберігається. Zoom-енкодер під час ефекту
-        крутить швидкість (0 = вимкнено, макс = суцільне світло).
+        Утримання = momentary. Volume під час ефекту крутить швидкість
+        (мін. 5%). Zoom / Ctrl+колесо завжди міняє епізод — ефект не скидає.
       </p>
     </header>
 
     <div class="fx-grid">
       <MomentaryButton
         label="STROBE"
-        hint="білий · утримуйте · ⌫"
+        hint="білий · утримуйте · Z"
         variant="danger"
         :active="strobeHeld"
         :disabled="disabled"
@@ -55,7 +55,7 @@ const warnings = computed(() => props.liveEffects?.warnings ?? []);
       />
       <MomentaryButton
         label="SWEEP"
-        hint="зліва→направо · Enter"
+        hint="зліва→направо · X"
         :active="sweepActive"
         :disabled="disabled"
         @press="emit('sweepPress')"
@@ -63,7 +63,7 @@ const warnings = computed(() => props.liveEffects?.warnings ?? []);
       />
       <MomentaryButton
         label="V-SWEEP"
-        hint="знизу→вгору · сегменти"
+        hint="знизу→вгору · Delete"
         :active="verticalSweepActive"
         :disabled="disabled"
         @press="emit('verticalSweepPress')"
@@ -86,9 +86,9 @@ const warnings = computed(() => props.liveEffects?.warnings ?? []);
         <span>Швидкість Strobe {{ Math.round(strobeSpeed * 100) }}%</span>
         <input
           type="range"
-          min="0"
+          min="0.05"
           max="1"
-          step="0.01"
+          step="0.05"
           :value="strobeSpeed"
           :disabled="disabled"
           @input="emit('update:strobeSpeed', Number(($event.target as HTMLInputElement).value))"
@@ -98,9 +98,9 @@ const warnings = computed(() => props.liveEffects?.warnings ?? []);
         <span>Швидкість Sweep {{ Math.round(sweepSpeed * 100) }}%</span>
         <input
           type="range"
-          min="0"
+          min="0.05"
           max="1"
-          step="0.01"
+          step="0.05"
           :value="sweepSpeed"
           :disabled="disabled"
           @input="emit('update:sweepSpeed', Number(($event.target as HTMLInputElement).value))"

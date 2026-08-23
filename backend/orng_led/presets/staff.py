@@ -28,7 +28,7 @@ def _ep(
     effect: str,
     speed: float,
     intensity: float,
-    transition: str = "soft",
+    transition: str = "cut",
 ) -> EpisodeCard:
     return EpisodeCard(
         id=f"ep{index}",
@@ -72,7 +72,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="breathe",
             speed=0.18,
             intensity=0.45,
-            transition="fade",
+            transition="cut",
         ),
         _ep(
             2,
@@ -81,7 +81,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="pulse",
             speed=0.2,
             intensity=0.42,
-            transition="soft",
+            transition="cut",
         ),
         _ep(
             3,
@@ -90,7 +90,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="wave",
             speed=0.22,
             intensity=0.4,
-            transition="fade",
+            transition="cut",
         ),
         _ep(
             4,
@@ -99,7 +99,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="breathe",
             speed=0.16,
             intensity=0.48,
-            transition="soft",
+            transition="cut",
         ),
         _ep(
             5,
@@ -108,7 +108,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="pulse",
             speed=0.2,
             intensity=0.44,
-            transition="fade",
+            transition="cut",
         ),
         _ep(
             6,
@@ -117,7 +117,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="mirror_sweep",
             speed=0.15,
             intensity=0.4,
-            transition="soft",
+            transition="cut",
         ),
         _ep(
             7,
@@ -126,7 +126,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="wave",
             speed=0.2,
             intensity=0.46,
-            transition="fade",
+            transition="cut",
         ),
         _ep(
             8,
@@ -135,7 +135,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="breathe",
             speed=0.18,
             intensity=0.5,
-            transition="soft",
+            transition="cut",
         ),
         _ep(
             9,
@@ -144,7 +144,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="pulse",
             speed=0.17,
             intensity=0.43,
-            transition="fade",
+            transition="cut",
         ),
         _ep(
             10,
@@ -153,7 +153,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="breathe",
             speed=0.18,
             intensity=0.45,
-            transition="fade",
+            transition="cut",
         ),
     ],
     "P02": [
@@ -164,7 +164,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="breathe",
             speed=0.22,
             intensity=0.5,
-            transition="fade",
+            transition="cut",
         ),
         _ep(
             2,
@@ -173,7 +173,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="wave",
             speed=0.25,
             intensity=0.48,
-            transition="soft",
+            transition="cut",
         ),
         _ep(
             3,
@@ -182,7 +182,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="pulse",
             speed=0.2,
             intensity=0.46,
-            transition="fade",
+            transition="cut",
         ),
         _ep(
             4,
@@ -191,7 +191,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="breathe",
             speed=0.24,
             intensity=0.52,
-            transition="soft",
+            transition="cut",
         ),
         _ep(
             5,
@@ -200,7 +200,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="mirror_sweep",
             speed=0.18,
             intensity=0.44,
-            transition="fade",
+            transition="cut",
         ),
         _ep(
             6,
@@ -209,7 +209,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="wave",
             speed=0.26,
             intensity=0.5,
-            transition="soft",
+            transition="cut",
         ),
         _ep(
             7,
@@ -218,7 +218,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="pulse",
             speed=0.22,
             intensity=0.47,
-            transition="fade",
+            transition="cut",
         ),
         _ep(
             8,
@@ -227,7 +227,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="wave",
             speed=0.24,
             intensity=0.49,
-            transition="soft",
+            transition="cut",
         ),
         _ep(
             9,
@@ -236,7 +236,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="breathe",
             speed=0.2,
             intensity=0.53,
-            transition="fade",
+            transition="cut",
         ),
         _ep(
             10,
@@ -245,7 +245,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="breathe",
             speed=0.22,
             intensity=0.5,
-            transition="fade",
+            transition="cut",
         ),
     ],
     "P03": [
@@ -256,7 +256,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="mirror_sweep",
             speed=0.3,
             intensity=0.55,
-            transition="soft",
+            transition="cut",
         ),
         _ep(
             2,
@@ -265,7 +265,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="wave",
             speed=0.32,
             intensity=0.58,
-            transition="soft",
+            transition="cut",
         ),
         _ep(
             3,
@@ -274,7 +274,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="pulse",
             speed=0.28,
             intensity=0.54,
-            transition="fade",
+            transition="cut",
         ),
         _ep(
             4,
@@ -283,7 +283,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="wave",
             speed=0.34,
             intensity=0.56,
-            transition="soft",
+            transition="cut",
         ),
         _ep(
             5,
@@ -292,7 +292,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="wave",
             speed=0.34,
             intensity=0.56,
-            transition="soft",
+            transition="cut",
         ),
         _ep(
             6,
@@ -301,7 +301,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="mirror_sweep",
             speed=0.28,
             intensity=0.52,
-            transition="fade",
+            transition="cut",
         ),
         _ep(
             7,
@@ -310,7 +310,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="pulse",
             speed=0.3,
             intensity=0.57,
-            transition="soft",
+            transition="cut",
         ),
         _ep(
             8,
@@ -319,7 +319,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="wave",
             speed=0.33,
             intensity=0.55,
-            transition="soft",
+            transition="cut",
         ),
         _ep(
             9,
@@ -328,7 +328,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="breathe",
             speed=0.28,
             intensity=0.58,
-            transition="fade",
+            transition="cut",
         ),
         _ep(
             10,
@@ -337,7 +337,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="mirror_sweep",
             speed=0.3,
             intensity=0.55,
-            transition="soft",
+            transition="cut",
         ),
     ],
     "P04": [
@@ -348,7 +348,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="pulse",
             speed=0.4,
             intensity=0.62,
-            transition="soft",
+            transition="cut",
         ),
         _ep(
             2,
@@ -357,7 +357,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="wave",
             speed=0.42,
             intensity=0.6,
-            transition="soft",
+            transition="cut",
         ),
         _ep(
             3,
@@ -366,7 +366,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="pulse",
             speed=0.38,
             intensity=0.58,
-            transition="fade",
+            transition="cut",
         ),
         _ep(
             4,
@@ -375,7 +375,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="chase",
             speed=0.4,
             intensity=0.61,
-            transition="soft",
+            transition="cut",
         ),
         _ep(
             5,
@@ -384,7 +384,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="mirror_sweep",
             speed=0.35,
             intensity=0.57,
-            transition="soft",
+            transition="cut",
         ),
         _ep(
             6,
@@ -393,7 +393,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="breathe",
             speed=0.36,
             intensity=0.6,
-            transition="fade",
+            transition="cut",
         ),
         _ep(
             7,
@@ -402,7 +402,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="pulse",
             speed=0.42,
             intensity=0.63,
-            transition="soft",
+            transition="cut",
         ),
         _ep(
             8,
@@ -411,7 +411,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="wave",
             speed=0.44,
             intensity=0.62,
-            transition="soft",
+            transition="cut",
         ),
         _ep(
             9,
@@ -420,7 +420,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="pulse",
             speed=0.4,
             intensity=0.59,
-            transition="fade",
+            transition="cut",
         ),
         _ep(
             10,
@@ -429,7 +429,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="pulse",
             speed=0.4,
             intensity=0.62,
-            transition="soft",
+            transition="cut",
         ),
     ],
     "P05": [
@@ -440,7 +440,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="pulse",
             speed=0.45,
             intensity=0.7,
-            transition="soft",
+            transition="cut",
         ),
         _ep(
             2,
@@ -449,7 +449,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="wave",
             speed=0.5,
             intensity=0.68,
-            transition="soft",
+            transition="cut",
         ),
         _ep(
             3,
@@ -458,7 +458,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="breathe",
             speed=0.4,
             intensity=0.72,
-            transition="fade",
+            transition="cut",
         ),
         _ep(
             4,
@@ -467,7 +467,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="pulse",
             speed=0.55,
             intensity=0.65,
-            transition="soft",
+            transition="cut",
         ),
         _ep(
             5,
@@ -476,7 +476,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="chase",
             speed=0.5,
             intensity=0.7,
-            transition="soft",
+            transition="cut",
         ),
         _ep(
             6,
@@ -485,7 +485,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="mirror_sweep",
             speed=0.35,
             intensity=0.66,
-            transition="fade",
+            transition="cut",
         ),
         _ep(
             7,
@@ -494,7 +494,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="pulse",
             speed=0.48,
             intensity=0.6,
-            transition="soft",
+            transition="cut",
         ),
         _ep(
             8,
@@ -503,7 +503,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="wave",
             speed=0.52,
             intensity=0.7,
-            transition="soft",
+            transition="cut",
         ),
         _ep(
             9,
@@ -512,7 +512,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="breathe",
             speed=0.42,
             intensity=0.74,
-            transition="fade",
+            transition="cut",
         ),
         _ep(
             10,
@@ -521,7 +521,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="pulse",
             speed=0.45,
             intensity=0.7,
-            transition="soft",
+            transition="cut",
         ),
     ],
     "P06": [
@@ -532,7 +532,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="chase",
             speed=0.55,
             intensity=0.72,
-            transition="soft",
+            transition="cut",
         ),
         _ep(
             2,
@@ -541,7 +541,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="pulse",
             speed=0.5,
             intensity=0.7,
-            transition="soft",
+            transition="cut",
         ),
         _ep(
             3,
@@ -550,7 +550,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="chase",
             speed=0.58,
             intensity=0.74,
-            transition="soft",
+            transition="cut",
         ),
         _ep(
             4,
@@ -559,7 +559,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="chase",
             speed=0.56,
             intensity=0.7,
-            transition="fade",
+            transition="cut",
         ),
         _ep(
             5,
@@ -568,7 +568,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="wave",
             speed=0.52,
             intensity=0.72,
-            transition="soft",
+            transition="cut",
         ),
         _ep(
             6,
@@ -577,7 +577,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="mirror_sweep",
             speed=0.45,
             intensity=0.68,
-            transition="soft",
+            transition="cut",
         ),
         _ep(
             7,
@@ -586,7 +586,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="chase",
             speed=0.6,
             intensity=0.73,
-            transition="soft",
+            transition="cut",
         ),
         _ep(
             8,
@@ -595,7 +595,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="chase",
             speed=0.6,
             intensity=0.73,
-            transition="soft",
+            transition="cut",
         ),
         _ep(
             9,
@@ -604,7 +604,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="pulse",
             speed=0.54,
             intensity=0.71,
-            transition="fade",
+            transition="cut",
         ),
         _ep(
             10,
@@ -613,7 +613,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="chase",
             speed=0.55,
             intensity=0.72,
-            transition="soft",
+            transition="cut",
         ),
     ],
     "P07": [
@@ -624,7 +624,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="chase",
             speed=0.65,
             intensity=0.78,
-            transition="soft",
+            transition="cut",
         ),
         _ep(
             2,
@@ -633,7 +633,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="pulse",
             speed=0.62,
             intensity=0.76,
-            transition="soft",
+            transition="cut",
         ),
         _ep(
             3,
@@ -642,7 +642,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="wave",
             speed=0.68,
             intensity=0.8,
-            transition="soft",
+            transition="cut",
         ),
         _ep(
             4,
@@ -651,7 +651,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="chase",
             speed=0.66,
             intensity=0.77,
-            transition="fade",
+            transition="cut",
         ),
         _ep(
             5,
@@ -660,7 +660,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="mirror_sweep",
             speed=0.55,
             intensity=0.74,
-            transition="soft",
+            transition="cut",
         ),
         _ep(
             6,
@@ -669,7 +669,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="pulse",
             speed=0.64,
             intensity=0.79,
-            transition="soft",
+            transition="cut",
         ),
         _ep(
             7,
@@ -678,7 +678,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="chase",
             speed=0.7,
             intensity=0.78,
-            transition="soft",
+            transition="cut",
         ),
         _ep(
             8,
@@ -687,7 +687,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="wave",
             speed=0.66,
             intensity=0.8,
-            transition="fade",
+            transition="cut",
         ),
         _ep(
             9,
@@ -696,7 +696,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="pulse",
             speed=0.63,
             intensity=0.76,
-            transition="soft",
+            transition="cut",
         ),
         _ep(
             10,
@@ -705,7 +705,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="chase",
             speed=0.65,
             intensity=0.78,
-            transition="soft",
+            transition="cut",
         ),
     ],
     "P08": [
@@ -716,7 +716,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="chase",
             speed=0.72,
             intensity=0.84,
-            transition="soft",
+            transition="cut",
         ),
         _ep(
             2,
@@ -725,7 +725,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="pulse",
             speed=0.7,
             intensity=0.82,
-            transition="soft",
+            transition="cut",
         ),
         _ep(
             3,
@@ -734,7 +734,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="chase",
             speed=0.75,
             intensity=0.86,
-            transition="soft",
+            transition="cut",
         ),
         _ep(
             4,
@@ -743,7 +743,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="mirror_sweep",
             speed=0.6,
             intensity=0.8,
-            transition="fade",
+            transition="cut",
         ),
         _ep(
             5,
@@ -752,7 +752,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="wave",
             speed=0.73,
             intensity=0.85,
-            transition="soft",
+            transition="cut",
         ),
         _ep(
             6,
@@ -761,7 +761,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="chase",
             speed=0.74,
             intensity=0.83,
-            transition="soft",
+            transition="cut",
         ),
         _ep(
             7,
@@ -770,7 +770,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="pulse",
             speed=0.71,
             intensity=0.84,
-            transition="soft",
+            transition="cut",
         ),
         _ep(
             8,
@@ -779,7 +779,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="chase",
             speed=0.76,
             intensity=0.86,
-            transition="fade",
+            transition="cut",
         ),
         _ep(
             9,
@@ -788,7 +788,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="wave",
             speed=0.72,
             intensity=0.82,
-            transition="soft",
+            transition="cut",
         ),
         _ep(
             10,
@@ -797,7 +797,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="chase",
             speed=0.72,
             intensity=0.84,
-            transition="soft",
+            transition="cut",
         ),
     ],
     "P09": [
@@ -808,7 +808,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="pulse",
             speed=0.7,
             intensity=0.88,
-            transition="soft",
+            transition="cut",
         ),
         _ep(
             2,
@@ -826,7 +826,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="chase",
             speed=0.72,
             intensity=0.9,
-            transition="soft",
+            transition="cut",
         ),
         _ep(
             4,
@@ -835,7 +835,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="wave",
             speed=0.65,
             intensity=0.84,
-            transition="soft",
+            transition="cut",
         ),
         _ep(
             5,
@@ -844,7 +844,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="mirror_sweep",
             speed=0.55,
             intensity=0.82,
-            transition="fade",
+            transition="cut",
         ),
         _ep(
             6,
@@ -853,7 +853,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="pulse",
             speed=0.74,
             intensity=0.9,
-            transition="soft",
+            transition="cut",
         ),
         _ep(
             7,
@@ -871,7 +871,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="pulse",
             speed=0.68,
             intensity=0.88,
-            transition="soft",
+            transition="cut",
         ),
         _ep(
             9,
@@ -880,7 +880,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="wave",
             speed=0.66,
             intensity=0.85,
-            transition="soft",
+            transition="cut",
         ),
         _ep(
             10,
@@ -889,7 +889,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="pulse",
             speed=0.7,
             intensity=0.88,
-            transition="soft",
+            transition="cut",
         ),
     ],
     "P10": [
@@ -900,7 +900,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="chase",
             speed=0.8,
             intensity=0.95,
-            transition="soft",
+            transition="cut",
         ),
         _ep(
             2,
@@ -909,7 +909,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="pulse",
             speed=0.78,
             intensity=0.94,
-            transition="soft",
+            transition="cut",
         ),
         _ep(
             3,
@@ -918,7 +918,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="wave",
             speed=0.82,
             intensity=0.95,
-            transition="soft",
+            transition="cut",
         ),
         _ep(
             4,
@@ -927,7 +927,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="mirror_sweep",
             speed=0.7,
             intensity=0.92,
-            transition="fade",
+            transition="cut",
         ),
         _ep(
             5,
@@ -936,7 +936,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="chase",
             speed=0.85,
             intensity=0.95,
-            transition="soft",
+            transition="cut",
         ),
         _ep(
             6,
@@ -945,7 +945,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="chase",
             speed=0.84,
             intensity=0.93,
-            transition="soft",
+            transition="cut",
         ),
         _ep(
             7,
@@ -954,7 +954,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="pulse",
             speed=0.8,
             intensity=0.95,
-            transition="soft",
+            transition="cut",
         ),
         _ep(
             8,
@@ -963,7 +963,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="wave",
             speed=0.82,
             intensity=0.94,
-            transition="fade",
+            transition="cut",
         ),
         _ep(
             9,
@@ -972,7 +972,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="chase",
             speed=0.86,
             intensity=0.95,
-            transition="soft",
+            transition="cut",
         ),
         _ep(
             10,
@@ -981,7 +981,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             effect="chase",
             speed=0.8,
             intensity=0.95,
-            transition="soft",
+            transition="cut",
         ),
     ],
 }

@@ -12,16 +12,50 @@ const emit = defineEmits<{
 }>();
 
 const pressing = ref(false);
+const buttonRef = ref<HTMLButtonElement | null>(null);
+let activePointerId: number | null = null;
 
-function start(event: Event) {
+function start(event: PointerEvent) {
   if (props.disabled) return;
-  event.preventDefault();
   if (pressing.value) return;
+  event.preventDefault();
   pressing.value = true;
+  activePointerId = typeof event.pointerId === "number" ? event.pointerId : 1;
+  try {
+    if (typeof buttonRef.value?.setPointerCapture === "function") {
+      buttonRef.value.setPointerCapture(activePointerId);
+    }
+  } catch {
+    // Capture can fail on synthetic events — still emit press.
+  }
   emit("press");
 }
 
-function stop() {
+function stop(event?: PointerEvent) {
+  if (!pressing.value && !props.held) return;
+  if (
+    event &&
+    activePointerId !== null &&
+    typeof event.pointerId === "number" &&
+    event.pointerId !== activePointerId &&
+    event.type !== "lostpointercapture"
+  ) {
+    return;
+  }
+  const el = buttonRef.value;
+  if (
+    activePointerId !== null &&
+    el &&
+    typeof el.hasPointerCapture === "function" &&
+    el.hasPointerCapture(activePointerId)
+  ) {
+    try {
+      el.releasePointerCapture(activePointerId);
+    } catch {
+      // already released
+    }
+  }
+  activePointerId = null;
   if (!pressing.value && !props.held) return;
   pressing.value = false;
   emit("release");
@@ -30,14 +64,15 @@ function stop() {
 function onKeyDown(event: KeyboardEvent) {
   if (event.repeat) return;
   if (event.key === " " || event.key === "Enter") {
-    start(event);
+    event.preventDefault();
+    if (pressing.value) return;
+    pressing.value = true;
+    emit("press");
   }
 }
 
 function onKeyUp(event: KeyboardEvent) {
-  if (event.key === " " || event.key === "Enter") {
-    stop();
-  }
+  if (event.key === " " || event.key === "Enter") stop();
 }
 
 onBeforeUnmount(() => {
@@ -47,6 +82,7 @@ onBeforeUnmount(() => {
 
 <template>
   <button
+    ref="buttonRef"
     type="button"
     class="strobe-btn"
     :class="{ held: held || pressing }"
@@ -55,7 +91,7 @@ onBeforeUnmount(() => {
     @pointerdown="start"
     @pointerup="stop"
     @pointercancel="stop"
-    @pointerleave="stop"
+    @lostpointercapture="stop"
     @keydown="onKeyDown"
     @keyup="onKeyUp"
   >

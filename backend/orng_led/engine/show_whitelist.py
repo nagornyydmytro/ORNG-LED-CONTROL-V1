@@ -36,7 +36,12 @@ SHOW_FORBIDDEN_ROLES: frozenset[ChannelRole] = frozenset(
 
 
 def scrub_show_frame(show: ShowConfig, frame: list[int]) -> list[int]:
-    """Zero every channel whose mapped role is outside the show whitelist."""
+    """Zero every channel whose mapped role is outside the show whitelist.
+
+    Includes ``unused`` and fixture-internal roles (program, gobo, …). Preset
+    effects/transitions may only drive roles present in the saved channel mapping
+    *and* listed in ``SHOW_ALLOWED_ROLES``.
+    """
     for fixture in show.patch.fixtures:
         profile = show.profile_for(fixture)
         for channel in profile.channels:
@@ -46,6 +51,19 @@ def scrub_show_frame(show: ShowConfig, frame: list[int]) -> list[int]:
             if 0 <= index < len(frame):
                 frame[index] = 0
     return frame
+
+
+def unmapped_or_unused_nonzero(
+    show: ShowConfig,
+    frame: list[int],
+) -> list[dict[str, object]]:
+    """Non-zero cells that are unused / forbidden — must stay empty in show mode."""
+    return forbidden_nonzero_channels(show, frame)
+
+
+def assert_only_mapped_show_channels(show: ShowConfig, frame: list[int]) -> None:
+    """Hard contract: preset/Live FX output never lights unmapped or forbidden roles."""
+    assert_show_frame_clean(show, frame)
 
 
 def forbidden_nonzero_channels(

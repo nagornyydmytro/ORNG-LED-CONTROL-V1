@@ -98,6 +98,25 @@ export function barSegmentLevel(bar: BarFixtureView, index: number): number {
   return clamp01((bar.segments[index] ?? 0) * bar.dimmer);
 }
 
+/** Per-segment colour for the stage canvas; falls back to bar.r/g/b. */
+export function barSegmentRgb(
+  bar: BarFixtureView,
+  index: number,
+): { r: number; g: number; b: number } {
+  const sr = bar.segment_r?.[index];
+  const sg = bar.segment_g?.[index];
+  const sb = bar.segment_b?.[index];
+  if (
+    typeof sr === "number" &&
+    typeof sg === "number" &&
+    typeof sb === "number" &&
+    sr + sg + sb > 0.02
+  ) {
+    return { r: sr, g: sg, b: sb };
+  }
+  return { r: bar.r, g: bar.g, b: bar.b };
+}
+
 /** Screen-space start and end of a beam ray. */
 export function beamRay(
   box: Box,

@@ -124,8 +124,8 @@ def test_debounce_pulse_and_mapping_helpers() -> None:
     assert none.preset_id == "NONE"
 
     kb = KeyboardInputAdapter()
-    assert kb.handle_raw({"code": "Digit5", "type": "keydown", "repeat": False})
-    assert kb.handle_raw({"code": "Digit5", "type": "keydown", "repeat": True}) == []
+    assert kb.handle_raw({"code": "KeyT", "type": "keydown", "repeat": False})
+    assert kb.handle_raw({"code": "KeyT", "type": "keydown", "repeat": True}) == []
 
     gpio = GpioInputAdapterStub()
     assert gpio.implemented is False
@@ -148,9 +148,34 @@ def test_mapping_endpoint_lists_keyboard_and_gpio_boundary(client) -> None:
     assert body["buttons"] == list(range(1, 17))
     assert body["pad_presets"] == list(runtime.show.app.pad_presets)
     assert body["gpio"]["implemented"] is False
-    assert body["keyboard"]["Digit1"]["action"] == "select_pad_slot"
-    assert body["keyboard"]["Digit0"]["action"] == "select_preset"
+    assert body["keyboard"]["KeyQ"]["action"] == "select_pad_slot"
+    assert body["keyboard"]["KeyP"]["action"] == "select_preset"
     assert body["keyboard"]["Space"]["action"] == "blackout_toggle"
+    assert body["keyboard"]["Escape"]["action"] == "face_toggle"
+    assert body["keyboard"]["Delete"]["action"] == "vertical_sweep_press"
+
+
+def test_escape_toggles_face_and_delete_holds_vertical_sweep(client) -> None:
+    test_client, runtime = client
+    before_face = runtime.engine.overlays.face_on
+    esc = test_client.post(
+        "/api/input/keyboard",
+        json={"code": "Escape", "type": "keydown", "repeat": False},
+    ).json()
+    assert esc["accepted"] is True
+    assert runtime.engine.overlays.face_on is (not before_face)
+
+    test_client.post(
+        "/api/input/keyboard",
+        json={"code": "Delete", "type": "keydown", "repeat": False},
+    )
+    assert runtime.engine.overlays.sweep_held is True
+    assert runtime.engine.overlays.sweep_mode == "vertical"
+    test_client.post(
+        "/api/input/keyboard",
+        json={"code": "Delete", "type": "keyup", "repeat": False},
+    )
+    assert runtime.engine.overlays.sweep_held is False
 
 
 def test_ui_source_goes_through_dispatcher(client) -> None:
@@ -163,3 +188,100 @@ def test_ui_source_goes_through_dispatcher(client) -> None:
     assert result.accepted is True
     assert result.state is not None
     assert result.state.engine.preset_id == runtime.show.app.pad_presets[0]
+
+
+def test_live_fx_speed_cannot_go_below_five_percent(client) -> None:
+    _test_client, runtime = client
+    runtime.engine.set_strobe_speed(0.0)
+    runtime.engine.set_sweep_speed(-1.0)
+    assert runtime.engine.overlays.strobe_speed == pytest.approx(0.05)
+    assert runtime.engine.overlays.sweep_speed == pytest.approx(0.05)
+
+
+def test_live_fx_speed_resets_to_default_each_hold(client) -> None:
+    _test_client, runtime = client
+    default_strobe = float(runtime.show.app.strobe_speed)
+    default_sweep = float(runtime.show.app.sweep_speed)
+
+    runtime.engine.strobe_press()
+    runtime.apply_nudge_live_fx_speed(-0.2)
+    assert runtime.engine.overlays.strobe_speed == pytest.approx(default_strobe - 0.2)
+    assert runtime.show.app.strobe_speed == pytest.approx(default_strobe)
+    runtime.engine.strobe_release()
+    assert runtime.engine.overlays.strobe_speed == pytest.approx(default_strobe)
+
+    runtime.engine.strobe_press()
+    assert runtime.engine.overlays.strobe_speed == pytest.approx(default_strobe)
+    runtime.engine.strobe_release()
+
+    runtime.engine.sweep_press()
+    runtime.apply_nudge_live_fx_speed(-0.15)
+    assert runtime.engine.overlays.sweep_speed == pytest.approx(default_sweep - 0.15)
+    assert runtime.show.app.sweep_speed == pytest.approx(default_sweep)
+    runtime.engine.sweep_release()
+    assert runtime.engine.overlays.sweep_speed == pytest.approx(default_sweep)
+    runtime.engine.sweep_press()
+    assert runtime.engine.overlays.sweep_speed == pytest.approx(default_sweep)
+
+
+def test_volume_encoder_nudges_live_fx_speed_while_strobe_or_sweep_held(client) -> None:
+    test_client, runtime = client
+    runtime.apply_preview_speed(1.0)
+    runtime.engine.set_strobe_speed(0.5)
+    runtime.engine.set_sweep_speed(0.5)
+
+    test_client.post(
+        "/api/input/keyboard",
+        json={"code": "Backspace", "type": "keydown", "repeat": False},
+    )
+    before_strobe = runtime.engine.overlays.strobe_speed
+    up = test_client.post(
+        "/api/input/keyboard",
+        json={"code": "AudioVolumeUp", "type": "keydown", "repeat": False},
+    ).json()
+    assert up["accepted"] is True
+    assert runtime.preview_speed == pytest.approx(1.0)
+    assert runtime.engine.overlays.strobe_speed == pytest.approx(before_strobe + 0.05)
+    test_client.post(
+        "/api/input/keyboard",
+        json={"code": "Backspace", "type": "keyup", "repeat": False},
+    )
+
+    test_client.post(
+        "/api/input/keyboard",
+        json={"code": "Enter", "type": "keydown", "repeat": False},
+    )
+    before_sweep = runtime.engine.overlays.sweep_speed
+    program_before = runtime.preview_speed
+    down = test_client.post(
+        "/api/input/keyboard",
+        json={"code": "AudioVolumeDown", "type": "keydown", "repeat": False},
+    ).json()
+    assert down["accepted"] is True
+    assert runtime.preview_speed == pytest.approx(program_before)
+    assert runtime.engine.overlays.sweep_speed == pytest.approx(before_sweep - 0.05)
+
+
+def test_zoom_encoder_changes_episode_while_sweep_held(client) -> None:
+    """Ctrl+wheel / Zoom must step episodes without releasing or zeroing Sweep."""
+    test_client, runtime = client
+    runtime.apply_select_preset("P05", reset_clock=True)
+    runtime.apply_seek_episode(1)
+    test_client.post(
+        "/api/input/keyboard",
+        json={"code": "KeyX", "type": "keydown", "repeat": False},
+    )
+    assert runtime.engine.overlays.sweep_held is True
+    before_speed = runtime.engine.overlays.sweep_speed
+    before_episode = runtime.engine.render_at(runtime.engine.clock.time(), dt_s=0.0).episode_index
+
+    zoom = test_client.post(
+        "/api/input/keyboard",
+        json={"code": "ZoomIn", "type": "keydown", "repeat": False},
+    ).json()
+    assert zoom["accepted"] is True
+    after = runtime.engine.render_at(runtime.engine.clock.time(), dt_s=0.0)
+    assert runtime.engine.overlays.sweep_held is True
+    assert runtime.engine.overlays.sweep_speed == pytest.approx(before_speed)
+    assert after.episode_index == before_episode + 1
+    assert after.sweep_active is True

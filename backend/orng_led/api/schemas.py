@@ -91,8 +91,8 @@ class EngineState(ApiModel):
     color_hit_active: bool = False
     sweep_active: bool = False
     vertical_sweep_active: bool = False
-    strobe_speed: float = 0.7
-    sweep_speed: float = 0.7
+    strobe_speed: float = 0.10
+    sweep_speed: float = 0.10
 
 
 class AppStateResponse(ApiModel):
@@ -104,8 +104,8 @@ class AppStateResponse(ApiModel):
     sequence: int
     preview_speed: float = 1.0
     pad_presets: list[str] = Field(default_factory=list)
-    strobe_speed: float = 0.7
-    sweep_speed: float = 0.7
+    strobe_speed: float = 0.10
+    sweep_speed: float = 0.10
     simulator: SimulatorView
     raw_tester: dict[str, Any] | None = None
     preset_editor_preview: dict[str, Any] | None = None
@@ -124,8 +124,8 @@ class PadPresetsCommand(ApiModel):
 
 
 class LiveFxSpeedCommand(ApiModel):
-    strobe_speed: Annotated[float, Field(ge=0.0, le=1.0)] | None = None
-    sweep_speed: Annotated[float, Field(ge=0.0, le=1.0)] | None = None
+    strobe_speed: Annotated[float, Field(ge=0.05, le=1.0)] | None = None
+    sweep_speed: Annotated[float, Field(ge=0.05, le=1.0)] | None = None
     persist: bool = True
     client_command_id: str | None = None
 

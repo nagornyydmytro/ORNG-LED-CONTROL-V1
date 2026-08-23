@@ -72,16 +72,19 @@ def test_staff_presets_set_beam_dimmer_full_when_present() -> None:
                 assert intent.dimmer == 1.0
 
 
-def test_pulse_may_set_beam_strobe_at_full_dimmer() -> None:
+def test_pulse_never_drives_beam_fixture_strobe() -> None:
+    """Episode pulse must not write fixture strobe_speed — preview matches hardware."""
     show = load_show_config()
-    program = YamlPresetProgram(build_staff_preset("P09"))
-    for step in range(0, 180, 2):
+    program = YamlPresetProgram(build_staff_preset("P05"))
+    saw_beam = False
+    for step in range(0, 18, 1):
         stage = program.evaluate(float(step), show)
         for fixture in show.patch.fixtures:
             if fixture.kind is not FixtureKind.BEAM:
                 continue
             intent = stage.fixtures.get(fixture.id)
-            if isinstance(intent, BeamIntent) and intent.strobe > 0.2:
+            if isinstance(intent, BeamIntent):
+                saw_beam = True
+                assert intent.strobe == 0.0
                 assert intent.dimmer == 1.0
-                return
-    # If P09 never selects beams during pulse, policy still holds (strobe allowed).
+    assert saw_beam

@@ -249,13 +249,34 @@ input {
 
 .sidebar__brand {
   display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.sidebar__logo {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  display: block;
+  object-fit: contain;
+}
+
+.sidebar__titles {
+  display: flex;
   flex-direction: column;
   gap: 2px;
   min-width: 0;
 }
 
 .sidebar--collapsed .sidebar__brand {
-  align-items: center;
+  justify-content: center;
+}
+
+.sidebar--collapsed .sidebar__logo {
+  width: 26px;
+  height: 26px;
 }
 
 .sidebar--collapsed .nav-link {

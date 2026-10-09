@@ -37,8 +37,11 @@ $sc.TargetPath = $TargetCmd
 $sc.WorkingDirectory = $RepoRoot
 $sc.WindowStyle = 1
 $sc.Description = "ORNG LED CONTROL: Type-C Art-Net + server + Blackout + Arm + Chrome"
-$icon = Join-Path $env:SystemRoot "System32\shell32.dll"
-$sc.IconLocation = "$icon,137"
+$icon = Join-Path $RepoRoot "branding\orng-led-control.ico"
+if (-not (Test-Path -LiteralPath $icon)) {
+    throw "Missing branding icon: $icon"
+}
+$sc.IconLocation = $icon
 $sc.Save()
 
 Write-Host "Created: $ShortcutPath" -ForegroundColor Green

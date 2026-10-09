@@ -80,11 +80,20 @@ watch(collapsed, (value) => {
     >
       <div class="sidebar__top">
         <div class="sidebar__brand">
-          <span class="sidebar__mark">ORNG</span>
-          <span
+          <img
+            class="sidebar__logo"
+            src="/logo.svg"
+            alt=""
+            width="28"
+            height="28"
+          >
+          <div
             v-if="!collapsed"
-            class="sidebar__sub"
-          >LED CONTROL</span>
+            class="sidebar__titles"
+          >
+            <span class="sidebar__mark">ORNG</span>
+            <span class="sidebar__sub">LED CONTROL</span>
+          </div>
         </div>
         <button
           type="button"

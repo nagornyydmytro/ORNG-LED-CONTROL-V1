@@ -40,8 +40,8 @@ $sc.Description = "ORNG LED CONTROL: Type-C Art-Net + server + Blackout + Arm + 
 # Official mark → ICO: transparent bg + orange ring + black circle on top.
 # Prefer newest cache-busting filename.
 $iconCandidates = @(
+    (Join-Path $RepoRoot "branding\orng-led-control-desktop-v5.ico")
     (Join-Path $RepoRoot "branding\orng-led-control-desktop-v4.ico")
-    (Join-Path $RepoRoot "branding\orng-led-control-desktop-v3.ico")
     (Join-Path $RepoRoot "branding\orng-led-control-desktop.ico")
     (Join-Path $RepoRoot "branding\orng-led-control.ico")
 )

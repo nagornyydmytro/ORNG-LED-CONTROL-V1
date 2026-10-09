@@ -3,15 +3,15 @@ transport: artnet
 output_armed: false
 master_brightness: 1.0
 pad_presets:
+- A01
+- A02
+- A03
 - P01
 - P02
 - P03
 - P04
 - P05
 - P06
-- P07
-- P08
-- P09
 strobe_speed: 0.1
 sweep_speed: 0.1
 artnet:

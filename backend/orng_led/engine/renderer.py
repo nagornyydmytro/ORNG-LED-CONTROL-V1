@@ -41,8 +41,8 @@ _PALETTE_RGB: dict[str, tuple[float, float, float]] = {
 # How those slots actually look on venue LEDs — stage preview only (not DMX write).
 _PALETTE_DISPLAY_RGB: dict[str, tuple[float, float, float]] = {
     "off": (0.0, 0.0, 0.0),
-    # Cheap red dies read orange on the floor.
-    "red": (1.0, 0.30, 0.02),
+    # Keep red reading as red on the stage page (not orange wash).
+    "red": (1.0, 0.08, 0.02),
     "orange": (1.0, 0.42, 0.0),
     # Fixture amber / warm yellow, not the orange sRGB mix used for matching.
     "amber": (1.0, 0.90, 0.12),

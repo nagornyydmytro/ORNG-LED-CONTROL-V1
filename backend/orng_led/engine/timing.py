@@ -31,6 +31,13 @@ EFFECT_RATE_SCALE: dict[str, float] = {
     "wave": 0.8,
     "chase": 1.0,
     "mirror_sweep": 1.0,
+    # Near-static washes: keep segment climbs readable, not frantic.
+    "glow": 0.35,
+    "glow_wave": 0.45,
+    "glow_rise": 0.55,
+    "glow_line": 0.5,
+    "glow_pinch": 0.45,
+    "glow_eq": 0.5,
 }
 
 # Beam movement is physically slow: keep it inside the provisional pan/tilt

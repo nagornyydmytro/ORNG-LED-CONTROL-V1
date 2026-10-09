@@ -34,6 +34,9 @@ PALETTE_RGBW: dict[str, Rgbw] = {
     "cool_blue": Rgbw(r=0.15, g=0.35, b=1.0),
     "mint": Rgbw(r=0.2, g=0.95, b=0.65),
     "magenta": Rgbw(r=1.0, g=0.1, b=0.55),
+    "rose": Rgbw(r=1.0, g=0.14, b=0.1),
+    "deep_blue": Rgbw(r=0.05, g=0.18, b=1.0),
+    "violet": Rgbw(r=0.55, g=0.08, b=1.0),
 }
 
 # Transition window into the current episode (seconds of show time).
@@ -330,6 +333,11 @@ def _effect_level(effect: str, turns: float, speed: float) -> float:
     """0..1 modulation of one fixture at the given accumulated phase."""
     if effect == "static":
         return 1.0
+    if effect == "glow":
+        # Near-static wash: always mostly on, slow shimmer only.
+        return 0.62 + 0.38 * unipolar_sine(turns)
+    if effect in {"glow_wave", "glow_rise", "glow_line", "glow_pinch", "glow_eq"}:
+        return 0.72 + 0.28 * unipolar_sine(turns)
     if effect == "breathe":
         # Deep troughs so hardware dimmer travel is obvious on LED Bars.
         return 0.06 + 0.94 * unipolar_sine(turns)
@@ -351,11 +359,28 @@ def _bar_dimmer(episode: EpisodeCard, level: float) -> float:
     peak = max(0.95, min(1.0, float(episode.intensity)))
     # Gamma pulls mid/low levels down so the swing reads on LED Bars.
     shaped = max(0.0, min(1.0, float(level))) ** 1.45
-    return peak * shaped
+    value = peak * shaped
+    if episode.effect in {
+        "glow",
+        "glow_wave",
+        "glow_rise",
+        "glow_line",
+        "glow_pinch",
+        "glow_eq",
+    }:
+        # Keep vertical bars visibly lit — no blackouts between shimmer peaks.
+        return max(0.55 * peak, value)
+    return value
 
 
 # Patterned bar looks: kill soft falloff glow so the wave/chase trough is black.
 _BAR_SEGMENT_BLACK_FLOOR = 0.05
+# Venue LED bars only have per-segment palette on/off (no analog segment dimmer).
+# Levels at/under this write palette ``off``; above write the look colour.
+_ATMOSPHERE_BAR_MOTION = frozenset({"glow_line", "glow_pinch", "glow_eq"})
+_GLOW_BEAM_EFFECTS = frozenset(
+    {"glow", "glow_wave", "glow_rise", "glow_line", "glow_pinch", "glow_eq"}
+)
 
 
 def _spatial_offset(fixture: FixtureInstance, show: ShowConfig) -> float:
@@ -365,6 +390,15 @@ def _spatial_offset(fixture: FixtureInstance, show: ShowConfig) -> float:
         return placement.x * 0.45
     order = fixture.spatial.order or 1
     return (order - 1) * 0.1
+
+
+def _bar_x(fixture: FixtureInstance, show: ShowConfig) -> float:
+    """Normalised left→right stage position for equalizer-style looks."""
+    placement = show.layout.placement_for(fixture.id)
+    if placement is not None:
+        return max(0.0, min(1.0, float(placement.x)))
+    order = fixture.spatial.order or 1
+    return max(0.0, min(1.0, (order - 1) / 7.0))
 
 
 def _evaluate_episode(
@@ -388,16 +422,27 @@ def _evaluate_episode(
         offset = _spatial_offset(fixture, show)
         if mirrored:
             offset = abs(offset - 0.225)
-        local_turns = turns - offset
+        # Sync atmosphere looks share one phase; glow_eq keeps shared time and
+        # uses bar_x inside the segment pattern instead of a time stagger.
+        if episode.effect in _ATMOSPHERE_BAR_MOTION:
+            local_turns = turns
+        else:
+            local_turns = turns - offset
         level = _effect_level(episode.effect, local_turns, episode.speed)
         intensity = max(0.0, min(1.0, episode.intensity * level))
 
         if fixture.kind is FixtureKind.PAR:
             intent.fixtures[fixture.id] = ParIntent(color=color, intensity=intensity)
         elif fixture.kind is FixtureKind.BAR:
-            segments = _bar_segments(episode, local_turns, level)
-            # Chase/wave/mirror use segments; static/breathe/pulse prefer solid look.
-            whole = episode.effect in {"static", "breathe", "pulse"}
+            segments = _bar_segments(
+                episode,
+                local_turns,
+                level,
+                bar_x=_bar_x(fixture, show),
+                episode_progress=pos.episode_progress,
+            )
+            # Chase/wave/mirror use segments; solid washes prefer whole color.
+            whole = episode.effect in {"static", "breathe", "pulse", "glow"}
             # Never drive fixture strobe on bars — CH2 blink fights dimmer pulse.
             # Solid looks modulate master dimmer; patterned looks follow the lit
             # segment peak so dark parts of the wave/chase go fully off (dimmer 0).
@@ -418,9 +463,14 @@ def _evaluate_episode(
             # Beams are binary full-bright when the effect is "on" — no master dimmer.
             if intensity <= 0.02:
                 continue
-            sweep = 0.5 + 0.42 * math.sin(2.0 * math.pi * clock.movement_turns)
+            # Near-static washes: small slow drift only — wide sine + cut-ins read as jerks.
+            if episode.effect in _GLOW_BEAM_EFFECTS:
+                sweep = 0.5 + 0.16 * math.sin(2.0 * math.pi * clock.movement_turns)
+                tilt = 0.50 + 0.08 * math.sin(2.0 * math.pi * clock.movement_turns * 0.41 + 0.5)
+            else:
+                sweep = 0.5 + 0.42 * math.sin(2.0 * math.pi * clock.movement_turns)
+                tilt = 0.44 + 0.20 * math.sin(2.0 * math.pi * clock.movement_turns * 0.63 + 0.7)
             pan = 1.0 - sweep if fixture.spatial.side.value == "left" else sweep
-            tilt = 0.44 + 0.20 * math.sin(2.0 * math.pi * clock.movement_turns * 0.63 + 0.7)
             # Never drive fixture strobe_speed — hardware blink is much faster than
             # the episode pulse the stage preview shows (software intensity only).
             intent.fixtures[fixture.id] = BeamIntent(
@@ -434,8 +484,15 @@ def _evaluate_episode(
     return intent
 
 
-def _bar_segments(episode: EpisodeCard, turns: float, level: float) -> tuple[float, ...]:
-    """Per-segment levels; segment 1 is the bottom of a vertically mounted Bar."""
+def _bar_segments(
+    episode: EpisodeCard,
+    turns: float,
+    level: float,
+    *,
+    bar_x: float = 0.0,
+    episode_progress: float = 0.0,
+) -> tuple[float, ...]:
+    """Per-segment levels; segment 0 is the bottom of a vertically mounted Bar."""
     effect = episode.effect
     segments: list[float] = []
     if effect == "chase":
@@ -443,9 +500,44 @@ def _bar_segments(episode: EpisodeCard, turns: float, level: float) -> tuple[flo
         for index in range(8):
             distance = min(abs(index - center), 8.0 - abs(index - center))
             segments.append(max(0.0, 1.0 - distance / 1.8))
+    elif effect == "glow_rise":
+        # Legacy climb (saw); prefer glow_line for sync ping-pong.
+        center = saw(turns) * 7.0
+        for index in range(8):
+            distance = abs(index - center)
+            segments.append(1.0 if distance <= 1.35 else 0.0)
+    elif effect == "glow_line":
+        # Sync lit band bouncing bottom↔top — identical on every bar.
+        center = (0.5 + 0.5 * math.sin(2.0 * math.pi * turns)) * 7.0
+        for index in range(8):
+            segments.append(1.0 if abs(index - center) <= 1.2 else 0.0)
+    elif effect == "glow_pinch":
+        # 8 segments (even): grow 1..4 from EACH end so the two fronts meet
+        # as a pair (indices 3+4) — there is no single centre cell to leave dark.
+        # Integer counts keep top/bottom in lockstep on on/off palette bars.
+        cycles = 5.0
+        phase = (max(0.0, min(1.0, episode_progress)) * cycles) % 1.0
+        grow = 1.0 - abs(2.0 * phase - 1.0)  # 0 → 1 → 0
+        count = min(4, max(1, 1 + int(grow * 3.999999)))
+        for index in range(8):
+            from_bottom = (index + 1) <= count
+            from_top = (8 - index) <= count
+            segments.append(1.0 if from_bottom or from_top else 0.0)
+    elif effect == "glow_eq":
+        # Standing-wave / equalizer: bottom-up column height varies across the row.
+        wave = 0.5 + 0.5 * math.sin(2.0 * math.pi * (turns - bar_x * 1.35))
+        height = 1.2 + 6.3 * wave
+        for index in range(8):
+            segments.append(1.0 if index < height else 0.0)
     elif effect == "wave":
         for index in range(8):
             segments.append(unipolar_sine(turns - index / 8.0))
+    elif effect == "glow_wave":
+        # Soft shimmer with a floor (legacy); not used for hard vertical looks.
+        for index in range(8):
+            segments.append(
+                0.42 + 0.58 * unipolar_sine(turns - index / 8.0)
+            )
     elif effect == "mirror_sweep":
         center = 3.5 + 3.5 * math.sin(2.0 * math.pi * turns)
         for index in range(8):

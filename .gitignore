@@ -35,6 +35,7 @@ playwright-report/
 .env.*
 !.env.example
 .local/
+.venue-logs/
 secrets/
 *.pem
 *.key

@@ -18,6 +18,9 @@ PALETTES = (
     "cool_blue",
     "mint",
     "magenta",
+    "rose",
+    "deep_blue",
+    "violet",
 )
 
 EFFECTS = (
@@ -27,6 +30,14 @@ EFFECTS = (
     "chase",
     "mirror_sweep",
     "breathe",
+    # Near-static wash looks: always lit, slow shimmer / soft segment motion.
+    "glow",
+    "glow_wave",
+    "glow_rise",
+    # One-shot atmosphere bar looks (palette on/off segments).
+    "glow_line",   # sync band bouncing up/down on every bar
+    "glow_pinch",  # top+bottom grow toward center, then retract
+    "glow_eq",     # standing-wave / equalizer columns across the bar row
 )
 
 TRANSITIONS = ("cut", "soft", "fade")

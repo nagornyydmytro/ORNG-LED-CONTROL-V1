@@ -1,4 +1,7 @@
 export const PRESET_CATALOG = [
+  { id: "A01", label: "Статика — червоний" },
+  { id: "A02", label: "Статика — синій" },
+  { id: "A03", label: "Статика — фіолетовий" },
   { id: "P01", label: "Дуже плавний" },
   { id: "P02", label: "Атмосферний" },
   { id: "P03", label: "М'яка динаміка" },
@@ -16,13 +19,16 @@ export type PresetId = (typeof PRESET_CATALOG)[number]["id"];
 /** Mirror of backend PALETTE_RGBW — used only to preview a preset's real look. */
 export const PALETTE_CSS: Record<string, string> = {
   warm_orange: "rgb(255, 89, 13)",
-  deep_red: "rgb(255, 13, 5)",
+  deep_red: "rgb(255, 20, 5)",
   amber: "rgb(255, 140, 20)",
   white_warm: "rgb(255, 226, 187)",
   violet_orange: "rgb(217, 51, 191)",
   cool_blue: "rgb(38, 89, 255)",
   mint: "rgb(51, 242, 166)",
   magenta: "rgb(255, 26, 140)",
+  rose: "rgb(255, 36, 26)",
+  deep_blue: "rgb(13, 46, 255)",
+  violet: "rgb(140, 20, 255)",
 };
 
 export function paletteCss(name: string): string {

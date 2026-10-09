@@ -401,15 +401,15 @@ class ArtNetSettings(StrictModel):
 
 
 DEFAULT_PAD_PRESETS: tuple[str, ...] = (
+    "A01",
+    "A02",
+    "A03",
     "P01",
     "P02",
     "P03",
     "P04",
     "P05",
     "P06",
-    "P07",
-    "P08",
-    "P09",
 )
 
 

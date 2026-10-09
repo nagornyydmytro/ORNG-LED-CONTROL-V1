@@ -44,6 +44,9 @@ export const PALETTES = [
   "cool_blue",
   "mint",
   "magenta",
+  "rose",
+  "deep_blue",
+  "violet",
 ] as const;
 
 export const EFFECTS = [
@@ -53,6 +56,12 @@ export const EFFECTS = [
   "chase",
   "mirror_sweep",
   "breathe",
+  "glow",
+  "glow_wave",
+  "glow_rise",
+  "glow_line",
+  "glow_pinch",
+  "glow_eq",
 ] as const;
 
 export const TRANSITIONS = ["cut", "soft", "fade"] as const;

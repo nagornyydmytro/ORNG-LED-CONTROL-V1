@@ -4,21 +4,42 @@
 `.context/PROJECT_CANON.md`. План реализации: `docs/IMPLEMENTATION_PLAN.md`.
 HOME acceptance: `docs/HOME_ACCEPTANCE_REPORT.md`.
 
-## Требования (Windows)
+## Требования
 
 - Python **3.12**
-- Node.js **18+** (проверено на 24) и npm
-- PowerShell 5.1+
+- Node.js **18+** и npm
+- Windows: PowerShell 5.1+ · macOS: bash + Homebrew
 
-Docker и Cloudflare **не** требуются. Путь к репозиторию может содержать
-кириллицу и пробелы — скрипты используют `-LiteralPath` / абсолютные пути.
+Docker и Cloudflare **не** требуются.
 
-## Быстрый старт (чистая машина)
+## Быстрый старт (Windows)
 
 ```powershell
 cd C:\path\to\ORNG-LED-CONTROL-V1
 .\scripts\bootstrap.ps1
 .\scripts\run.ps1
+# venue one-click (Art-Net + Arm + Chrome):
+.\ORNG-LED-START.cmd
+```
+
+## Быстрый старт (macOS — с GitHub одной командой)
+
+На Mac (нужны Homebrew, git, node, python3.12):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/nagornyydmytro/ORNG-LED-CONTROL-V1/main/scripts/macos-install.sh | bash
+```
+
+Скрипт клонирует репо в `~/ORNG-LED-CONTROL-V1`, ставит зависимости,
+кладёт ярлык на Desktop и запускает venue-start (Blackout + Art-Net + Arm + браузер).
+Дальше только сними Blackout в UI.
+
+Если репо уже склонировано:
+
+```bash
+cd ~/ORNG-LED-CONTROL-V1
+./scripts/bootstrap.sh
+./scripts/venue-start.sh
 ```
 
 Откройте `http://127.0.0.1:8000/` — production-сборка frontend раздаётся FastAPI.

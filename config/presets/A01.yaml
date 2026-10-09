@@ -1,0 +1,114 @@
+schema_version: 1
+id: A01
+label: Статика — червоний
+hardware_tuned: false
+builtin: true
+episodes:
+- id: ep1
+  duration_s: 18.0
+  groups:
+  - bar
+  - par
+  palette: deep_red
+  effect: glow
+  speed: 0.1
+  intensity: 0.9
+  transition: cut
+  notes: null
+- id: ep2
+  duration_s: 18.0
+  groups:
+  - bar
+  palette: rose
+  effect: glow
+  speed: 0.1
+  intensity: 0.88
+  transition: cut
+  notes: null
+- id: ep3
+  duration_s: 18.0
+  groups:
+  - bar
+  - beam
+  palette: deep_red
+  effect: glow
+  speed: 0.09
+  intensity: 0.92
+  transition: cut
+  notes: null
+- id: ep4
+  duration_s: 18.0
+  groups:
+  - bar
+  - par
+  - beam
+  palette: rose
+  effect: glow
+  speed: 0.1
+  intensity: 0.88
+  transition: cut
+  notes: null
+- id: ep5
+  duration_s: 18.0
+  groups:
+  - all_rear
+  palette: deep_red
+  effect: glow
+  speed: 0.1
+  intensity: 0.9
+  transition: cut
+  notes: null
+- id: ep6
+  duration_s: 18.0
+  groups:
+  - bar
+  - beam
+  palette: rose
+  effect: glow
+  speed: 0.1
+  intensity: 0.9
+  transition: cut
+  notes: null
+- id: ep7
+  duration_s: 18.0
+  groups:
+  - bar
+  - par
+  palette: deep_red
+  effect: glow
+  speed: 0.08
+  intensity: 0.93
+  transition: cut
+  notes: null
+- id: ep8
+  duration_s: 18.0
+  groups:
+  - bar
+  palette: deep_red
+  effect: glow_line
+  speed: 0.16
+  intensity: 0.92
+  transition: cut
+  notes: null
+- id: ep9
+  duration_s: 18.0
+  groups:
+  - bar
+  - beam
+  - par
+  palette: rose
+  effect: glow
+  speed: 0.1
+  intensity: 0.9
+  transition: cut
+  notes: null
+- id: ep10
+  duration_s: 18.0
+  groups:
+  - all_rear
+  palette: deep_red
+  effect: glow
+  speed: 0.1
+  intensity: 0.9
+  transition: cut
+  notes: null

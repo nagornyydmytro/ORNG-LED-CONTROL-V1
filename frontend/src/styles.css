@@ -261,6 +261,8 @@ input {
   flex: 0 0 auto;
   display: block;
   object-fit: contain;
+  border-radius: 6px;
+  background: #000;
 }
 
 .sidebar__titles {

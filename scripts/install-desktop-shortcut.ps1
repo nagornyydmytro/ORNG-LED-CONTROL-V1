@@ -37,13 +37,16 @@ $sc.TargetPath = $TargetCmd
 $sc.WorkingDirectory = $RepoRoot
 $sc.WindowStyle = 1
 $sc.Description = "ORNG LED CONTROL: Type-C Art-Net + server + Blackout + Arm + Chrome"
-# Prefer the opaque desktop ICO (black background). New filename busts Win icon cache.
-$icon = Join-Path $RepoRoot "branding\orng-led-control-desktop.ico"
-if (-not (Test-Path -LiteralPath $icon)) {
-    $icon = Join-Path $RepoRoot "branding\orng-led-control.ico"
-}
-if (-not (Test-Path -LiteralPath $icon)) {
-    throw "Missing branding icon: $icon"
+# Official logo PNG → ICO (black field + orange ring + black circle on top).
+# Prefer newest cache-busting filename.
+$iconCandidates = @(
+    (Join-Path $RepoRoot "branding\orng-led-control-desktop-v3.ico")
+    (Join-Path $RepoRoot "branding\orng-led-control-desktop.ico")
+    (Join-Path $RepoRoot "branding\orng-led-control.ico")
+)
+$icon = $iconCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+if (-not $icon) {
+    throw "Missing branding desktop icon under branding\"
 }
 $sc.IconLocation = "$icon,0"
 $sc.Save()

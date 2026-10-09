@@ -82,7 +82,7 @@ watch(collapsed, (value) => {
         <div class="sidebar__brand">
           <img
             class="sidebar__logo"
-            src="/logo.svg"
+            src="/logo.png"
             alt=""
             width="28"
             height="28"

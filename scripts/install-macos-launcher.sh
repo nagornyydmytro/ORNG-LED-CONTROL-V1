@@ -4,13 +4,17 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DESKTOP="${HOME}/Desktop"
-APP_NAME="ORNG LED START.app"
+APP_NAME="ORNG LED CONTROL.app"
 APP_PATH="$DESKTOP/$APP_NAME"
 PNG_SRC="$REPO_ROOT/branding/orng-led-control-1024.png"
 LOGO_PNG="$REPO_ROOT/branding/orng-led-control-logo.png"
 
 chmod +x "$REPO_ROOT/scripts/"*.sh
-chmod +x "$REPO_ROOT/ORNG-LED-START.command" 2>/dev/null || true
+chmod +x "$REPO_ROOT/ORNG-LED-CONTROL.command" 2>/dev/null || true
+
+# Remove old START launchers if present.
+rm -rf "$DESKTOP/ORNG LED START.app" 2>/dev/null || true
+rm -f "$DESKTOP/ORNG LED START.command" 2>/dev/null || true
 
 if [[ ! -f "$PNG_SRC" ]]; then
   if [[ -f "$LOGO_PNG" ]] && command -v sips >/dev/null 2>&1; then
@@ -54,20 +58,20 @@ cat >"$APP_PATH/Contents/Info.plist" <<'PLIST'
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleName</key><string>ORNG LED START</string>
-  <key>CFBundleDisplayName</key><string>ORNG LED START</string>
-  <key>CFBundleIdentifier</key><string>local.orng.led.control.start</string>
+  <key>CFBundleName</key><string>ORNG LED CONTROL</string>
+  <key>CFBundleDisplayName</key><string>ORNG LED CONTROL</string>
+  <key>CFBundleIdentifier</key><string>local.orng.led.control</string>
   <key>CFBundleVersion</key><string>1</string>
   <key>CFBundleShortVersionString</key><string>1.0</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleExecutable</key><string>ORNG LED START</string>
+  <key>CFBundleExecutable</key><string>ORNG LED CONTROL</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>LSMinimumSystemVersion</key><string>12.0</string>
 </dict>
 </plist>
 PLIST
 
-cat >"$APP_PATH/Contents/MacOS/ORNG LED START" <<EOF
+cat >"$APP_PATH/Contents/MacOS/ORNG LED CONTROL" <<EOF
 #!/bin/bash
 REPO="$REPO_ROOT"
 if [[ ! -f "\$REPO/scripts/venue-start.sh" ]]; then
@@ -77,14 +81,13 @@ cd "\$REPO" || exit 1
 chmod +x scripts/*.sh 2>/dev/null || true
 exec ./scripts/venue-start.sh
 EOF
-chmod +x "$APP_PATH/Contents/MacOS/ORNG LED START"
+chmod +x "$APP_PATH/Contents/MacOS/ORNG LED CONTROL"
 
-# Also keep a .command copy for Terminal fallback.
-cp -f "$REPO_ROOT/ORNG-LED-START.command" "$DESKTOP/ORNG LED START.command"
-chmod +x "$DESKTOP/ORNG LED START.command"
+cp -f "$REPO_ROOT/ORNG-LED-CONTROL.command" "$DESKTOP/ORNG LED CONTROL.command"
+chmod +x "$DESKTOP/ORNG LED CONTROL.command"
 
 xattr -dr com.apple.quarantine "$APP_PATH" 2>/dev/null || true
-xattr -dr com.apple.quarantine "$DESKTOP/ORNG LED START.command" 2>/dev/null || true
+xattr -dr com.apple.quarantine "$DESKTOP/ORNG LED CONTROL.command" 2>/dev/null || true
 xattr -dr com.apple.quarantine "$REPO_ROOT/scripts" 2>/dev/null || true
 
 rm -rf "$TMP"

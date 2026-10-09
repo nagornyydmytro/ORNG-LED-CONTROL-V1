@@ -48,7 +48,7 @@ else
 fi
 
 cd "$REPO_DIR"
-chmod +x scripts/*.sh ORNG-LED-START.command 2>/dev/null || true
+chmod +x scripts/*.sh ORNG-LED-CONTROL.command 2>/dev/null || true
 
 echo ""
 echo "Bootstrap (venv + npm) ..."

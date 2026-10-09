@@ -5,14 +5,14 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$ShortcutName = "ORNG LED START.lnk"
+    [string]$ShortcutName = "ORNG LED CONTROL.lnk"
 )
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
-$TargetCmd = Join-Path $RepoRoot "ORNG-LED-START.cmd"
+$TargetCmd = Join-Path $RepoRoot "ORNG-LED-CONTROL.cmd"
 $VenuePs1 = Join-Path $PSScriptRoot "venue-start.ps1"
 
 if (-not (Test-Path $VenuePs1)) {
@@ -21,7 +21,7 @@ if (-not (Test-Path $VenuePs1)) {
 
 $cmdLines = @(
     "@echo off"
-    "title ORNG LED venue start"
+    "title ORNG LED CONTROL"
     "cd /d `"%~dp0`""
     "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"%~dp0scripts\venue-start.ps1`""
     "if errorlevel 1 pause"

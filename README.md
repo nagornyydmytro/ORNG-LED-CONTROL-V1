@@ -19,7 +19,7 @@ cd C:\path\to\ORNG-LED-CONTROL-V1
 .\scripts\bootstrap.ps1
 .\scripts\run.ps1
 # venue one-click (Art-Net + Arm + Chrome):
-.\ORNG-LED-START.cmd
+.\ORNG-LED-CONTROL.cmd
 ```
 
 ## Быстрый старт (macOS — с GitHub одной командой)

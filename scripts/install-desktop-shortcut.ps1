@@ -37,9 +37,10 @@ $sc.TargetPath = $TargetCmd
 $sc.WorkingDirectory = $RepoRoot
 $sc.WindowStyle = 1
 $sc.Description = "ORNG LED CONTROL: Type-C Art-Net + server + Blackout + Arm + Chrome"
-# Official logo PNG → ICO (black field + orange ring + black circle on top).
+# Official mark → ICO: transparent bg + orange ring + black circle on top.
 # Prefer newest cache-busting filename.
 $iconCandidates = @(
+    (Join-Path $RepoRoot "branding\orng-led-control-desktop-v4.ico")
     (Join-Path $RepoRoot "branding\orng-led-control-desktop-v3.ico")
     (Join-Path $RepoRoot "branding\orng-led-control-desktop.ico")
     (Join-Path $RepoRoot "branding\orng-led-control.ico")

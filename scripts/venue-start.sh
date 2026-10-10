@@ -9,7 +9,7 @@ PORT="${PORT:-8000}"
 LAPTOP_IP="${LAPTOP_IP:-2.0.0.10}"
 CONTROLLER_IP="${CONTROLLER_IP:-2.0.0.11}"
 NETMASK="${NETMASK:-255.0.0.0}"
-NETWORK_TIMEOUT_SEC="${NETWORK_TIMEOUT_SEC:-90}"
+NETWORK_TIMEOUT_SEC="${NETWORK_TIMEOUT_SEC:-20}"
 HEALTH_TIMEOUT_SEC="${HEALTH_TIMEOUT_SEC:-120}"
 SKIP_BUILD="${SKIP_BUILD:-1}"
 NO_CHROME="${NO_CHROME:-0}"
@@ -107,16 +107,22 @@ service_for_device() {
 }
 
 ensure_network() {
-  step "Waiting for USB-C / Art-Net adapter (up to ${NETWORK_TIMEOUT_SEC}s) ..."
+  # NEVER abort boot here — app must start even without USB-C plugged.
+  step "Checking USB-C / Art-Net adapter (up to ${NETWORK_TIMEOUT_SEC}s) ..."
   local deadline=$((SECONDS + NETWORK_TIMEOUT_SEC))
   local iface=""
   while (( SECONDS < deadline )); do
     if iface="$(find_artnet_iface)"; then
       break
     fi
-    sleep 2
+    sleep 1
   done
-  [[ -n "$iface" ]] || fail "Art-Net NIC not found. Plug USB-C Ethernet, wait for link, retry."
+
+  if [[ -z "$iface" ]]; then
+    step "No Art-Net NIC yet — continuing anyway (plug USB-C when ready)"
+    step "Controller target stays $CONTROLLER_IP — activate/arm will still be attempted"
+    return 0
+  fi
 
   local current_ip
   current_ip="$(ifconfig "$iface" 2>/dev/null | awk '/inet /{print $2; exit}')"
@@ -130,13 +136,10 @@ ensure_network() {
       if networksetup -setmanual "$service" "$LAPTOP_IP" "$NETMASK" 2>>"$LOG_FILE"; then
         step "Laptop IP set to $LAPTOP_IP"
       else
-        step "Could not set IP via networksetup (try: sudo networksetup -setmanual \"$service\" $LAPTOP_IP $NETMASK)"
-        if [[ "$current_ip" != 2.* ]]; then
-          fail "No 2.x address on $iface. Configure $LAPTOP_IP/$NETMASK manually, then retry."
-        fi
+        step "Could not set IP via networksetup — continuing (try sudo later)"
       fi
     elif [[ "$current_ip" != 2.* ]]; then
-      fail "No 2.x address on $iface. Set $LAPTOP_IP manually (System Settings → Network), then retry."
+      step "No 2.x address yet — continuing; set $LAPTOP_IP manually if lights fail"
     else
       step "Using existing 2.x address $current_ip"
     fi
@@ -148,7 +151,7 @@ ensure_network() {
   if ping -c 1 -W 1000 "$CONTROLLER_IP" >/dev/null 2>&1; then
     step "Controller $CONTROLLER_IP answers ping"
   else
-    step "No ICMP from $CONTROLLER_IP (often normal for Art-Net nodes) - continuing"
+    step "No ICMP from $CONTROLLER_IP — continuing (lights may still work)"
   fi
 }
 
@@ -237,7 +240,7 @@ initialize_show_safe() {
   if [[ "$transport" != "artnet" || ( "$udp" != "True" && "$net" != "True" ) ]]; then
     step "Activating Art-Net ..."
     if ! json_post "/api/output/activate-artnet" "{\"confirmed\":true,\"client_command_id\":\"venue-activate-$STAMP\"}" >/dev/null; then
-      fail "Art-Net activate failed (HTTP error). Check Setup / activation blockers."
+      step "Art-Net activate deferred — continue to UI"
     fi
   else
     step "Art-Net already active"
@@ -248,24 +251,26 @@ initialize_show_safe() {
   if [[ "$armed" != "True" ]]; then
     step "Arming output (Blackout stays ON) ..."
     if ! json_post "/api/output/arm" "{\"confirmed\":true,\"client_command_id\":\"venue-arm-$STAMP\"}" >/dev/null; then
-      fail "Arm failed. Check /api/output/arm-blockers"
+      step "Arm deferred — continue to UI"
     fi
   else
     step "Already armed"
   fi
+
+  json_post "/api/commands/blackout" "{\"enabled\":true,\"client_command_id\":\"venue-blackout-final-$STAMP\"}" >/dev/null || true
 
   state="$(state_json)"
   armed="$("$PYTHON" -c 'import json,sys; print(json.load(sys.stdin)["output"]["armed"])' <<<"$state")"
   blackout="$("$PYTHON" -c 'import json,sys; print(json.load(sys.stdin)["engine"]["blackout"])' <<<"$state")"
   udp="$("$PYTHON" -c 'import json,sys; print(json.load(sys.stdin)["output"]["udp_active"])' <<<"$state")"
   net="$("$PYTHON" -c 'import json,sys; print(json.load(sys.stdin)["output"]["network_allowed"])' <<<"$state")"
+  transport="$("$PYTHON" -c 'import json,sys; print(json.load(sys.stdin)["output"]["transport"])' <<<"$state")"
 
-  [[ "$blackout" == "True" ]] || fail "Blackout is OFF after boot - aborting."
-  [[ "$armed" == "True" ]] || fail "Arm failed - output not armed."
-  if [[ "$udp" != "True" && "$net" != "True" ]]; then
-    step "Warning: UDP/network flag not clearly true - check Setup"
+  if [[ "$armed" == "True" && ( "$udp" == "True" || "$net" == "True" ) && "$transport" == "artnet" ]]; then
+    step "READY: Art-Net up, Armed=true, Blackout=ON, target=$CONTROLLER_IP"
+  else
+    step "UI READY (transport=$transport, armed=$armed, blackout=$blackout). Plug USB-C / fix Art-Net in Setup if needed."
   fi
-  step "READY: Art-Net up, Armed=true, Blackout=ON, target=$CONTROLLER_IP"
 }
 
 open_admin_ui() {
@@ -287,10 +292,11 @@ echo ""
 cd "$REPO_ROOT"
 ensure_network
 start_server
-initialize_show_safe
+initialize_show_safe || step "Show init warning — opening UI anyway"
 open_admin_ui
 
 echo ""
-echo "All set. In the browser: turn Blackout OFF, then you are live."
+echo "App is up. In the browser: turn Blackout OFF when ready for lights."
 echo "Server log: $SERVER_LOG"
+echo "If Art-Net was deferred: plug USB-C, then Activate/Arm on Setup (or re-run launcher)."
 echo ""

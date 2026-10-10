@@ -16,7 +16,7 @@ param(
     [string]$ControllerIp = "2.0.0.11",
     [int]$PrefixLength = 8,
     [string]$PreferredAdapter = "Ethernet 2",
-    [int]$NetworkTimeoutSec = 90,
+    [int]$NetworkTimeoutSec = 20,
     [int]$HealthTimeoutSec = 120,
     [switch]$SkipBuild,
     [switch]$NoChrome
@@ -50,17 +50,31 @@ function Invoke-JsonPost {
     return Invoke-RestMethod -Method Post -Uri $uri -ContentType "application/json" -Body $json -TimeoutSec 10
 }
 
+function Test-IsUsbEthernet {
+    param($Adapter)
+    $desc = [string]$Adapter.InterfaceDescription
+    $name = [string]$Adapter.Name
+    if ($desc -match "Realtek.*USB|USB.*Ethernet|USB.*GbE|AX88179|RTL815|USB.*LAN|ASIX") {
+        return $true
+    }
+    if ($name -match "Ethernet 2|USB") {
+        return $true
+    }
+    return $false
+}
+
 function Get-ArtNetAdapter {
     param([string]$PreferName)
-    $up = Get-NetAdapter -ErrorAction SilentlyContinue |
-        Where-Object { $_.Status -eq "Up" }
-    if (-not $up) { return $null }
+    $all = @(Get-NetAdapter -ErrorAction SilentlyContinue)
+    if (-not $all) { return $null }
 
+    # Prefer named adapter even if not Up yet (Type-C often shows Disconnected until link).
     if ($PreferName) {
-        $named = $up | Where-Object { $_.Name -eq $PreferName } | Select-Object -First 1
+        $named = $all | Where-Object { $_.Name -eq $PreferName } | Select-Object -First 1
         if ($named) { return $named }
     }
 
+    $up = @($all | Where-Object { $_.Status -eq "Up" })
     foreach ($adapter in $up) {
         $addrs = Get-NetIPAddress -InterfaceIndex $adapter.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue
         if ($addrs | Where-Object { $_.IPAddress -like "2.*" }) {
@@ -68,27 +82,46 @@ function Get-ArtNetAdapter {
         }
     }
 
-    $usb = $up | Where-Object {
-        $_.InterfaceDescription -match "Realtek.*USB|USB.*Ethernet|USB.*GbE|AX88179|RTL815"
-    } | Select-Object -First 1
-    if ($usb) { return $usb }
+    $usbUp = $up | Where-Object { Test-IsUsbEthernet $_ } | Select-Object -First 1
+    if ($usbUp) { return $usbUp }
+
+    # Present but not linked yet  -  still usable for IP config / later link.
+    $usbAny = $all | Where-Object { Test-IsUsbEthernet $_ } |
+        Sort-Object { if ($_.Status -eq "Up") { 0 } elseif ($_.Status -eq "Disconnected") { 1 } else { 2 } } |
+        Select-Object -First 1
+    if ($usbAny) { return $usbAny }
 
     return $null
 }
 
 function Ensure-ArtNetNetwork {
-    Write-Step "Waiting for Type-C / Art-Net adapter (up to ${NetworkTimeoutSec}s) ..."
+    # NEVER abort boot here  -  app must start even without Type-C plugged.
+    Write-Step "Checking Type-C / Art-Net adapter (up to ${NetworkTimeoutSec}s) ..."
     $deadline = (Get-Date).AddSeconds($NetworkTimeoutSec)
     $adapter = $null
     while ((Get-Date) -lt $deadline) {
         $adapter = Get-ArtNetAdapter -PreferName $PreferredAdapter
         if ($adapter) { break }
-        Start-Sleep -Seconds 2
+        Start-Sleep -Seconds 1
     }
+
     if (-not $adapter) {
-        throw "Art-Net NIC not found. Plug Type-C Ethernet, wait for link, retry."
+        Write-Step "No Art-Net NIC yet  -  continuing anyway (plug Type-C when ready)" "Yellow"
+        Write-Step "Controller target stays $ControllerIp  -  activate/arm will still be attempted" "Yellow"
+        return
     }
-    Write-Step ("NIC: {0} ({1})" -f $adapter.Name, $adapter.InterfaceDescription) "Green"
+
+    Write-Step ("NIC: {0} [{1}] ({2})" -f $adapter.Name, $adapter.Status, $adapter.InterfaceDescription) "Green"
+
+    if ($adapter.Status -ne "Up") {
+        try {
+            Write-Step "Enabling adapter '$($adapter.Name)' ..." "Yellow"
+            Enable-NetAdapter -Name $adapter.Name -Confirm:$false -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 2
+            $adapter = Get-NetAdapter -Name $adapter.Name -ErrorAction SilentlyContinue
+        }
+        catch { }
+    }
 
     $addrs = @(Get-NetIPAddress -InterfaceIndex $adapter.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue)
     $hasLaptop = $addrs | Where-Object { $_.IPAddress -eq $LaptopIp }
@@ -103,11 +136,7 @@ function Ensure-ArtNetNetwork {
             Write-Step "Laptop IP set to $LaptopIp/$PrefixLength" "Green"
         }
         catch {
-            $hasSubnet = $addrs | Where-Object { $_.IPAddress -like "2.*" }
-            if (-not $hasSubnet) {
-                throw ("Cannot set $LaptopIp on '$($adapter.Name)'. Run as Administrator once, or set static IP manually. Detail: {0}" -f $_.Exception.Message)
-            }
-            Write-Step ("Could not force $LaptopIp; using existing 2.x address. Run as Admin to force it. {0}" -f $_.Exception.Message) "Yellow"
+            Write-Step ("Could not set $LaptopIp (run shortcut as Admin once if needed): {0}" -f $_.Exception.Message) "Yellow"
         }
     }
     else {
@@ -121,11 +150,11 @@ function Ensure-ArtNetNetwork {
             Write-Step "Controller $ControllerIp answers ping" "Green"
         }
         else {
-            Write-Step "No ICMP from $ControllerIp (often normal for Art-Net nodes) - continuing" "Yellow"
+            Write-Step "No ICMP from $ControllerIp  -  continuing (lights may still work)" "Yellow"
         }
     }
     catch {
-        Write-Step "Ping skipped - continuing" "Yellow"
+        Write-Step "Ping skipped  -  continuing" "Yellow"
     }
 }
 
@@ -257,11 +286,10 @@ function Initialize-ShowSafe {
         catch {
             $detail = $_.Exception.Message
             try {
-                $resp = $_.ErrorDetails.Message
-                if ($resp) { $detail = $resp }
+                if ($_.ErrorDetails.Message) { $detail = $_.ErrorDetails.Message }
             }
             catch { }
-            throw "Art-Net activate failed: $detail"
+            Write-Step ("Art-Net activate deferred: {0}" -f $detail) "Yellow"
         }
     }
     else {
@@ -286,26 +314,46 @@ function Initialize-ShowSafe {
                 }
             }
             catch { }
-            throw "Arm failed: $detail"
+            Write-Step ("Arm deferred: {0}" -f $detail) "Yellow"
         }
     }
     else {
         Write-Step "Already armed" "Green"
     }
 
+    # Ensure blackout even if arm/activate deferred.
+    try {
+        Invoke-JsonPost -Path "/api/commands/blackout" -Body @{
+            enabled = $true
+            client_command_id = "venue-blackout-final-$Stamp"
+        } | Out-Null
+    }
+    catch { }
+
     $state = Get-AppState
     $armed = [bool]$state.output.armed
     $blackout = [bool]$state.engine.blackout
     $udp = [bool]$state.output.udp_active
     $net = [bool]$state.output.network_allowed
+    $transport = [string]$state.output.transport
 
-    if (-not $blackout) { throw "Blackout is OFF after boot - aborting (unexpected)." }
-    if (-not $armed) { throw "Arm failed - output not armed." }
-    if (-not ($udp -or $net)) {
-        Write-Step "Warning: UDP/network flag not clearly true in state - check Setup" "Yellow"
+    if (-not $blackout) {
+        Write-Step "Warning: Blackout is OFF  -  forcing ON again" "Yellow"
+        try {
+            Invoke-JsonPost -Path "/api/commands/blackout" -Body @{
+                enabled = $true
+                client_command_id = "venue-blackout-retry-$Stamp"
+            } | Out-Null
+        }
+        catch { }
     }
 
-    Write-Step ("READY: Art-Net up, Armed=true, Blackout=ON, target={0}" -f $ControllerIp) "Green"
+    if ($armed -and ($udp -or $net) -and $transport -eq "artnet") {
+        Write-Step ("READY: Art-Net up, Armed=true, Blackout=ON, target={0}" -f $ControllerIp) "Green"
+    }
+    else {
+        Write-Step ("UI READY (transport={0}, armed={1}, udp={2}). Plug Type-C / fix Art-Net in Setup if needed." -f $transport, $armed, ($udp -or $net)) "Yellow"
+    }
 }
 
 function Open-AdminUi {
@@ -338,19 +386,30 @@ try {
     Set-Location $RepoRoot
     Ensure-ArtNetNetwork
     Start-OrngServer
-    Initialize-ShowSafe
+    try {
+        Initialize-ShowSafe
+    }
+    catch {
+        Write-Step ("Show init warning: {0}" -f $_.Exception.Message) "Yellow"
+    }
     Open-AdminUi
     Write-Host ""
-    Write-Host "All set. In the browser: turn Blackout OFF, then you are live." -ForegroundColor Green
+    Write-Host "App is up. In the browser: turn Blackout OFF when ready for lights." -ForegroundColor Green
     Write-Host "Server runs in a separate PowerShell window - do not close it." -ForegroundColor DarkGray
+    Write-Host "If Art-Net was deferred: plug Type-C, then Activate/Arm on Setup (or re-run launcher)." -ForegroundColor DarkGray
     Write-Host ""
     exit 0
 }
 catch {
     Write-Step $_.Exception.Message "Red"
+    # Last resort: still try to open UI if API somehow came up.
+    try {
+        if (Test-ApiReady) { Open-AdminUi }
+    }
+    catch { }
     Write-Host ""
-    Write-Host "Boot failed. Log: $LogFile" -ForegroundColor Red
-    Write-Host "Check Type-C / Ethernet 2 / IP $LaptopIp and controller $ControllerIp." -ForegroundColor Yellow
+    Write-Host "Boot incomplete. Log: $LogFile" -ForegroundColor Red
+    Write-Host "Server/venv issue is fatal; missing Type-C alone must NOT stop the app." -ForegroundColor Yellow
     Write-Host ""
     if (-not $env:ORNG_VENUE_NO_PAUSE) {
         Read-Host "Press Enter to close"

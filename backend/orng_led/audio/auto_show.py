@@ -144,6 +144,8 @@ class SliceHearing:
     high: float = 0.0
     low_density: float = 0.0
     high_density: float = 0.0
+    origin_s: float | None = None
+    generation: int | None = None
 
     def __iter__(self):
         yield self.rms
@@ -343,6 +345,7 @@ class SectionTracker:
         self.accent_amount = 0.0
         self.accent_ready: float | None = None
         self._accent_at: float | None = None
+        self._accent_ids: list[tuple[float, float]] = []
 
     @property
     def clock_s(self) -> float:
@@ -366,8 +369,13 @@ class SectionTracker:
         onset: float,
         level: float,
         phase: float | None,
+        attack_at: float | None = None,
+        attack_id: tuple[float, float] | None = None,
     ) -> None:
-        """A clear extra attack. Not a grid kick, a fader, or the tracker's own window."""
+        """A clear extra attack. Not a grid kick, a fader, or the tracker's own window.
+
+        ``attack_at`` is the attack's own time. A late drain does not make it fresh.
+        """
         if self.accent_amount <= 0.0:
             return
         if float(onset) < 0.55 or float(level) <= 0.02:
@@ -377,11 +385,19 @@ class SectionTracker:
             frac = min(frac, 1.0 - frac)
             if frac < 0.12:
                 return
-        gap = 0.9 - 0.55 * float(self.accent_amount)
-        if self._accent_at is not None and float(now) - self._accent_at < gap:
+        when = float(now if attack_at is None else attack_at)
+        if float(now) - when > 0.12:
             return
-        self._accent_at = float(now)
-        self.accent_ready = float(now)
+        if attack_id is not None and attack_id in self._accent_ids:
+            return
+        gap = 0.9 - 0.55 * float(self.accent_amount)
+        if self._accent_at is not None and when - self._accent_at < gap:
+            return
+        if attack_id is not None:
+            self._accent_ids.append(attack_id)
+            del self._accent_ids[:-32]
+        self._accent_at = when
+        self.accent_ready = when
 
     def take_events(self) -> tuple[StructuralEvent, ...]:
         """Events since the last take. Each identity is emitted once."""
@@ -1087,6 +1103,8 @@ def consume_accent(
         return stage, False
     if float(now) - float(ready_at) > 0.12:
         return stage, True
+    if float(amount) <= 0.0:
+        return stage, True
     allowed = set(groups)
     kind_name = {"par": FixtureKind.PAR, "bar": FixtureKind.BAR, "beam": FixtureKind.BEAM}
     wanted = {kind_name[name] for name in allowed if name in kind_name}
@@ -1111,25 +1129,33 @@ def consume_accent(
             return stage, True
     painted = dict(stage.fixtures)
     brightness = max(0.0, min(float(amount), 0.55))
+    updates: dict[str, ParIntent | BarIntent | BeamIntent] = {}
     for fixture in targets:
         intent = painted.get(fixture.id)
         kind = getattr(fixture, "kind", None)
-        if kind is FixtureKind.PAR:
-            color = intent.color if isinstance(intent, ParIntent) else Rgbw(1.0, 0.4, 0.0)
-            painted[fixture.id] = ParIntent(color=color, intensity=brightness, strobe=0.0)
-        elif kind is FixtureKind.BAR:
-            color = intent.color if isinstance(intent, BarIntent) else Rgbw(1.0, 0.4, 0.0)
-            segments = intent.segments if isinstance(intent, BarIntent) else tuple(1.0 for _ in range(8))
-            painted[fixture.id] = BarIntent(
-                segments=segments, dimmer=brightness, color=color, strobe=0.0, whole=True
+        if kind is FixtureKind.PAR and isinstance(intent, ParIntent):
+            updates[fixture.id] = ParIntent(color=intent.color, intensity=brightness, strobe=0.0)
+        elif kind is FixtureKind.BAR and isinstance(intent, BarIntent):
+            updates[fixture.id] = BarIntent(
+                segments=intent.segments,
+                dimmer=brightness,
+                color=intent.color,
+                strobe=0.0,
+                whole=True,
             )
-        elif kind is FixtureKind.BEAM:
-            color = intent.color if isinstance(intent, BeamIntent) else Rgbw(1.0, 0.4, 0.0)
-            pan = intent.pan if isinstance(intent, BeamIntent) else None
-            tilt = intent.tilt if isinstance(intent, BeamIntent) else None
-            painted[fixture.id] = BeamIntent(
-                pan=pan, tilt=tilt, dimmer=1.0, color=color, strobe=0.0
+        elif kind is FixtureKind.BEAM and isinstance(intent, BeamIntent):
+            updates[fixture.id] = BeamIntent(
+                pan=intent.pan,
+                tilt=intent.tilt,
+                dimmer=1.0,
+                color=intent.color,
+                strobe=0.0,
             )
+    if getattr(chosen, "kind", None) is FixtureKind.BEAM and len(updates) < 2:
+        return stage, True
+    if not updates:
+        return stage, True
+    painted.update(updates)
     return StageIntent(fixtures=painted), True
 
 

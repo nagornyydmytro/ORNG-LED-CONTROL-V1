@@ -118,6 +118,36 @@ def _payload_extras(payload: object) -> tuple[object, ...]:
     return tuple(item for item in extra if isinstance(item, SliceHearing))
 
 
+def _attack_instant(hearing: object, captured: object, novel: object) -> float | None:
+    if not isinstance(captured, (int, float)):
+        return None
+    end = float(captured)
+    window = float(novel) if isinstance(novel, (int, float)) else 0.0
+    attacks = getattr(hearing, "attacks", ()) or ()
+    if attacks and window > 0.0:
+        last = float(attacks[-1])
+        if 0.0 <= last <= window + 1e-6:
+            return end - window + last
+    return end
+
+
+def _stamp_hearing(hearing: object, payload: object) -> object:
+    from dataclasses import replace
+
+    from orng_led.audio.auto_show import SliceHearing
+
+    if not isinstance(hearing, SliceHearing) or not isinstance(payload, tuple):
+        return hearing
+    captured = payload[4] if len(payload) > 4 else None
+    novel = payload[9] if len(payload) > 9 else 0.0
+    generation = payload[6] if len(payload) > 6 and isinstance(payload[6], int) else None
+    origin = hearing.origin_s
+    if origin is None:
+        origin = _attack_instant(hearing, captured, novel)
+    generation = hearing.generation if hearing.generation is not None else generation
+    return replace(hearing, origin_s=origin, generation=generation)
+
+
 def _dropped_hearings(payload: object) -> tuple[object, ...]:
     from orng_led.audio.auto_show import SliceHearing
 
@@ -126,7 +156,8 @@ def _dropped_hearings(payload: object) -> tuple[object, ...]:
         hearing = payload[8] if len(payload) > 8 else None
         if isinstance(hearing, SliceHearing):
             pending.append(hearing)
-    return tuple(pending[-HEARING_BACKLOG:])
+    stamped = [_stamp_hearing(item, payload) for item in pending]
+    return tuple(stamped[-HEARING_BACKLOG:])
 
 
 def put_latest(queue: Queue, item: object) -> None:

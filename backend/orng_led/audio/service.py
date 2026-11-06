@@ -218,6 +218,9 @@ class BpmService:
         del reason
         with self._lock:
             self._generation += 1
+            self.section.accent_ready = None
+            self.section._accent_at = None
+            self.section._accent_ids.clear()
         self._flush_queues_nowait()
 
     def _flush_queues_nowait(self) -> None:
@@ -515,6 +518,9 @@ class BpmService:
         if accent is not None:
             self.accent = max(0.0, min(1.0, float(accent)))
             self.section.accent_amount = self.accent
+            if self.accent <= 0.0:
+                self.section.accent_ready = None
+                self.section._accent_at = None
         # Do not write planner.character / planner.period here: look() passes
         # them into advance() so a change is detected and retunes the live
         # episode. Pre-writing made configure(period=8) a no-op.
@@ -574,6 +580,37 @@ class BpmService:
             sample_rate=sample_rate,
         )
 
+    def _offer_accent(
+        self,
+        hearing: SliceHearing,
+        *,
+        moment: float,
+        window_s: float,
+        phase: float | None,
+        carried: bool,
+    ) -> None:
+        """One attack, at its own time. A carried hearing without that time is not fresh."""
+        if hearing.generation is not None and int(hearing.generation) != int(self._generation):
+            return
+        if carried and hearing.origin_s is None:
+            return
+        when = float(hearing.origin_s) if hearing.origin_s is not None else None
+        if when is None and hearing.attacks and window_s > 0.0:
+            last = float(hearing.attacks[-1])
+            if 0.0 <= last <= float(window_s) + 1e-6:
+                when = float(moment) - (float(window_s) - last)
+        if when is None:
+            when = float(moment)
+        ident = (round(when, 4), round(float(hearing.onset), 4))
+        self.section.consider_accent(
+            now=float(moment),
+            onset=float(hearing.onset),
+            level=float(hearing.rms),
+            phase=phase,
+            attack_at=when,
+            attack_id=ident,
+        )
+
     def _apply_pending_hearings(self, extras: object, *, dt_s: float) -> None:
         """Section events from replaced snapshots. Not a second tempo vote."""
         if not extras:
@@ -592,11 +629,12 @@ class BpmService:
                     hearing=hearing,
                     beat_period_s=beat_period,
                 )
-                self.section.consider_accent(
-                    now=self._now,
-                    onset=float(hearing.onset),
-                    level=float(hearing.rms),
+                self._offer_accent(
+                    hearing,
+                    moment=self._now,
+                    window_s=step,
                     phase=phase,
+                    carried=True,
                 )
 
     def _accept_analysis(
@@ -652,6 +690,14 @@ class BpmService:
                 onset=hearing.onset,
                 hearing=hearing,
                 beat_period_s=beat_period,
+            )
+            phase = self.follower.phase_at(moment) if self.follower.locked else None
+            self._offer_accent(
+                hearing,
+                moment=moment,
+                window_s=float(dt_s),
+                phase=phase,
+                carried=False,
             )
             self._signal = energy >= _HEARD
             fresh = reading is not None and self._signal

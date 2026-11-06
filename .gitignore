@@ -24,6 +24,11 @@ node_modules/
 dist/
 build/
 out/
+# Signed packages and repair leftovers. Keep them on disk; do not version them.
+dist-app-repair*/
+dist-hardware-candidate/
+# Cloud admin SPA. Rebuild with `npm --prefix frontend run build:cloud`.
+cloud/admin-dist/
 coverage/
 .nyc_output/
 .cache/
@@ -55,11 +60,21 @@ config/*.local.yaml
 *.local.yaml
 # Device-local active scene — never ship or overwrite with scene releases
 config/runtime.yaml
+# This desk's generated id and saved execution role. Created on first use.
+config/instance.json
+config/desk-role.json
 # Legacy/mistaken path — cloud metadata must never live under config/
 config/cloud-metadata.json
 
 # Local acceptance screenshots (kept out of the repository on purpose)
 .tmp-shots/
+.tmp-splash-frames/
+docs/captures/
+docs/review-screenshots/
+
+# Scratch prefs copies. Not a config root.
+backend/_tmp_phase/
+backend/_tmp_phase*/
 
 # Logs and runtime artifacts
 logs/

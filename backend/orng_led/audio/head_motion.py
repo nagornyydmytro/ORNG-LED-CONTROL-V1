@@ -299,7 +299,12 @@ def _scene_extrema() -> dict[str, tuple[float, float, float, float]]:
                         continue
                     row = found.setdefault(
                         fixture_id,
-                        [float(intent.pan), float(intent.pan), float(intent.tilt), float(intent.tilt)],
+                        [
+                            float(intent.pan),
+                            float(intent.pan),
+                            float(intent.tilt),
+                            float(intent.tilt),
+                        ],
                     )
                     row[0] = min(row[0], float(intent.pan))
                     row[1] = max(row[1], float(intent.pan))

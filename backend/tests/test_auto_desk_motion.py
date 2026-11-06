@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
+
 from orng_led.audio.auto_show import (
     SectionTracker,
     StructuralEvent,
@@ -274,14 +276,59 @@ def test_head_bounds_come_from_preset_span_not_full_throw() -> None:
     assert abs(float(wide["pan"]["hi"]) - 0.92) < 1e-9
     assert wide["pan"]["crosses_home"] is True
     assert wide["origin"]
+    narrowed = SimpleNamespace(
+        pan_min=0.2, pan_max=0.8, home_pan=0.5,
+        tilt_min=0.0, tilt_max=1.0, home_tilt=0.44,
+        max_pan_speed=0.35, max_tilt_speed=0.25, side="right",
+        pan_offset=0.0, tilt_offset=0.0, pan_invert=False, tilt_invert=False,
+    )
+    kept = bounds_for(SimpleNamespace(id="beam_right", spatial=narrowed))
+    assert kept["pan"]["still"] is False
+    assert abs(float(kept["pan"]["lo"]) - 0.08) < 1e-3
     tight = SimpleNamespace(
-        pan_min=0.95, pan_max=1.0, home_pan=0.97,
+        pan_min=0.0, pan_max=0.01, home_pan=0.005,
         tilt_min=0.0, tilt_max=1.0, home_tilt=0.5,
         max_pan_speed=0.35, max_tilt_speed=0.25, side="right",
+        pan_offset=0.0, tilt_offset=0.0, pan_invert=False, tilt_invert=False,
     )
     stuck = bounds_for(SimpleNamespace(id="beam_right", spatial=tight))
     assert stuck["pan"]["still"] is True
     assert "calibration_excludes_preset" in str(stuck["pan"]["reason"])
+
+
+def test_rise_pan_rests_on_the_calibrated_home() -> None:
+    pan, _tilt = target(
+        1.0, 1.0, "groove", look="heads_only_rise",
+        pan_span=(0.08, 0.58), tilt_span=(0.24, 0.64), home_pan=0.5,
+    )
+    assert pan == pytest.approx(0.5)
+    assert abs(float(pan) - ((0.08 + 0.58) / 2.0)) > 0.1
+    other, _tilt = target(
+        1.0, 1.0, "groove", look="heads_only_rise",
+        pan_span=(0.08, 0.92), tilt_span=(0.24, 0.64), home_pan=0.62,
+    )
+    assert other == pytest.approx(0.62)
+
+
+def test_head_bounds_survive_invert_and_match_across_the_pair() -> None:
+    show = load_show_config()
+    by_id = {fixture.id: fixture for fixture in show.patch.fixtures}
+    left = bounds_for(by_id["beam_left"])
+    right = bounds_for(by_id["beam_right"])
+    assert left["pan"]["still"] is False and right["pan"]["still"] is False
+    assert abs(float(left["pan"]["lo"]) - float(right["pan"]["lo"])) < 1e-6
+    assert abs(float(left["pan"]["hi"]) - float(right["pan"]["hi"])) < 1e-6
+    flipped_spatial = by_id["beam_right"].spatial.model_copy(update={"pan_invert": True, "pan_offset": 0.0})
+    flipped = bounds_for(SimpleNamespace(id="beam_right", spatial=flipped_spatial))
+    assert abs(float(flipped["pan"]["lo"]) - float(right["pan"]["lo"])) < 1e-6
+    assert abs(float(flipped["pan"]["hi"]) - float(right["pan"]["hi"])) < 1e-6
+    shifted_spatial = by_id["beam_right"].spatial.model_copy(update={"pan_offset": 0.1})
+    shifted = bounds_for(SimpleNamespace(id="beam_right", spatial=shifted_spatial))
+    assert float(shifted["pan"]["lo"]) >= float(right["pan"]["lo"]) - 1e-6
+    assert float(shifted["pan"]["hi"]) <= float(right["pan"]["hi"]) + 1e-6
+    assert float(shifted["pan"]["hi"]) - float(shifted["pan"]["lo"]) <= (
+        float(right["pan"]["hi"]) - float(right["pan"]["lo"])
+    ) + 1e-6
 
 
 def test_head_targets_are_spatial_mirrors() -> None:

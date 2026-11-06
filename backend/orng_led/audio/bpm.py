@@ -542,16 +542,42 @@ def _flux_is_sparse(flux: np.ndarray) -> bool:
     return peak >= MIN_FLUX_PEAK_MEDIAN * (median + 1e-12) and duty <= MAX_FLUX_DUTY
 
 
+def _attack_weight(
+    block: np.ndarray | None,
+    when: float,
+    sample_rate: int,
+    hop: int,
+    flux_value: float,
+) -> float:
+    """Time-domain peak around an attack.
+
+    Spectral-flux magnitude depends on where the click sits inside the hop.
+    Equal clicks then look like loud kicks and quiet hats, and the octave
+    step takes half the tempo. The waveform peak does not.
+    """
+    if block is None or int(block.size) == 0:
+        return float(flux_value)
+    center = int(round(float(when) * float(sample_rate)))
+    half = max(int(hop), 1)
+    lo = max(0, center - half)
+    hi = min(int(block.size), center + half + 1)
+    if hi <= lo:
+        return float(flux_value)
+    return float(np.max(np.abs(block[lo:hi])))
+
+
 def _local_onset_peaks(
     flux: np.ndarray,
     peaks: np.ndarray,
     hop: int,
     sample_rate: int,
+    block: np.ndarray | None = None,
 ) -> tuple[list[float], list[float]]:
     """Attack times and flux from each neighborhood, not the loudest hit in the bar.
 
     The median and MAD of a short window ignore one spike. A global fraction of
     the peak does not: that spike becomes the only attack that survives.
+    Strength for the hat test is the waveform peak, not the hop flux.
     """
     count = int(flux.size)
     if count < 3:
@@ -578,12 +604,13 @@ def _local_onset_peaks(
         if value < floor:
             continue
         when = (index * hop + int(peaks[index])) / float(sample_rate)
+        weight = _attack_weight(block, when, sample_rate, hop, value)
         if when - last < refractory_s:
-            if found and value > found[-1][1]:
-                found[-1] = (when, value)
+            if found and weight > found[-1][1]:
+                found[-1] = (when, weight)
                 last = when
             continue
-        found.append((when, value))
+        found.append((when, weight))
         last = when
     if len(found) >= 2:
         ordered = sorted(value for _when, value in found)
@@ -718,7 +745,10 @@ def _weak_subdivision(
     slow_period: float,
     fast_period: float,
 ) -> bool:
-    """Hats in range add extra inliers on the fast grid. Equal clicks do not."""
+    """Hats in range add extra inliers on the fast grid. Equal clicks do not.
+
+    ``strengths`` are waveform peaks. Hop flux is not a loudness.
+    """
     if not times or not strengths or slow_period <= 0.0 or fast_period <= 0.0:
         return False
     stamps = np.asarray(times, dtype=np.float64)
@@ -785,7 +815,7 @@ def inspect_tempo(
     sparse = flux[lag:] if flux.size > lag else flux
     if not _flux_is_sparse(sparse):
         return None, "weak_period", empty
-    onsets, strengths = _local_onset_peaks(flux, peaks, hop, sample_rate)
+    onsets, strengths = _local_onset_peaks(flux, peaks, hop, sample_rate, centered)
     if len(onsets) < 4:
         return None, "few_onsets", _tempo_detail(len(onsets))
     gaps = [right - left for left, right in zip(onsets, onsets[1:]) if right > left]

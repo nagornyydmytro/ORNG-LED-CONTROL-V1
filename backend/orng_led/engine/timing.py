@@ -16,7 +16,6 @@ mapped to a real frequency in Hz by :func:`effect_rate_hz`.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
 
 # Semantic speed 0..1 → real effect frequency (Hz), exponential so the calm
 # and the aggressive ends of the preset range both stay useful.
@@ -64,33 +63,6 @@ def movement_rate_hz(speed: float) -> float:
     """Beam sweep frequency in Hz (speed-limited, provisional)."""
     speed = clamp01(speed)
     return MIN_MOVE_HZ + (MAX_MOVE_HZ - MIN_MOVE_HZ) * speed
-
-
-def cycles_in(seconds: float, rate_hz: float) -> float:
-    """Number of effect turns produced by ``seconds`` at ``rate_hz``."""
-    return max(0.0, seconds) * max(0.0, rate_hz)
-
-
-@dataclass(frozen=True)
-class ShowClock:
-    """Two independent clocks with the same origin.
-
-    ``show_time_s`` may run faster than real time when the operator uses
-    preview speed. ``wall_time_s`` never does: every protective timeout is
-    measured on it.
-    """
-
-    show_time_s: float = 0.0
-    wall_time_s: float = 0.0
-    preview_speed: float = 1.0
-
-    def advanced(self, wall_dt_s: float) -> ShowClock:
-        wall_dt_s = max(0.0, wall_dt_s)
-        return ShowClock(
-            show_time_s=self.show_time_s + wall_dt_s * max(0.0, self.preview_speed),
-            wall_time_s=self.wall_time_s + wall_dt_s,
-            preview_speed=self.preview_speed,
-        )
 
 
 def unipolar_sine(phase_turns: float) -> float:

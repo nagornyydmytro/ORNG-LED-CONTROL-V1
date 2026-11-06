@@ -1,8 +1,9 @@
-"""Limited Auto head paths. Live output stays off until a later safe check.
+"""Limited Auto head paths.
 
-``HEAD_PATHS_LIVE`` stays false. A preset span is a software limit taken from
-the motion the current scene's presets already command. It is not proof that
-a new trajectory is physically safe, and it does not widen calibration.
+``HEAD_PATHS_LIVE`` is on. ``BpmService.look`` calls ``preview_heads`` when
+blackout is off and sweep is not held. A preset span is a software limit taken
+from the motion the current scene's presets already command. It is not proof
+that a new trajectory is physically safe, and it does not widen calibration.
 
 Zeros, home, inversion and the DMX conversion stay in the existing beam
 transform. This module writes semantic pan/tilt once. It does not invert.

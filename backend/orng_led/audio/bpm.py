@@ -584,7 +584,7 @@ def _local_onset_peaks(
         return [], []
     radius = max(4, int(0.40 * sample_rate / hop))
     refractory_s = 0.18
-    found: list[tuple[float, float]] = []
+    found: list[tuple[float, float, float]] = []
     last = -10.0
     for index in range(count):
         value = float(flux[index])
@@ -606,20 +606,21 @@ def _local_onset_peaks(
         when = (index * hop + int(peaks[index])) / float(sample_rate)
         weight = _attack_weight(block, when, sample_rate, hop, value)
         if when - last < refractory_s:
-            if found and weight > found[-1][1]:
-                found[-1] = (when, weight)
+            if found and value > found[-1][1]:
+                found[-1] = (when, value, weight)
                 last = when
             continue
-        found.append((when, weight))
+        found.append((when, value, weight))
         last = when
     if len(found) >= 2:
-        ordered = sorted(value for _when, value in found)
+        ordered = sorted(flux_value for _when, flux_value, _weight in found)
         typical = ordered[len(ordered) // 2]
         # The first hop has no predecessor, so mean removal looks like a tiny
         # attack. A real quieter hit in the same bar stays well above that.
+        # The floor stays on flux. Waveform peak is only the hat comparison.
         floor = typical * 0.12
-        found = [(when, value) for when, value in found if value >= floor]
-    return [when for when, _value in found], [value for _when, value in found]
+        found = [item for item in found if item[1] >= floor]
+    return [item[0] for item in found], [item[2] for item in found]
 
 
 def _local_onsets(

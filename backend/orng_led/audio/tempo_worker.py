@@ -132,8 +132,6 @@ def _attack_instant(hearing: object, captured: object, novel: object) -> float |
 
 
 def _stamp_hearing(hearing: object, payload: object) -> object:
-    from dataclasses import replace
-
     from orng_led.audio.auto_show import SliceHearing
 
     if not isinstance(hearing, SliceHearing) or not isinstance(payload, tuple):
@@ -141,11 +139,13 @@ def _stamp_hearing(hearing: object, payload: object) -> object:
     captured = payload[4] if len(payload) > 4 else None
     novel = payload[9] if len(payload) > 9 else 0.0
     generation = payload[6] if len(payload) > 6 and isinstance(payload[6], int) else None
-    origin = hearing.origin_s
-    if origin is None:
+    if hearing.origin_s is None:
         origin = _attack_instant(hearing, captured, novel)
-    generation = hearing.generation if hearing.generation is not None else generation
-    return replace(hearing, origin_s=origin, generation=generation)
+        if origin is not None:
+            object.__setattr__(hearing, "origin_s", origin)
+    if hearing.generation is None and generation is not None:
+        object.__setattr__(hearing, "generation", generation)
+    return hearing
 
 
 def _dropped_hearings(payload: object) -> tuple[object, ...]:

@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import fnmatch
 import hashlib
+import os
 import tempfile
 import zipfile
 from pathlib import Path
@@ -44,6 +45,9 @@ EXCLUDE_DIR_NAMES = {
     ".cache",
     "agent-transcripts",
     ".cursor",
+    ".venue-logs",
+    ".tmp-shots",
+    ".tmp-splash-frames",
 }
 
 EXCLUDE_GLOBS = [
@@ -119,7 +123,18 @@ def _excluded(rel: str) -> bool:
     lower = normalized.lower()
     if "private.bin" in lower or "private.pem" in lower:
         return True
+    if _secret_file_name(lower):
+        return True
+    if ".venue-logs" in parts or ".tmp-shots" in parts or ".tmp-splash-frames" in parts:
+        return True
+    if len(parts) >= 2 and parts[0] == "docs" and parts[1] in {"captures", "review-screenshots"}:
+        return True
     return lower.endswith((".zip", ".tar.gz", ".tgz"))
+
+
+def _secret_file_name(normalized: str) -> bool:
+    name = Path(normalized).name.lower()
+    return name == ".env" or name.startswith(".env.") or name == ".dev.vars"
 
 
 def iter_files(root: Path) -> list[Path]:
@@ -148,18 +163,35 @@ def iter_files(root: Path) -> list[Path]:
     return out
 
 
+class UnsafeArchive(RuntimeError):
+    def __init__(self, hits: list[str]) -> None:
+        super().__init__("unsafe archive")
+        self.hits = hits
+
+
 def build_archive(dest: Path, *, root: Path = REPO) -> list[str]:
+    """Write a temporary zip, scan it, then replace dest. A failed scan keeps dest."""
     assert_dest_outside_repo(dest, root=root)
     files = iter_files(root)
     dest.parent.mkdir(parents=True, exist_ok=True)
-    if dest.exists():
-        dest.unlink()
+    tmp = dest.with_name(dest.name + ".partial")
+    if tmp.exists():
+        tmp.unlink()
     names: list[str] = []
-    with zipfile.ZipFile(dest, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-        for path in files:
-            rel = path.relative_to(root).as_posix()
-            zf.write(path, arcname=rel)
-            names.append(rel)
+    try:
+        with zipfile.ZipFile(tmp, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            for path in files:
+                rel = path.relative_to(root).as_posix()
+                zf.write(path, arcname=rel)
+                names.append(rel)
+        hits = verify_archive_exclusions(names) + secret_scan_names(names) + secret_scan_bytes(tmp)
+        if hits:
+            raise UnsafeArchive(hits)
+        os.replace(tmp, dest)
+    except Exception:
+        if tmp.exists():
+            tmp.unlink()
+        raise
     return names
 
 
@@ -236,21 +268,19 @@ def main() -> int:
     )
     args = parser.parse_args()
     dest = (args.out or default_out_path()).expanduser().resolve()
-    names = build_archive(dest)
-    excl_hits = verify_archive_exclusions(names)
-    name_hits = secret_scan_names(names)
-    byte_hits = secret_scan_bytes(dest)
+    try:
+        names = build_archive(dest)
+    except UnsafeArchive as exc:
+        print("SECRET_SCAN_FAIL")
+        for hit in exc.hits:
+            print(" ", hit)
+        return 2
     size = dest.stat().st_size
     digest = sha256_file(dest)
     print(dest)
     print("files", len(names))
     print("bytes", size)
     print("sha256", digest)
-    if excl_hits or name_hits or byte_hits:
-        print("SECRET_SCAN_FAIL")
-        for h in excl_hits + name_hits + byte_hits:
-            print(" ", h)
-        return 2
     print("secret_scan_ok")
     print("forbidden_paths_absent")
     return 0

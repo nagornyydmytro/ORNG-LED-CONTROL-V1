@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from "vue-router";
 import AdvancedView from "../views/AdvancedView.vue";
+import CloudView from "../views/CloudView.vue";
 import AutoDeskPreview from "../views/AutoDeskPreview.vue";
 import ChannelsView from "../views/ChannelsView.vue";
 import ControlView from "../views/ControlView.vue";
@@ -25,7 +26,12 @@ export const router = createRouter({
       component: ChannelsView,
       meta: { title: "Налаштування каналів" },
     },
-    { path: "/cloud", redirect: "/advanced" },
+    {
+      path: "/cloud",
+      name: "cloud",
+      component: CloudView,
+      meta: { title: "Привʼязка" },
+    },
     {
       path: "/advanced",
       name: "advanced",

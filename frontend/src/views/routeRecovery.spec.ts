@@ -11,7 +11,8 @@ describe("operator routes", () => {
   it("sends /cloud and /settings to their existing pages", async () => {
     await router.push("/cloud");
     await router.isReady();
-    expect(router.currentRoute.value.path).toBe("/advanced");
+    expect(router.currentRoute.value.name).toBe("cloud");
+    expect(router.currentRoute.value.path).toBe("/cloud");
     await router.push("/settings");
     await router.isReady();
     expect(router.currentRoute.value.path).toBe("/setup");

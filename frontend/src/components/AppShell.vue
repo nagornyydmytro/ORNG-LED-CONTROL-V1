@@ -56,6 +56,7 @@ const links = [
   { to: "/presets", label: "Пресети", glyph: "▤" },
   { to: "/setup", label: "Калібрування", glyph: "⚙" },
   { to: "/channels", label: "Канали", glyph: "⑂" },
+  ...(cloudDesk ? [] : [{ to: "/cloud", label: "Привʼязка", glyph: "☁" }]),
 ];
 
 const menuOpen = ref(false);

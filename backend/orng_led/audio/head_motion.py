@@ -28,11 +28,26 @@ _MAX_PAN_PER_BEAT = 0.04
 _MAX_TILT_PER_BEAT = 0.025
 _MAX_PAN_ACCEL = 0.02
 _MAX_TILT_ACCEL = 0.012
-_state: dict[str, tuple[float, float, float, float, float]] = {}
 
 
-def reset() -> None:
-    _state.clear()
+class HeadRig:
+    """Motion memory for one consumer.
+
+    Runtime, a preview clip and another scene do not share this. Resetting it
+    does not clear anyone else's path.
+    """
+
+    def __init__(self) -> None:
+        self._state: dict[str, tuple[float, float, float, float, float]] = {}
+
+    def reset(self) -> None:
+        self._state.clear()
+
+    def pose(self, fixture_id: str) -> tuple[float, float] | None:
+        row = self._state.get(fixture_id)
+        if row is None:
+            return None
+        return (row[0], row[1])
 
 
 def bounds_for(fixture: object) -> dict[str, object]:
@@ -90,8 +105,10 @@ def preview_heads(
     section: str,
     look: str = "",
     beat_period_s: float = 0.5,
+    rig: HeadRig | None = None,
 ) -> StageIntent:
-    """Paint a continuous path into a preview stage. Live calls do not use this."""
+    """Paint a continuous path. A missing rig is a one-frame path, not shared memory."""
+    motion = rig if rig is not None else HeadRig()
     fixtures = getattr(getattr(show, "patch", None), "fixtures", ())
     painted = dict(stage.fixtures)
     for fixture in fixtures:
@@ -116,9 +133,11 @@ def preview_heads(
             max_pan_speed=float(bounds.get("max_pan_speed") or 0.35),
             max_tilt_speed=float(bounds.get("max_tilt_speed") or 0.25),
         )
-        previous = _state.get(fixture.id)
+        previous = motion._state.get(fixture.id)
         home_pan = float(getattr(fixture.spatial, "home_pan", 0.5))
         home_tilt = float(getattr(fixture.spatial, "home_tilt", 0.5))
+        if previous is not None and float(beats) + 1e-6 < previous[2]:
+            previous = None
         if previous is None:
             pose = (home_pan, home_tilt)
             vpan = 0.0
@@ -135,7 +154,7 @@ def preview_heads(
                 vtilt = _slew(vtilt, (goal[1] - previous[1]) / span, _MAX_TILT_ACCEL * span, _MAX_TILT_PER_BEAT)
                 tilt = _clamp_span(previous[1] + vtilt * span, tilt_box)
             pose = (pan, tilt)
-        _state[fixture.id] = (pose[0], pose[1], float(beats), vpan, vtilt)
+        motion._state[fixture.id] = (pose[0], pose[1], float(beats), vpan, vtilt)
         painted[fixture.id] = BeamIntent(
             pan=None if pan_box["still"] else pose[0],
             tilt=None if tilt_box["still"] else pose[1],

@@ -11,7 +11,7 @@ from orng_led.audio.auto_show import (
     consume_accent,
     lay_par_bed,
 )
-from orng_led.audio.head_motion import HEAD_PATHS_LIVE, bounds_for, limited, reset, target
+from orng_led.audio.head_motion import HEAD_PATHS_LIVE, HeadRig, bounds_for, limited, target
 from orng_led.audio.library import BY_ID
 from orng_led.audio.planner import EpisodePlanner
 from orng_led.audio.preview import render_preview_view
@@ -189,9 +189,13 @@ def test_bars_are_a_canvas_and_head_pairs_stay_together() -> None:
 
 def test_preview_head_path_is_continuous_and_blackout_does_not_add_pan() -> None:
     show = load_show_config()
-    reset()
-    first = render_preview_view(show, "hit_heads", beats=0.0, cycle_beats=4, palette="orange", intensity="full")
-    second = render_preview_view(show, "hit_heads", beats=0.5, cycle_beats=4, palette="orange", intensity="full")
+    rig = HeadRig()
+    first = render_preview_view(
+        show, "hit_heads", beats=0.0, cycle_beats=4, palette="orange", intensity="full", rig=rig
+    )
+    second = render_preview_view(
+        show, "hit_heads", beats=0.5, cycle_beats=4, palette="orange", intensity="full", rig=rig
+    )
     a = {item["id"]: item for item in first["beams"]}
     b = {item["id"]: item for item in second["beams"]}
     if a and b and "beam_left" in a and "beam_left" in b:

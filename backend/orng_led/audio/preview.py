@@ -212,6 +212,7 @@ def render_preview_view(
     cycle_beats: float,
     palette: str,
     intensity: str = "full",
+    rig: object | None = None,
 ) -> dict[str, object]:
     """One SimulatorView from build_auto_stage → render_stage → decode. No engine."""
     composition = BY_ID[look]
@@ -229,7 +230,7 @@ def render_preview_view(
         placements=show.layout.placements,
         groups=composition.groups,
     )
-    from orng_led.audio.head_motion import preview_heads
+    from orng_led.audio.head_motion import HeadRig, preview_heads
 
     stage = preview_heads(
         show,
@@ -238,6 +239,7 @@ def render_preview_view(
         section="groove",
         look=look,
         beat_period_s=60.0 / 96.0,
+        rig=rig if rig is not None else HeadRig(),
     )
     frame = render_stage(show, stage, _pose(show))
     view = decode_simulator_view(show, frame)
@@ -310,7 +312,10 @@ def preview_clip(
         payload["frames"] = cached
         payload["canonical"] = True
         return payload
+    from orng_led.audio.head_motion import HeadRig
+
     steps: list[dict[str, object]] = []
+    clip_rig = HeadRig()
     for index in range(count):
         beats = (index / count) * cycle
         steps.append(
@@ -321,6 +326,7 @@ def preview_clip(
                 cycle_beats=cycle,
                 palette=str(payload["palette"]),
                 intensity=str(payload["intensity"]),
+                rig=clip_rig,
             )
         )
     if not steps:

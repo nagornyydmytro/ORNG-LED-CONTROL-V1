@@ -26,6 +26,7 @@ from orng_led.audio.auto_show import (
     lay_par_bed,
     window_energy,
 )
+from orng_led.audio.head_motion import HEAD_PATHS_LIVE, HeadRig, preview_heads
 from orng_led.audio.library import BY_ID
 from orng_led.audio.planner import EpisodePlanner
 from orng_led.audio.palettes import known_palette, migrate_palette
@@ -85,6 +86,7 @@ class BpmService:
         self.section = SectionTracker()
         self.follower = TempoFollower()
         self.planner = EpisodePlanner()
+        self.heads = HeadRig()
         self.device_name: str | None = None
         self.device_id: str | None = None
         self.capture = "idle"
@@ -451,6 +453,7 @@ class BpmService:
         self.follower = TempoFollower()
         self.section = SectionTracker()
         self.planner = EpisodePlanner()
+        self.heads.reset()
         self._heard_at = None
         self._signal = False
         self._bar_plan = None
@@ -1085,20 +1088,20 @@ class BpmService:
             colour=colour,
             cast=episode.cast,
         )
-        if not blackout and not axes_busy:
+        if blackout or axes_busy:
+            self.heads.reset()
+        elif HEAD_PATHS_LIVE:
             from types import SimpleNamespace
 
-            from orng_led.audio.head_motion import HEAD_PATHS_LIVE, preview_heads
-
-            if HEAD_PATHS_LIVE:
-                stage = preview_heads(
-                    SimpleNamespace(patch=SimpleNamespace(fixtures=fixtures)),
-                    stage,
-                    beats=float(action_beats),
-                    section=str(picture),
-                    look=str(chosen),
-                    beat_period_s=float(beat_period or 0.5),
-                )
+            stage = preview_heads(
+                SimpleNamespace(patch=SimpleNamespace(fixtures=fixtures)),
+                stage,
+                beats=float(action_beats),
+                section=str(picture),
+                look=str(chosen),
+                beat_period_s=float(beat_period or 0.5),
+                rig=self.heads,
+            )
         if self.par_rhythm and not blackout:
             stage = lay_par_bed(stage, self._now, amount)
         if not blackout and not self.planner.dimming(self._now):

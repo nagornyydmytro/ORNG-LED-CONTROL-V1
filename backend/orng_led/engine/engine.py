@@ -79,12 +79,29 @@ class Engine:
     # Changing preview_speed must not rewrite past phase (no visual "restart").
     effect_phase_turns: float = 0.0
     movement_phase_turns: float = 0.0
+    # When set, replaces the preset base. Live effects and blackout still apply.
+    # Heads in this look must leave pan/tilt empty so they do not chase a target.
+    auto_base: StageIntent | None = None
+    # Kept so older callers can set it. Live FX never read it: strobe and
+    # sweep stay on their own press clock.
+    bpm_fx: bool = False
+    bpm_beat_phase: float = 0.0
+    bpm_bar_phase: float = 0.0
+    # Musical time owns the episode clock. Beam limits stay on wall time.
+    bpm_timeline: bool = False
+    # Continuous beats of the shared clock. None keeps the authored Hz path.
+    musical_beats: float | None = None
+    strobe_speed_at_press: float | None = None
+    sweep_speed_at_press: float | None = None
 
     def __post_init__(self) -> None:
         if not self.presets:
             base = BasePulsePreset()
             self.presets = {base.id: base}
             self.active_preset_id = base.id
+        elif self.active_preset_id not in self.presets:
+            # Callers may pass a single-preset map (tests); don't require P05.
+            self.active_preset_id = next(iter(self.presets))
         for fixture in self.show.patch.fixtures:
             if fixture.kind is FixtureKind.BEAM and fixture.id not in self.beam_motion:
                 self.beam_motion[fixture.id] = BeamMotionState.from_home(
@@ -164,7 +181,9 @@ class Engine:
             self.effect_phase_turns = 0.0
             self.movement_phase_turns = 0.0
 
-    def _accumulate_phase_turns(self, t0: float, t1: float, *, scale: float) -> None:
+    def _accumulate_phase_turns(
+        self, t0: float, t1: float, *, scale: float, include_effect: bool = True
+    ) -> None:
         """Advance integrated phase by the ×1 Δturns between t0→t1, times live ×."""
         if t1 <= t0:
             return
@@ -174,10 +193,24 @@ class Engine:
         if not callable(effect_fn) or not callable(movement_fn):
             return
         rate = max(0.0, float(scale))
-        self.effect_phase_turns += (float(effect_fn(t1)) - float(effect_fn(t0))) * rate
+        if include_effect:
+            self.effect_phase_turns += (float(effect_fn(t1)) - float(effect_fn(t0))) * rate
         self.movement_phase_turns += (
             float(movement_fn(t1)) - float(movement_fn(t0))
         ) * rate
+
+    def _park_musical_effect(self) -> None:
+        """Place the primary action on action_beats/period. Do not also integrate it."""
+        beats = self.musical_beats
+        if beats is None:
+            return
+        resolver = getattr(self.active_preset, "primary_cycle_beats", None)
+        if not callable(resolver):
+            return
+        cycle = resolver(self.preset_elapsed_s)
+        if not cycle:
+            return
+        self.effect_phase_turns = float(beats) / float(cycle)
 
     def seek_episode(self, episode_index: int) -> None:
         """Jump to the start of ``episode_index``; auto-continue afterwards."""
@@ -213,8 +246,10 @@ class Engine:
 
     def strobe_press(self) -> None:
         now = self.clock.time()
-        # Each hold starts from the configured default — encoder nudges are per-hold only.
+        # The hold starts at the configured speed. A drag during the hold
+        # does not become the next hold's speed.
         self.overlays.strobe_speed = float(self.show.app.strobe_speed)
+        self.strobe_speed_at_press = float(self.overlays.strobe_speed)
         self.overlays.strobe_held = True
         self.overlays.strobe_started_at = now
         self.overlays.strobe_phase = 0.0
@@ -223,7 +258,10 @@ class Engine:
     def strobe_release(self) -> None:
         self.overlays.strobe_held = False
         self.overlays.strobe_started_at = None
-        self.overlays.strobe_speed = float(self.show.app.strobe_speed)
+        origin = self.strobe_speed_at_press
+        self.overlays.strobe_speed = (
+            float(origin) if origin is not None else float(self.show.app.strobe_speed)
+        )
         self.overlays.strobe_phase = 0.0
         self.overlays.strobe_tick = 0
 
@@ -287,8 +325,10 @@ class Engine:
         chosen = color or self.contrast_color()
         self.overlays.sweep_color = chosen
         self.overlays.sweep_mode = mode
-        # Each hold starts from the configured default — encoder nudges are per-hold only.
+        # The hold starts at the configured speed. A drag during the hold
+        # does not become the next hold's speed.
         self.overlays.sweep_speed = float(self.show.app.sweep_speed)
+        self.sweep_speed_at_press = float(self.overlays.sweep_speed)
         self.overlays.sweep_held = True
         self.overlays.sweep_started_at = self.clock.time()
         self.overlays.sweep_phase = 0.0
@@ -297,7 +337,10 @@ class Engine:
     def sweep_release(self) -> None:
         self.overlays.sweep_held = False
         self.overlays.sweep_started_at = None
-        self.overlays.sweep_speed = float(self.show.app.sweep_speed)
+        origin = self.sweep_speed_at_press
+        self.overlays.sweep_speed = (
+            float(origin) if origin is not None else float(self.show.app.sweep_speed)
+        )
         self.overlays.sweep_phase = 0.0
 
     def set_strobe_speed(self, value: float) -> None:
@@ -467,7 +510,9 @@ class Engine:
             "effect_turns": self.effect_phase_turns,
             "movement_turns": self.movement_phase_turns,
         }
-        if preview is not None:
+        if self.auto_base is not None and preview is None:
+            base = self.auto_base
+        elif preview is not None:
             base = preview.evaluate(
                 self.editor_preview_elapsed_s, self.show, **phase_kwargs
             )
@@ -475,24 +520,29 @@ class Engine:
             base = StageIntent()
         else:
             base = pad_preset.evaluate(
-                self.preset_elapsed_s, self.show, **phase_kwargs
+                self.preset_elapsed_s,
+                self.show,
+                musical_beats=self.musical_beats,
+                **phase_kwargs,
             )
 
-        # Blackout zeroes the preset/base look only. Live Effects still compose
-        # on top and can produce light while Blackout remains engaged.
+        # Blackout still replaces the base so a lifted blackout does not depend
+        # on a stale preview. compose_layers drops every live layer while the
+        # flag is on, so strobe, sweep, hits and face cannot light the room.
         if self.overlays.blackout:
             base = StageIntent()
 
         composed = compose_layers(base, self.show, self.overlays, time_s)
-        # Advance live-FX phase after composing this frame so speed changes only
-        # affect future steps (press starts at phase 0 = first flash / wavefront).
+        # Live FX advance on their own clock. Tempo, episode and lock do not
+        # move this phase and do not release the hold.
         fx_dt = float(wall_dt_s) if wall_dt_s is not None else float(dt_s)
+        beam_dt = fx_dt if self.bpm_timeline else float(dt_s)
         if fx_dt > 0.0:
             if self.overlays.strobe_held:
                 advance_strobe_phase(self.overlays)
             if self.overlays.sweep_held:
                 advance_sweep_phase(self.overlays, fx_dt)
-        self._advance_beams(composed, dt_s, time_s=time_s)
+        self._advance_beams(composed, beam_dt, time_s=time_s)
         frame = render_stage(
             self.show,
             composed,
@@ -562,6 +612,20 @@ class Engine:
             sweep_speed=self.overlays.sweep_speed,
         )
 
+    def episode_window(self) -> tuple[float, float]:
+        """Current episode position and its authored length, in seconds."""
+        preset = self.active_preset
+        position_fn = getattr(preset, "cycle_position", None)
+        if callable(position_fn):
+            pos = position_fn(self.preset_elapsed_s)
+            if hasattr(preset, "document") and preset.document.episodes:
+                duration = float(preset.document.episodes[pos.episode_index].duration_s)
+            else:
+                duration = EPISODE_DURATION_S
+            return float(pos.episode_time_s), max(0.05, duration)
+        pos = cycle_position(self.preset_elapsed_s)
+        return float(pos.episode_time_s), EPISODE_DURATION_S
+
     def tick(
         self,
         dt_s: float = FRAME_DT,
@@ -586,6 +650,7 @@ class Engine:
         scale = max(0.0, float(self.effect_rate_scale))
         now = self.clock.advance(wall)
         # Editor hardware preview pauses the pad preset clock and advances its own.
+        musical = self.musical_beats is not None and not self.editor_preview_active
         if self.editor_preview_active:
             t0 = self.editor_preview_elapsed_s
             self.editor_preview_elapsed_s += dt_s
@@ -593,7 +658,13 @@ class Engine:
         elif self.active_preset_id != NONE_PRESET_ID:
             t0 = self.preset_elapsed_s
             self.preset_elapsed_s += dt_s
-            self._accumulate_phase_turns(t0, self.preset_elapsed_s, scale=scale)
+            # A musical cycle is beats/period. Do not also integrate that
+            # phase from the tempo-scaled show step.
+            self._accumulate_phase_turns(
+                t0, self.preset_elapsed_s, scale=scale, include_effect=not musical
+            )
+            if musical:
+                self._park_musical_effect()
         return self.render_at(now, dt_s=dt_s, wall_dt_s=wall)
 
     def frame_at_preset_time(self, preset_time_s: float) -> list[int]:

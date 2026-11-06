@@ -1,0 +1,738 @@
+{
+  "actions": [
+    "Q",
+    "W",
+    "E",
+    "R",
+    "T",
+    "Y",
+    "U",
+    "I",
+    "O",
+    "Z",
+    "X",
+    "C",
+    "Escape",
+    "Space",
+    "Volume-",
+    "Volume+",
+    "Zoom-",
+    "Zoom+"
+  ],
+  "rows": [
+    {
+      "ts": 1793024887.523915,
+      "action": "Q",
+      "expected": "q",
+      "hid": "r",
+      "press": {
+        "kind": "press",
+        "name": "r",
+        "detail": "vkey=0x52 makecode=0x13 flags=0x00",
+        "t": 1793024881.3220308
+      },
+      "release": {
+        "kind": "release",
+        "name": "r",
+        "detail": "vkey=0x52 makecode=0x13 flags=0x01",
+        "t": 1793024881.4068115
+      },
+      "letter_match": "FAIL",
+      "result": "FAIL"
+    },
+    {
+      "ts": 1793024887.5249233,
+      "action": "W",
+      "expected": "w",
+      "hid": "i",
+      "press": {
+        "kind": "press",
+        "name": "i",
+        "detail": "vkey=0x49 makecode=0x17 flags=0x00",
+        "t": 1793024881.7516408
+      },
+      "release": {
+        "kind": "release",
+        "name": "i",
+        "detail": "vkey=0x49 makecode=0x17 flags=0x01",
+        "t": 1793024881.8452058
+      },
+      "letter_match": "FAIL",
+      "result": "FAIL"
+    },
+    {
+      "ts": 1793024887.5249233,
+      "action": "E",
+      "expected": "e",
+      "hid": "c",
+      "press": {
+        "kind": "press",
+        "name": "c",
+        "detail": "vkey=0x43 makecode=0x2E flags=0x00",
+        "t": 1793024882.1292546
+      },
+      "release": {
+        "kind": "release",
+        "name": "c",
+        "detail": "vkey=0x43 makecode=0x2E flags=0x01",
+        "t": 1793024882.2139366
+      },
+      "letter_match": "FAIL",
+      "result": "FAIL"
+    },
+    {
+      "ts": 1793024887.5259218,
+      "action": "R",
+      "expected": "r",
+      "hid": "e",
+      "press": {
+        "kind": "press",
+        "name": "e",
+        "detail": "vkey=0x45 makecode=0x12 flags=0x00",
+        "t": 1793024882.633082
+      },
+      "release": {
+        "kind": "release",
+        "name": "e",
+        "detail": "vkey=0x45 makecode=0x12 flags=0x01",
+        "t": 1793024882.7396336
+      },
+      "letter_match": "FAIL",
+      "result": "FAIL"
+    },
+    {
+      "ts": 1793024887.5259218,
+      "action": "T",
+      "expected": "t",
+      "hid": "u",
+      "press": {
+        "kind": "press",
+        "name": "u",
+        "detail": "vkey=0x55 makecode=0x16 flags=0x00",
+        "t": 1793024883.0016947
+      },
+      "release": {
+        "kind": "release",
+        "name": "u",
+        "detail": "vkey=0x55 makecode=0x16 flags=0x01",
+        "t": 1793024883.1277196
+      },
+      "letter_match": "FAIL",
+      "result": "FAIL"
+    },
+    {
+      "ts": 1793024887.5274286,
+      "action": "Y",
+      "expected": "y",
+      "hid": "space",
+      "press": {
+        "kind": "press",
+        "name": "space",
+        "detail": "vkey=0x20 makecode=0x39 flags=0x00",
+        "t": 1793024883.398394
+      },
+      "release": {
+        "kind": "release",
+        "name": "space",
+        "detail": "vkey=0x20 makecode=0x39 flags=0x01",
+        "t": 1793024883.4824157
+      },
+      "letter_match": "FAIL",
+      "result": "FAIL"
+    },
+    {
+      "ts": 1793024887.5274286,
+      "action": "U",
+      "expected": "u",
+      "hid": "w",
+      "press": {
+        "kind": "press",
+        "name": "w",
+        "detail": "vkey=0x57 makecode=0x11 flags=0x00",
+        "t": 1793024883.7863338
+      },
+      "release": {
+        "kind": "release",
+        "name": "w",
+        "detail": "vkey=0x57 makecode=0x11 flags=0x01",
+        "t": 1793024883.8925622
+      },
+      "letter_match": "FAIL",
+      "result": "FAIL"
+    },
+    {
+      "ts": 1793024887.5274286,
+      "action": "I",
+      "expected": "i",
+      "hid": "y",
+      "press": {
+        "kind": "press",
+        "name": "y",
+        "detail": "vkey=0x59 makecode=0x15 flags=0x00",
+        "t": 1793024884.1657853
+      },
+      "release": {
+        "kind": "release",
+        "name": "y",
+        "detail": "vkey=0x59 makecode=0x15 flags=0x01",
+        "t": 1793024884.2597976
+      },
+      "letter_match": "FAIL",
+      "result": "FAIL"
+    },
+    {
+      "ts": 1793024887.528436,
+      "action": "O",
+      "expected": "o",
+      "hid": "p",
+      "press": {
+        "kind": "press",
+        "name": "p",
+        "detail": "vkey=0x50 makecode=0x19 flags=0x00",
+        "t": 1793024884.5225112
+      },
+      "release": {
+        "kind": "release",
+        "name": "p",
+        "detail": "vkey=0x50 makecode=0x19 flags=0x01",
+        "t": 1793024884.607576
+      },
+      "letter_match": "FAIL",
+      "result": "FAIL"
+    },
+    {
+      "ts": 1793024887.528436,
+      "action": "Z",
+      "expected": "z",
+      "hid": "q",
+      "press": {
+        "kind": "press",
+        "name": "q",
+        "detail": "vkey=0x51 makecode=0x10 flags=0x00",
+        "t": 1793024884.9237552
+      },
+      "release": {
+        "kind": "release",
+        "name": "q",
+        "detail": "vkey=0x51 makecode=0x10 flags=0x01",
+        "t": 1793024885.0393333
+      },
+      "letter_match": "FAIL",
+      "result": "FAIL"
+    },
+    {
+      "ts": 1793024887.5294378,
+      "action": "X",
+      "expected": "x",
+      "hid": "t",
+      "press": {
+        "kind": "press",
+        "name": "t",
+        "detail": "vkey=0x54 makecode=0x14 flags=0x00",
+        "t": 1793024885.313791
+      },
+      "release": {
+        "kind": "release",
+        "name": "t",
+        "detail": "vkey=0x54 makecode=0x14 flags=0x01",
+        "t": 1793024885.4292862
+      },
+      "letter_match": "FAIL",
+      "result": "FAIL"
+    },
+    {
+      "ts": 1793024887.5294378,
+      "action": "C",
+      "expected": "o",
+      "hid": "o",
+      "press": {
+        "kind": "press",
+        "name": "o",
+        "detail": "vkey=0x4F makecode=0x18 flags=0x00",
+        "t": 1793024885.70078
+      },
+      "release": {
+        "kind": "release",
+        "name": "o",
+        "detail": "vkey=0x4F makecode=0x18 flags=0x01",
+        "t": 1793024885.8260474
+      },
+      "letter_match": "FAIL",
+      "result": "FAIL"
+    },
+    {
+      "ts": 1793024887.5304353,
+      "action": "Escape",
+      "expected": "escape",
+      "hid": "z",
+      "press": {
+        "kind": "press",
+        "name": "z",
+        "detail": "vkey=0x5A makecode=0x2C flags=0x00",
+        "t": 1793024886.594773
+      },
+      "release": {
+        "kind": "release",
+        "name": "z",
+        "detail": "vkey=0x5A makecode=0x2C flags=0x01",
+        "t": 1793024886.7724903
+      },
+      "letter_match": "FAIL",
+      "result": "FAIL"
+    },
+    {
+      "ts": 1793024887.5304353,
+      "action": "Space",
+      "expected": "space",
+      "hid": "x",
+      "press": {
+        "kind": "press",
+        "name": "x",
+        "detail": "vkey=0x58 makecode=0x2D flags=0x00",
+        "t": 1793024887.3414571
+      },
+      "release": {
+        "kind": "release",
+        "name": "x",
+        "detail": "vkey=0x58 makecode=0x2D flags=0x01",
+        "t": 1793024887.5113583
+      },
+      "letter_match": "FAIL",
+      "result": "FAIL"
+    },
+    {
+      "ts": 1793025042.1333842,
+      "action": "Volume-",
+      "expected": [
+        "volume_down",
+        "volumedown"
+      ],
+      "hid": "volume_down",
+      "press": {
+        "kind": "press",
+        "name": "volume_down",
+        "detail": "raw=02ea00",
+        "source": "hid",
+        "t": 1793025039.682875
+      },
+      "release": {
+        "kind": "release",
+        "name": "consumer_clear",
+        "detail": "raw=020000",
+        "source": "hid",
+        "t": 1793025039.682875
+      },
+      "letter_match": "PASS",
+      "result": "PASS"
+    },
+    {
+      "ts": 1793025042.1333842,
+      "action": "Volume+",
+      "expected": [
+        "volume_up",
+        "volumeup"
+      ],
+      "hid": "volume_up",
+      "press": {
+        "kind": "press",
+        "name": "volume_up",
+        "detail": "raw=02e900",
+        "source": "hid",
+        "t": 1793025040.522149
+      },
+      "release": {
+        "kind": "release",
+        "name": "consumer_clear",
+        "detail": "raw=020000",
+        "source": "hid",
+        "t": 1793025040.5236638
+      },
+      "letter_match": "PASS",
+      "result": "PASS"
+    },
+    {
+      "ts": 1793025042.1333842,
+      "action": "Zoom-",
+      "expected": [
+        "minus"
+      ],
+      "hid": "minus",
+      "press": {
+        "kind": "press",
+        "name": "minus",
+        "detail": "vkey=0xBD makecode=0x0C flags=0x00",
+        "source": "keyboard",
+        "t": 1793025041.419493
+      },
+      "release": {
+        "kind": "release",
+        "name": "minus",
+        "detail": "vkey=0xBD makecode=0x0C flags=0x01",
+        "source": "keyboard",
+        "t": 1793025041.4300659
+      },
+      "letter_match": "PASS",
+      "result": "PASS"
+    },
+    {
+      "ts": 1793025042.1343784,
+      "action": "Zoom+",
+      "expected": [
+        "=",
+        "equal"
+      ],
+      "hid": "equal",
+      "press": {
+        "kind": "press",
+        "name": "equal",
+        "detail": "vkey=0xBB makecode=0x0D flags=0x00",
+        "source": "keyboard",
+        "t": 1793025042.0892477
+      },
+      "release": {
+        "kind": "release",
+        "name": "equal",
+        "detail": "vkey=0xBB makecode=0x0D flags=0x01",
+        "source": "keyboard",
+        "t": 1793025042.1021988
+      },
+      "letter_match": "PASS",
+      "result": "PASS"
+    }
+  ],
+  "pulses": [
+    {
+      "hid": "r",
+      "press": {
+        "kind": "press",
+        "name": "r",
+        "detail": "vkey=0x52 makecode=0x13 flags=0x00",
+        "t": 1793024881.3220308
+      },
+      "release": {
+        "kind": "release",
+        "name": "r",
+        "detail": "vkey=0x52 makecode=0x13 flags=0x01",
+        "t": 1793024881.4068115
+      }
+    },
+    {
+      "hid": "i",
+      "press": {
+        "kind": "press",
+        "name": "i",
+        "detail": "vkey=0x49 makecode=0x17 flags=0x00",
+        "t": 1793024881.7516408
+      },
+      "release": {
+        "kind": "release",
+        "name": "i",
+        "detail": "vkey=0x49 makecode=0x17 flags=0x01",
+        "t": 1793024881.8452058
+      }
+    },
+    {
+      "hid": "c",
+      "press": {
+        "kind": "press",
+        "name": "c",
+        "detail": "vkey=0x43 makecode=0x2E flags=0x00",
+        "t": 1793024882.1292546
+      },
+      "release": {
+        "kind": "release",
+        "name": "c",
+        "detail": "vkey=0x43 makecode=0x2E flags=0x01",
+        "t": 1793024882.2139366
+      }
+    },
+    {
+      "hid": "e",
+      "press": {
+        "kind": "press",
+        "name": "e",
+        "detail": "vkey=0x45 makecode=0x12 flags=0x00",
+        "t": 1793024882.633082
+      },
+      "release": {
+        "kind": "release",
+        "name": "e",
+        "detail": "vkey=0x45 makecode=0x12 flags=0x01",
+        "t": 1793024882.7396336
+      }
+    },
+    {
+      "hid": "u",
+      "press": {
+        "kind": "press",
+        "name": "u",
+        "detail": "vkey=0x55 makecode=0x16 flags=0x00",
+        "t": 1793024883.0016947
+      },
+      "release": {
+        "kind": "release",
+        "name": "u",
+        "detail": "vkey=0x55 makecode=0x16 flags=0x01",
+        "t": 1793024883.1277196
+      }
+    },
+    {
+      "hid": "space",
+      "press": {
+        "kind": "press",
+        "name": "space",
+        "detail": "vkey=0x20 makecode=0x39 flags=0x00",
+        "t": 1793024883.398394
+      },
+      "release": {
+        "kind": "release",
+        "name": "space",
+        "detail": "vkey=0x20 makecode=0x39 flags=0x01",
+        "t": 1793024883.4824157
+      }
+    },
+    {
+      "hid": "w",
+      "press": {
+        "kind": "press",
+        "name": "w",
+        "detail": "vkey=0x57 makecode=0x11 flags=0x00",
+        "t": 1793024883.7863338
+      },
+      "release": {
+        "kind": "release",
+        "name": "w",
+        "detail": "vkey=0x57 makecode=0x11 flags=0x01",
+        "t": 1793024883.8925622
+      }
+    },
+    {
+      "hid": "y",
+      "press": {
+        "kind": "press",
+        "name": "y",
+        "detail": "vkey=0x59 makecode=0x15 flags=0x00",
+        "t": 1793024884.1657853
+      },
+      "release": {
+        "kind": "release",
+        "name": "y",
+        "detail": "vkey=0x59 makecode=0x15 flags=0x01",
+        "t": 1793024884.2597976
+      }
+    },
+    {
+      "hid": "p",
+      "press": {
+        "kind": "press",
+        "name": "p",
+        "detail": "vkey=0x50 makecode=0x19 flags=0x00",
+        "t": 1793024884.5225112
+      },
+      "release": {
+        "kind": "release",
+        "name": "p",
+        "detail": "vkey=0x50 makecode=0x19 flags=0x01",
+        "t": 1793024884.607576
+      }
+    },
+    {
+      "hid": "q",
+      "press": {
+        "kind": "press",
+        "name": "q",
+        "detail": "vkey=0x51 makecode=0x10 flags=0x00",
+        "t": 1793024884.9237552
+      },
+      "release": {
+        "kind": "release",
+        "name": "q",
+        "detail": "vkey=0x51 makecode=0x10 flags=0x01",
+        "t": 1793024885.0393333
+      }
+    },
+    {
+      "hid": "t",
+      "press": {
+        "kind": "press",
+        "name": "t",
+        "detail": "vkey=0x54 makecode=0x14 flags=0x00",
+        "t": 1793024885.313791
+      },
+      "release": {
+        "kind": "release",
+        "name": "t",
+        "detail": "vkey=0x54 makecode=0x14 flags=0x01",
+        "t": 1793024885.4292862
+      }
+    },
+    {
+      "hid": "o",
+      "press": {
+        "kind": "press",
+        "name": "o",
+        "detail": "vkey=0x4F makecode=0x18 flags=0x00",
+        "t": 1793024885.70078
+      },
+      "release": {
+        "kind": "release",
+        "name": "o",
+        "detail": "vkey=0x4F makecode=0x18 flags=0x01",
+        "t": 1793024885.8260474
+      }
+    },
+    {
+      "hid": "z",
+      "press": {
+        "kind": "press",
+        "name": "z",
+        "detail": "vkey=0x5A makecode=0x2C flags=0x00",
+        "t": 1793024886.594773
+      },
+      "release": {
+        "kind": "release",
+        "name": "z",
+        "detail": "vkey=0x5A makecode=0x2C flags=0x01",
+        "t": 1793024886.7724903
+      }
+    },
+    {
+      "hid": "x",
+      "press": {
+        "kind": "press",
+        "name": "x",
+        "detail": "vkey=0x58 makecode=0x2D flags=0x00",
+        "t": 1793024887.3414571
+      },
+      "release": {
+        "kind": "release",
+        "name": "x",
+        "detail": "vkey=0x58 makecode=0x2D flags=0x01",
+        "t": 1793024887.5113583
+      }
+    }
+  ],
+  "encoder_pulses": [
+    {
+      "hid": "volume_down",
+      "press": {
+        "kind": "press",
+        "name": "volume_down",
+        "detail": "raw=02ea00",
+        "source": "hid",
+        "t": 1793025039.682875
+      },
+      "release": {
+        "kind": "release",
+        "name": "consumer_clear",
+        "detail": "raw=020000",
+        "source": "hid",
+        "t": 1793025039.682875
+      }
+    },
+    {
+      "hid": "volume_up",
+      "press": {
+        "kind": "press",
+        "name": "volume_up",
+        "detail": "raw=02e900",
+        "source": "hid",
+        "t": 1793025040.522149
+      },
+      "release": {
+        "kind": "release",
+        "name": "consumer_clear",
+        "detail": "raw=020000",
+        "source": "hid",
+        "t": 1793025040.5236638
+      }
+    },
+    {
+      "hid": "minus",
+      "press": {
+        "kind": "press",
+        "name": "minus",
+        "detail": "vkey=0xBD makecode=0x0C flags=0x00",
+        "source": "keyboard",
+        "t": 1793025041.419493
+      },
+      "release": {
+        "kind": "release",
+        "name": "minus",
+        "detail": "vkey=0xBD makecode=0x0C flags=0x01",
+        "source": "keyboard",
+        "t": 1793025041.4300659
+      }
+    },
+    {
+      "hid": "equal",
+      "press": {
+        "kind": "press",
+        "name": "equal",
+        "detail": "vkey=0xBB makecode=0x0D flags=0x00",
+        "source": "keyboard",
+        "t": 1793025042.0892477
+      },
+      "release": {
+        "kind": "release",
+        "name": "equal",
+        "detail": "vkey=0xBB makecode=0x0D flags=0x01",
+        "source": "keyboard",
+        "t": 1793025042.1021988
+      }
+    }
+  ],
+  "holds": [
+    {
+      "action": "Z",
+      "expected_hid": "q",
+      "press": {
+        "name": "q",
+        "detail": "vkey=0x51 makecode=0x10 flags=0x00",
+        "t": 1793025129.6600564
+      },
+      "release": {
+        "name": "q",
+        "detail": "vkey=0x51 makecode=0x10 flags=0x01",
+        "t": 1793025130.6106982
+      },
+      "hold_s": 0.951,
+      "match": "PASS",
+      "result": "PASS"
+    },
+    {
+      "action": "X",
+      "expected_hid": "t",
+      "press": {
+        "name": "t",
+        "detail": "vkey=0x54 makecode=0x14 flags=0x00",
+        "t": 1793025131.3396623
+      },
+      "release": {
+        "name": "t",
+        "detail": "vkey=0x54 makecode=0x14 flags=0x01",
+        "t": 1793025132.218604
+      },
+      "hold_s": 0.879,
+      "match": "PASS",
+      "result": "PASS"
+    },
+    {
+      "action": "C",
+      "expected_hid": "o",
+      "press": {
+        "name": "o",
+        "detail": "vkey=0x4F makecode=0x18 flags=0x00",
+        "t": 1793025133.0038633
+      },
+      "release": {
+        "name": "o",
+        "detail": "vkey=0x4F makecode=0x18 flags=0x01",
+        "t": 1793025133.8769412
+      },
+      "hold_s": 0.873,
+      "match": "PASS",
+      "result": "PASS"
+    }
+  ]
+}

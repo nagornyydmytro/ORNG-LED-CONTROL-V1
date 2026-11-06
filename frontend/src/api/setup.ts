@@ -1,4 +1,5 @@
 import type { AppState, CommandAck } from "../vite-env";
+import { takeScenePort } from "../runtime/scenePort";
 
 async function parseJson<T>(response: Response): Promise<T> {
   if (!response.ok) {
@@ -15,28 +16,40 @@ async function parseJson<T>(response: Response): Promise<T> {
 }
 
 export async function fetchAppConfig(): Promise<Record<string, unknown>> {
+  const port = takeScenePort();
+  if (port) return port.fetchAppConfig();
   return parseJson(await fetch("/api/config/app"));
 }
 
 export async function fetchPatch(): Promise<Record<string, unknown>> {
+  const port = takeScenePort();
+  if (port) return port.fetchPatch();
   return parseJson(await fetch("/api/config/patch"));
 }
 
 export async function fetchProfiles(): Promise<Record<string, Record<string, unknown>>> {
+  const port = takeScenePort();
+  if (port) return port.fetchProfiles();
   return parseJson(await fetch("/api/config/profiles"));
 }
 
 export async function fetchLayout(): Promise<Record<string, unknown>> {
+  const port = takeScenePort();
+  if (port) return port.fetchLayout();
   return parseJson(await fetch("/api/config/layout"));
 }
 
 export async function fetchReadiness(): Promise<Record<string, unknown>> {
+  const port = takeScenePort();
+  if (port) return port.fetchReadiness();
   return parseJson(await fetch("/api/setup/readiness"));
 }
 
 export async function validatePatch(
   patch: Record<string, unknown>,
 ): Promise<{ ok: boolean; errors: string[] }> {
+  const port = takeScenePort();
+  if (port) return port.validatePatch(patch);
   return parseJson(
     await fetch("/api/setup/validate-patch", {
       method: "POST",
@@ -47,6 +60,8 @@ export async function validatePatch(
 }
 
 export async function saveAppConfig(config: Record<string, unknown>): Promise<CommandAck> {
+  const port = takeScenePort();
+  if (port) return port.saveAppConfig(config);
   return parseJson(
     await fetch("/api/config/app", {
       method: "PUT",
@@ -57,6 +72,8 @@ export async function saveAppConfig(config: Record<string, unknown>): Promise<Co
 }
 
 export async function savePatch(patch: Record<string, unknown>): Promise<CommandAck> {
+  const port = takeScenePort();
+  if (port) return port.savePatch(patch);
   return parseJson(
     await fetch("/api/config/patch", {
       method: "PUT",
@@ -70,6 +87,8 @@ export async function saveProfile(
   profileId: string,
   profile: Record<string, unknown>,
 ): Promise<CommandAck> {
+  const port = takeScenePort();
+  if (port) return port.saveProfile(profileId, profile);
   return parseJson(
     await fetch(`/api/config/profiles/${encodeURIComponent(profileId)}`, {
       method: "PUT",
@@ -80,6 +99,8 @@ export async function saveProfile(
 }
 
 export async function saveLayout(layout: Record<string, unknown>): Promise<CommandAck> {
+  const port = takeScenePort();
+  if (port) return port.saveLayout(layout);
   return parseJson(
     await fetch("/api/config/layout", {
       method: "PUT",
@@ -90,6 +111,8 @@ export async function saveLayout(layout: Record<string, unknown>): Promise<Comma
 }
 
 export async function setupPost(path: string, body: Record<string, unknown> = {}): Promise<CommandAck> {
+  const port = takeScenePort();
+  if (port) return port.setupPost(path, body);
   return parseJson(
     await fetch(`/api/setup/${path}`, {
       method: "POST",
@@ -202,6 +225,8 @@ export async function beamCalibrationSave(
 }
 
 export async function fetchChannelRoles(): Promise<ChannelRoleOption[]> {
+  const port = takeScenePort();
+  if (port) return port.fetchChannelRoles();
   try {
     const body = await parseJson<{ roles: ChannelRoleOption[] }>(
       await fetch("/api/setup/channel-roles"),

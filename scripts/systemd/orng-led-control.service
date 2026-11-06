@@ -1,0 +1,39 @@
+[Unit]
+Description=ORNG LED CONTROL managed runtime (external updater helper)
+Documentation=file:///opt/orng-led-control/bootstrap/updater_helper.py
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=orng-led
+Group=orng-led
+# `audio` is required to open /dev/snd. Applying an app package does not
+# change this unit or the host group membership; that is a separate host action.
+SupplementaryGroups=input audio
+UMask=0027
+EnvironmentFile=-/etc/orng-led-control/device.env
+Environment=ORNG_APP_ROOT=/opt/orng-led-control
+Environment=ORNG_CONFIG_ROOT=/var/lib/orng-led-control
+Environment=ORNG_DATA_ROOT=/var/lib/orng-led-control
+Environment=ORNG_INSTALL_MODE=managed
+Environment=ORNG_CLOUD_DEVICE_MODE=raspberry
+Environment=ORNG_LINUX_KEYBOARD=1
+# Helper lives outside replaceable releases; child uses release runtime/.venv.
+ExecStart=/usr/bin/python3 /opt/orng-led-control/bootstrap/updater_helper.py run --host 127.0.0.1 --port 8000
+ExecStop=/bin/kill -s TERM $MAINPID
+TimeoutStopSec=30
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/orng-led-control /var/lib/orng-led-control
+# Device token / pairing stay under data root — never under releases/.
+# Boot posture: application starts blackout + disarmed (never auto-arm).
+
+[Install]
+WantedBy=multi-user.target

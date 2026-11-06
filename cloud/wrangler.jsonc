@@ -1,0 +1,164 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // Pin production deploys to the correct Cloudflare account (orng.events.bot).
+  // Stale account a0ccabcaebdd05adca6a91cb7fddbfee must never be used.
+  "account_id": "c8415eaa4895941ba681d8ba1fe2e88e",
+  "name": "orng-led-control",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-03-01",
+  "compatibility_flags": ["nodejs_compat"],
+  // Local/dev defaults (wrangler dev). Production deploy: `wrangler deploy --env production`.
+  "workers_dev": true,
+  "vars": {
+    "ENVIRONMENT": "development",
+    "ADMIN_ORIGIN": "http://127.0.0.1:8787",
+    "ADMIN_USERNAME": "y3k_notfound",
+    "ADMIN_HOST": "light.orng.wtf",
+    "DEVICE_HOST": "device.light.orng.wtf",
+    "LOCAL_ADMIN_HOST": "localhost:8787",
+    "LOCAL_DEVICE_HOST": "localhost:8788",
+    "PROTOCOL_VERSION": "1",
+    // ADMIN_PASSWORD_HASH + ADMIN_SESSION_SECRET via wrangler secret / .dev.vars only.
+    "APP_TRUSTED_KEYS": ""
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "orng-led-control",
+      "database_id": "7cc1c733-0a31-4a35-a31c-58edb29f1bfc",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "SCENE_RELEASES",
+      "bucket_name": "orng-led-scene-releases",
+      "preview_bucket_name": "orng-led-scene-releases-preview"
+    },
+    {
+      "binding": "APP_RELEASES",
+      "bucket_name": "orng-led-app-releases",
+      "preview_bucket_name": "orng-led-app-releases-preview"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "DEVICE_DO",
+        "class_name": "DeviceDOV5"
+      },
+      {
+        "name": "PAIRING_RATE_LIMIT_DO",
+        "class_name": "PairingRateLimitDO"
+      },
+      {
+        "name": "ADMIN_LOGIN_GUARD_DO",
+        "class_name": "AdminLoginGuardDO"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["DeviceDO"]
+    },
+    {
+      // Free plan requires SQLite-backed Durable Objects (new_sqlite_classes).
+      "tag": "v2",
+      "new_sqlite_classes": ["PairingRateLimitDO"]
+    },
+    {
+      "tag": "v3",
+      "new_sqlite_classes": ["AdminLoginGuardDO"]
+    },
+    {
+      "tag": "v4",
+      "renamed_classes": [{ "from": "DeviceDO", "to": "DeviceDOV2" }]
+    },
+    {
+      "tag": "v5",
+      "renamed_classes": [{ "from": "DeviceDOV2", "to": "DeviceDOV3" }]
+    },
+    {
+      "tag": "v6",
+      "renamed_classes": [{ "from": "DeviceDOV3", "to": "DeviceDOV4" }]
+    },
+    {
+      "tag": "v7",
+      "renamed_classes": [{ "from": "DeviceDOV4", "to": "DeviceDOV5" }]
+    }
+  ],
+  "assets": {
+    "directory": "./admin-dist",
+    "binding": "ASSETS",
+    "html_handling": "auto-trailing-slash",
+    "not_found_handling": "none",
+    "run_worker_first": true
+  },
+  "env": {
+    "production": {
+      "name": "orng-led-control",
+      "account_id": "c8415eaa4895941ba681d8ba1fe2e88e",
+      // Temporarily true until zone orng.wtf is on this account (custom domains blocked).
+      // Host separation still enforced via Host header; unknown hosts deny non-health paths.
+      "workers_dev": true,
+      "vars": {
+        "ENVIRONMENT": "production",
+        "ADMIN_ORIGIN": "https://light.orng.wtf",
+        "ADMIN_USERNAME": "y3k_notfound",
+        "ADMIN_HOST": "light.orng.wtf",
+        "DEVICE_HOST": "device.light.orng.wtf",
+        "LOCAL_ADMIN_HOST": "",
+        "LOCAL_DEVICE_HOST": "",
+        "PROTOCOL_VERSION": "1",
+        // Public only — prod-20261025-01 revoked; private never in Worker/repo.
+        "APP_TRUSTED_KEYS": "{\"prod-20261025-02\":\"ISrcfybhnOYYpf0cvAKch2Ag2RBT0R4MOdXUadU7WWk=\"}",
+        // GATEWAY_HMAC_SECRET, ADMIN_PASSWORD_HASH, ADMIN_SESSION_SECRET via secret put.
+        "GATEWAY_MAX_SKEW_S": "60"
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "orng-led-control",
+          "database_id": "7cc1c733-0a31-4a35-a31c-58edb29f1bfc",
+          "migrations_dir": "migrations"
+        }
+      ],
+      "r2_buckets": [
+        {
+          "binding": "SCENE_RELEASES",
+          "bucket_name": "orng-led-scene-releases"
+        },
+        {
+          "binding": "APP_RELEASES",
+          "bucket_name": "orng-led-app-releases"
+        }
+      ],
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "DEVICE_DO",
+            "class_name": "DeviceDOV5"
+          },
+          {
+            "name": "PAIRING_RATE_LIMIT_DO",
+            "class_name": "PairingRateLimitDO"
+          },
+          {
+            "name": "ADMIN_LOGIN_GUARD_DO",
+            "class_name": "AdminLoginGuardDO"
+          }
+        ]
+      },
+      // Custom domains on Notifications edge gateway only (not this account).
+
+      "assets": {
+        "directory": "./admin-dist",
+        "binding": "ASSETS",
+        "html_handling": "auto-trailing-slash",
+        "not_found_handling": "none",
+        "run_worker_first": true
+      }
+    }
+  }
+}

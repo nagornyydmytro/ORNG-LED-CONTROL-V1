@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from orng_led.api.runtime import AppRuntime
-from orng_led.config import default_config_dir, global_channel, load_show_config
+from orng_led.config import default_scene_dir, global_channel, load_show_config
 from orng_led.config.models import ChannelDefinition, ChannelRole, FixtureKind
 from orng_led.engine.engine import Engine
 from orng_led.engine.intents import BarIntent, BeamIntent, ParIntent, Rgbw, StageIntent
@@ -14,8 +14,8 @@ from orng_led.engine.layers import (
     WHITE,
     OverlayState,
     apply_strobe,
-    apply_vertical_sweep,
     apply_sweep_hit,
+    apply_vertical_sweep,
     apply_white_hit,
     compose_layers,
     motion_only_stage,
@@ -38,7 +38,7 @@ SAFE_IP = "127.0.0.1"
 
 def _engine(preset_id: str = "P05") -> Engine:
     show = load_show_config()
-    programs = PresetStore.load(default_config_dir() / "presets").programs()
+    programs = PresetStore.load(default_scene_dir() / "presets").programs()
     programs[NONE_PRESET_ID] = __import__(
         "orng_led.engine.presets", fromlist=["NonePresetProgram"]
     ).NonePresetProgram()
@@ -296,7 +296,7 @@ def test_white_hit_under_blackout_then_zero() -> None:
     engine.set_blackout(True)
     engine.trigger_white_hit()
     lit = engine.tick(dt_s=0.02).frame
-    assert any(lit)
+    assert_lights_dark(engine.show, lit)
     engine.overlays.white_hit_until = None
     dark = engine.tick(dt_s=0.02).frame
     assert_lights_dark(engine.show, dark)
@@ -404,7 +404,7 @@ def test_color_wheel_white_open_uses_saved_value(tmp_path) -> None:
 def test_white_hit_uses_rgb_when_mapped(tmp_path) -> None:
     import shutil
 
-    source = default_config_dir()
+    source = default_scene_dir()
     cfg = tmp_path / "config"
     shutil.copytree(source, cfg)
     runtime = AppRuntime.create(autostart_loop=False, config_dir=cfg)
@@ -524,7 +524,7 @@ def test_live_effects_state_exposes_targets_and_warnings() -> None:
 def test_mapping_change_clears_old_channels_and_reroutes(tmp_path) -> None:
     import shutil
 
-    source = default_config_dir()
+    source = default_scene_dir()
     cfg = tmp_path / "config"
     shutil.copytree(source, cfg)
     runtime = AppRuntime.create(autostart_loop=False, config_dir=cfg)

@@ -21,15 +21,8 @@ const cycleLabel = computed(() => {
 });
 
 const outputLabel = computed(() => {
-  if (!props.output) return "невідомо";
-  const mode = props.output.transport.toUpperCase();
-  const preferred = (props.output.preferred_transport ?? mode).toUpperCase();
-  const udp = props.output.udp_active ? "UDP ON" : "UDP OFF";
-  const arm = props.output.armed ? "armed" : "disarmed";
-  const sum = props.output.wire_frame_sum ?? props.output.frame_sum ?? 0;
-  const nonzero =
-    props.output.wire_nonzero_channels ?? props.output.nonzero_channels ?? 0;
-  return `${mode} · ${arm} · ${udp} · wire Σ${sum}/${nonzero} (YAML ${preferred})`;
+  if (!props.engine) return "—";
+  return props.engine.blackout ? "BLACKOUT" : "Світло";
 });
 </script>
 

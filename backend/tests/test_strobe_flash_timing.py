@@ -11,13 +11,13 @@ from orng_led.engine.layers import (
     STROBE_MIN_HZ,
     STROBE_ON_FRAMES,
     OverlayState,
-    advance_strobe_phase,
-    advance_sweep_phase,
-    sweep_progress,
     _strobe_gate,
     _strobe_gate_phase,
     _strobe_gate_tick,
     _strobe_period_frames,
+    advance_strobe_phase,
+    advance_sweep_phase,
+    sweep_progress,
 )
 
 

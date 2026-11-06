@@ -99,7 +99,7 @@ def test_fixture_test_reset_and_end_zeros() -> None:
     assert runtime.output.frames_sent >= sock_before
 
 
-def test_blackout_zeros_preset_but_live_fx_lights() -> None:
+def test_blackout_keeps_live_fx_dark() -> None:
     runtime = _runtime()
     runtime.engine.set_blackout(True)
     runtime.apply_select_preset("P10", reset_clock=True)
@@ -108,7 +108,7 @@ def test_blackout_zeros_preset_but_live_fx_lights() -> None:
 
     runtime.apply_white_hit()
     runtime.tick(dt_s=0.02)
-    assert any(runtime.build_state().frame)
+    assert_lights_dark(runtime.show, runtime.build_state().frame)
 
     runtime.engine.overlays.white_hit_until = None
     runtime.tick(dt_s=0.02)

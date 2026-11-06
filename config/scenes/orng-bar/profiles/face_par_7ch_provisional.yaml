@@ -1,0 +1,69 @@
+schema_version: 1
+id: face_par_7ch_provisional
+label: Face PAR 7ch
+kind: face_par
+footprint: 7
+hardware_verified: false
+capabilities:
+- dimmer
+- rgb
+- face_only
+channels:
+- local: 1
+  role: dimmer
+  label: Master Dimmer
+  segment_index: null
+  notes: null
+  fixed_value: null
+  palette: null
+  control_values: null
+- local: 2
+  role: red
+  label: Red
+  segment_index: null
+  notes: null
+  fixed_value: null
+  palette: null
+  control_values: null
+- local: 3
+  role: green
+  label: Не призначено
+  segment_index: null
+  notes: null
+  fixed_value: null
+  palette: null
+  control_values: null
+- local: 4
+  role: blue
+  label: Не призначено
+  segment_index: null
+  notes: null
+  fixed_value: null
+  palette: null
+  control_values: null
+- local: 5
+  role: strobe_speed
+  label: Не призначено
+  segment_index: null
+  notes: null
+  fixed_value: null
+  palette: null
+  control_values: null
+- local: 6
+  role: unused
+  label: Не призначено
+  segment_index: null
+  notes: null
+  fixed_value: null
+  palette: null
+  control_values: null
+- local: 7
+  role: unused
+  label: Не призначено
+  segment_index: null
+  notes: null
+  fixed_value: null
+  palette: null
+  control_values: null
+segment_count: 0
+notes: Face PAR uses the same 7ch mapping UI as rear PAR.

@@ -1,4 +1,4 @@
-import { computed, onMounted, onUnmounted, ref, shallowRef } from "vue";
+import { computed, onMounted, onUnmounted, ref, shallowRef, watch } from "vue";
 import {
   createCommandId,
   fetchPresets,
@@ -9,9 +9,13 @@ import {
   BUTTON_BLACKOUT,
   BUTTON_FACE,
   BUTTON_STROBE,
+  postInputAction,
   postInputButton,
 } from "../api/input";
-import type { AppState, PresetInfo } from "../vite-env";
+import { activateScene as postActivateScene, fetchScenes } from "../api/scenes";
+import { bpmChoiceKey, bpmControlsLocked, readBpmChoice } from "../lib/bpmPalettes";
+import { getWebSessionSourceId } from "../lib/sessionSourceId";
+import type { AppState, PresetInfo, SceneInfo } from "../vite-env";
 import { useKeyboardPad } from "./useKeyboardPad";
 import type { ToastApi } from "./useToasts";
 
@@ -19,7 +23,8 @@ export type ConnectionStatus = "connecting" | "online" | "offline" | "reconnecti
 
 function wsUrl(): string {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${protocol}//${window.location.host}/api/ws`;
+  const sourceId = encodeURIComponent(getWebSessionSourceId());
+  return `${protocol}//${window.location.host}/api/ws?source_id=${sourceId}`;
 }
 
 /** UI text refresh rate; the canvas keeps rendering every frame regardless. */
@@ -68,15 +73,19 @@ function controlSignature(state: AppState): string {
     state.live_effects?.active,
     JSON.stringify(state.live_effects?.active_ids ?? []),
     JSON.stringify(state.live_effects?.warnings ?? []),
+    state.scene_id,
+    state.scene_name,
   ].join("|");
 }
 
 export function useAppState(toasts: ToastApi) {
   const state = shallowRef<AppState | null>(null);
   const availablePresets = ref<PresetInfo[]>([]);
+  const availableScenes = ref<SceneInfo[]>([]);
   const connection = ref<ConnectionStatus>("connecting");
   const loading = ref(true);
   const lastError = ref<string | null>(null);
+  const sceneSwitching = ref(false);
   let socket: WebSocket | null = null;
   let reconnectTimer: number | null = null;
   let disposed = false;
@@ -91,6 +100,8 @@ export function useAppState(toasts: ToastApi) {
 
   const engine = computed(() => state.value?.engine ?? null);
   const output = computed(() => state.value?.output ?? null);
+  const sceneId = computed(() => state.value?.scene_id ?? "orng-bar");
+  const sceneName = computed(() => state.value?.scene_name ?? "ORNG BAR");
   const availableIds = computed(() => {
     const ids = new Set(state.value?.presets ?? []);
     ids.add("NONE");
@@ -105,6 +116,9 @@ export function useAppState(toasts: ToastApi) {
     lastPublishAt = Date.now();
     state.value = live.state;
     lastError.value = live.state?.output.last_error ?? null;
+    if (live.state?.desk_role === "raspberry" && live.state.executor_online === false) {
+      connection.value = "offline";
+    }
     loading.value = false;
   }
 
@@ -133,10 +147,20 @@ export function useAppState(toasts: ToastApi) {
     return live.state?.frame ?? [];
   }
 
+  async function refreshScenes() {
+    try {
+      const body = await fetchScenes();
+      availableScenes.value = body.scenes;
+    } catch {
+      // keep last known list when offline
+    }
+  }
+
   async function refreshRest() {
     const [nextState, presets] = await Promise.all([fetchState(), fetchPresets()]);
     applyState(nextState);
     availablePresets.value = presets;
+    await refreshScenes();
   }
 
   function scheduleReconnect() {
@@ -156,6 +180,10 @@ export function useAppState(toasts: ToastApi) {
     socket = ws;
 
     ws.addEventListener("open", () => {
+      if (state.value?.desk_role === "raspberry" && state.value.executor_online === false) {
+        connection.value = "offline";
+        return;
+      }
       connection.value = "online";
     });
 
@@ -197,6 +225,8 @@ export function useAppState(toasts: ToastApi) {
     try {
       const ack = await postCommand(path, {
         ...payload,
+        source_id:
+          typeof payload.source_id === "string" ? payload.source_id : getWebSessionSourceId(),
         client_command_id: createCommandId(path),
       });
       applyState(ack.state);
@@ -215,7 +245,12 @@ export function useAppState(toasts: ToastApi) {
     successMessage?: string,
   ) {
     try {
-      const ack = await postInputButton(buttonId, edge, "ui");
+      const ack = await postInputButton(
+        buttonId,
+        edge,
+        "ui",
+        getWebSessionSourceId(),
+      );
       if (ack.accepted) {
         applyState(ack.state);
         if (successMessage) toasts.push(successMessage, "success");
@@ -225,6 +260,24 @@ export function useAppState(toasts: ToastApi) {
       const message = err instanceof Error ? err.message : "Помилка input";
       toasts.push(message, "error");
       throw err;
+    }
+  }
+
+  async function switchScene(nextSceneId: string) {
+    if (!nextSceneId || nextSceneId === sceneId.value) return;
+    sceneSwitching.value = true;
+    try {
+      const ack = await postActivateScene(nextSceneId);
+      applyState(ack.state);
+      await refreshRest();
+      toasts.push(`Сцена: ${ack.state.scene_name ?? nextSceneId}`, "success");
+      return ack;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Не вдалося змінити сцену";
+      toasts.push(message, "error");
+      throw err;
+    } finally {
+      sceneSwitching.value = false;
     }
   }
 
@@ -240,6 +293,14 @@ export function useAppState(toasts: ToastApi) {
     await runCommand("seek-episode", { episode_index: episodeIndex });
   }
 
+  async function nudgeEpisode(delta: number) {
+    const count = engine.value?.episode_count ?? 0;
+    if (count <= 0) return;
+    const index = engine.value?.episode_index ?? 0;
+    const next = (index + (delta >= 0 ? 1 : -1) + count) % count;
+    await seekEpisode(next);
+  }
+
   /** Serialize STROBE press/release so pointerup cannot race ahead of press. */
   let strobeChain: Promise<void> = Promise.resolve();
 
@@ -253,10 +314,7 @@ export function useAppState(toasts: ToastApi) {
 
   function strobeRelease() {
     strobeChain = strobeChain
-      .then(async () => {
-        if (!state.value?.engine.strobe_held && connection.value !== "online") return;
-        await dispatchPad(BUTTON_STROBE, "release");
-      })
+      .then(() => dispatchPad(BUTTON_STROBE, "release"))
       .then(() => undefined)
       .catch(() => undefined);
     return strobeChain;
@@ -287,34 +345,102 @@ export function useAppState(toasts: ToastApi) {
   }
 
   async function setPreviewSpeed(value: number) {
+    if (bpmControlsLocked(state.value?.bpm)) return;
     await runCommand("preview-speed", { value });
+  }
+
+  async function nextAutoLook(): Promise<void> {
+    await runCommand("auto-next-look", {});
+  }
+
+  async function setBpmSync(patch: {
+    enabled?: boolean;
+    mode?: "smooth" | "bar" | "beat";
+    scope?: "preset" | "auto";
+    palette?: import("../vite-env").BpmPaletteId;
+    cast?: "all" | "bars" | "heads";
+    character?: "smooth" | "rhythmic" | "impact";
+    intensity?: "soft" | "normal" | "full";
+    period?: "auto" | 0.5 | 1 | 2 | 4 | 8;
+    parRhythm?: boolean;
+    accent?: number;
+  }): Promise<boolean> {
+    const current = state.value?.bpm;
+    const saved = readBpmChoice(
+      bpmChoiceKey({ locationId: state.value?.location_id, sceneId: state.value?.scene_id }),
+    );
+    try {
+      await runCommand("bpm-sync", {
+        enabled: patch.enabled ?? current?.enabled ?? false,
+        mode: patch.mode ?? current?.mode ?? saved.mode,
+        scope: patch.scope ?? current?.scope ?? saved.scope,
+        palette: patch.palette ?? current?.palette ?? saved.palette,
+        cast: patch.cast ?? current?.cast ?? saved.cast,
+        character: patch.character ?? current?.character ?? saved.character,
+        intensity: patch.intensity ?? current?.intensity ?? saved.intensity,
+        period: patch.period ?? current?.period ?? saved.period,
+        par_rhythm: patch.parRhythm ?? current?.par_rhythm ?? saved.parRhythm,
+        accent: patch.accent ?? current?.accent ?? saved.accent,
+      });
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   async function colorHit(rgb?: { r: number; g: number; b: number }) {
     await runCommand("color-hit", rgb ? { ...rgb } : {});
   }
 
-  /** Serialize sweep press/release so pointerup cannot race ahead of press. */
-  let sweepChain: Promise<void> = Promise.resolve();
+  /**
+   * Per-mode sweep chains: horizontal and vertical can be held together by the
+   * same tab source_id. Release must always match the mode that was pressed —
+   * never a shared lastSweepMode (that mis-releases the other axis).
+   */
+  const sweepChains: Record<"horizontal" | "vertical", Promise<void>> = {
+    horizontal: Promise.resolve(),
+    vertical: Promise.resolve(),
+  };
 
-  function sweepPress(mode: "horizontal" | "vertical" = "horizontal") {
-    sweepChain = sweepChain
-      .then(() => runCommand("sweep", { action: "press", mode }))
-      .then(() => undefined)
-      .catch(() => undefined);
-    return sweepChain;
+  async function dispatchSweepAction(
+    action: "sweep_press" | "sweep_release" | "vertical_sweep_press" | "vertical_sweep_release",
+    edge: "press" | "release",
+  ) {
+    const ack = await postInputAction({ action, edge });
+    if (ack.accepted) {
+      applyState(ack.state);
+    }
+    return ack;
   }
 
-  function sweepRelease() {
-    sweepChain = sweepChain
-      .then(() => runCommand("sweep", { action: "release" }))
+  function sweepPress(mode: "horizontal" | "vertical" = "horizontal") {
+    const action = mode === "vertical" ? "vertical_sweep_press" : "sweep_press";
+    sweepChains[mode] = sweepChains[mode]
+      .then(() => dispatchSweepAction(action, "press"))
       .then(() => undefined)
       .catch(() => undefined);
-    return sweepChain;
+    return sweepChains[mode];
+  }
+
+  function sweepRelease(mode: "horizontal" | "vertical" = "horizontal") {
+    const action = mode === "vertical" ? "vertical_sweep_release" : "sweep_release";
+    sweepChains[mode] = sweepChains[mode]
+      .then(() => dispatchSweepAction(action, "release"))
+      .then(() => undefined)
+      .catch(() => undefined);
+    return sweepChains[mode];
   }
 
   function verticalSweepPress() {
     return sweepPress("vertical");
+  }
+
+  function verticalSweepRelease() {
+    return sweepRelease("vertical");
+  }
+
+  function releaseAllSweeps() {
+    return Promise.all([sweepRelease("horizontal"), sweepRelease("vertical")]);
   }
 
   async function setLiveFxSpeeds(payload: {
@@ -329,32 +455,40 @@ export function useAppState(toasts: ToastApi) {
   }
 
   async function notifyFocusLoss() {
+    const source_id = getWebSessionSourceId();
     if (socket && socket.readyState === WebSocket.OPEN) {
       socket.send(JSON.stringify({ type: "focus_loss" }));
     }
-    await runCommand("focus-loss");
+    await runCommand("focus-loss", { source_id });
   }
 
   async function notifyVisibilityHidden() {
+    const source_id = getWebSessionSourceId();
     if (socket && socket.readyState === WebSocket.OPEN) {
       socket.send(JSON.stringify({ type: "visibility_hidden" }));
     }
-    await runCommand("visibility-hidden");
+    await runCommand("visibility-hidden", { source_id });
   }
 
   function onVisibility() {
     if (document.visibilityState === "hidden") {
       void notifyVisibilityHidden();
       void strobeRelease();
-      void sweepRelease();
+      void releaseAllSweeps();
     }
   }
 
   function onBlur() {
     void notifyFocusLoss();
     void strobeRelease();
-    void sweepRelease();
+    void releaseAllSweeps();
   }
+
+  watch(connection, (value) => {
+    if (value !== "online" && value !== "reconnecting") {
+      window.dispatchEvent(new CustomEvent("orng-release-holds"));
+    }
+  });
 
   useKeyboardPad({
     enabled: () => connection.value === "online" || connection.value === "reconnecting",
@@ -391,15 +525,20 @@ export function useAppState(toasts: ToastApi) {
     state,
     engine,
     output,
+    sceneId,
+    sceneName,
+    availableScenes,
     availablePresets,
     availableIds,
     connection,
     loading,
     lastError,
+    sceneSwitching,
     liveView,
     liveFrame,
     selectPreset,
     seekEpisode,
+    nudgeEpisode,
     strobePress,
     strobeRelease,
     setBlackout,
@@ -407,12 +546,17 @@ export function useAppState(toasts: ToastApi) {
     setFace,
     setMasterBrightness,
     setPreviewSpeed,
+    nextAutoLook,
+    setBpmSync,
     colorHit,
     sweepPress,
     sweepRelease,
     verticalSweepPress,
+    verticalSweepRelease,
+    releaseAllSweeps,
     setLiveFxSpeeds,
     setPadPresets,
+    switchScene,
     refreshRest,
   };
 }

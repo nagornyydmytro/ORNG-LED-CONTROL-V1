@@ -1,0 +1,5 @@
+# Example device-local runtime state.
+# Copy to config/runtime.yaml on a venue machine (that file is gitignored).
+# Absence of runtime.yaml defaults active_scene_id to orng-bar.
+schema_version: 1
+active_scene_id: orng-bar

@@ -1,3 +1,5 @@
 """ORNG LED CONTROL application package."""
 
-__version__ = "0.1.0"
+from orng_led.version import app_version
+
+__version__ = app_version()

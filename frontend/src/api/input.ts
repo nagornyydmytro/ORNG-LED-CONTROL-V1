@@ -1,4 +1,5 @@
 import { createCommandId } from "./client";
+import { getWebSessionSourceId } from "../lib/sessionSourceId";
 import type { AppState } from "../vite-env";
 
 export interface InputDispatchResponse {
@@ -27,6 +28,7 @@ export async function postInputButton(
   buttonId: number,
   edge: "press" | "release" | "pulse" = "pulse",
   source: "ui" | "keyboard" | "mock" = "ui",
+  sourceId: string = getWebSessionSourceId(),
 ): Promise<InputDispatchResponse> {
   return parseJson(
     await fetch("/api/input/button", {
@@ -36,6 +38,7 @@ export async function postInputButton(
         button_id: buttonId,
         edge,
         source,
+        source_id: sourceId,
         client_command_id: createCommandId(`input-btn-${buttonId}`),
       }),
     }),
@@ -46,14 +49,45 @@ export async function postInputKeyboard(payload: {
   code: string;
   type: "keydown" | "keyup";
   repeat?: boolean;
+  source_id?: string;
+  profile_id?: "qwerty" | "ch57x";
 }): Promise<InputDispatchResponse> {
+  const { source_id = getWebSessionSourceId(), ...rest } = payload;
   return parseJson(
     await fetch("/api/input/keyboard", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        ...payload,
+        ...rest,
+        source_id,
         client_command_id: createCommandId("input-key"),
+      }),
+    }),
+  );
+}
+
+export async function postInputAction(payload: {
+  action: string;
+  edge?: "press" | "release" | "pulse";
+  source?: "ui" | "keyboard" | "mock";
+  pad_slot?: number;
+  preset_id?: string;
+  source_id?: string;
+}): Promise<InputDispatchResponse> {
+  const {
+    source_id = getWebSessionSourceId(),
+    source = "ui",
+    ...rest
+  } = payload;
+  return parseJson(
+    await fetch("/api/input/action", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...rest,
+        source,
+        source_id,
+        client_command_id: createCommandId(`input-action-${rest.action}`),
       }),
     }),
   );

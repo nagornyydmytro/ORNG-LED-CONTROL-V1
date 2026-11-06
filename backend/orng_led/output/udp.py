@@ -50,6 +50,7 @@ class UdpArtNetTransport:
     socket: DatagramSocket | None = None
     sequence: int = 0
     packets_sent: int = 0
+    send_blocked: int = 0
     last_packet: bytes | None = None
     _owns_socket: bool = False
     _closed: bool = False
@@ -72,6 +73,8 @@ class UdpArtNetTransport:
                 "Inject a socket for tests or set allow_real_network=True explicitly."
             )
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        # A full kernel buffer must drop this packet, not stall the next frame.
+        sock.setblocking(False)
         self.socket = sock
         self._owns_socket = True
         return sock
@@ -88,7 +91,11 @@ class UdpArtNetTransport:
             universe=self.universe,
         )
         sock = self._ensure_socket()
-        sock.sendto(packet, (self.target_ip, self.udp_port))
+        try:
+            sock.sendto(packet, (self.target_ip, self.udp_port))
+        except BlockingIOError:
+            self.send_blocked += 1
+            return
         self.packets_sent += 1
         self.last_packet = packet
         self._last_frame = list(frame)

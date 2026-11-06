@@ -1,12 +1,16 @@
 <script setup lang="ts">
 import { computed, inject, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import {
   EFFECTS,
   GROUPS,
   PALETTES,
+  TRANSITION_LABELS,
   TRANSITIONS,
+  cloneEpisode,
   createCustomPreset,
+  effectUsesSpeed,
+  freshLookId,
   deletePreset,
   duplicatePreset,
   getPreset,
@@ -18,15 +22,22 @@ import {
   stopEditorEpisodePreview,
   suggestCustomPresetId,
   type EpisodeCard,
+  type LookAction,
   type PresetDocument,
 } from "../api/presets";
 import { fetchStageLayout } from "../api/client";
+import { fetchPatch, fetchProfiles } from "../api/setup";
+import { lookCaption, matchesGroups, offeredGroups } from "../runtime/sceneValidate";
+import { presetButtonLabel } from "../lib/presetLabel";
 import BlackoutButton from "../components/control/BlackoutButton.vue";
 import StageSimulator from "../components/simulator/StageSimulator.vue";
 import { APP_STATE_KEY } from "../composables/appStateKey";
+import { activeScenePort, publishLocationDraft } from "../runtime/scenePort";
 import { usePreviewClip } from "../composables/usePreviewClip";
 import type { PresetInfo, StageLayout } from "../vite-env";
-import { PRESET_CATALOG, formatClock, paletteCss } from "../lib/presets";
+import { episodeIndexAt, episodeStartS } from "../lib/episodeClock";
+import { formatClock, paletteCss } from "../lib/presets";
+import AutoCatalogPanel from "../components/presets/AutoCatalogPanel.vue";
 
 const api = inject(APP_STATE_KEY);
 if (!api) {
@@ -75,10 +86,50 @@ async function savePadSlots() {
 }
 
 const router = useRouter();
+const route = useRoute();
+const catalogKind = ref<"presets" | "auto">(route.query.catalog === "auto" ? "auto" : "presets");
 
 const summaries = ref<PresetInfo[]>([]);
 const editing = ref<PresetDocument | null>(null);
 const layout = ref<StageLayout | null>(null);
+const rigFixtures = ref<Array<Record<string, unknown>> | null>(null);
+const rigProfiles = ref<Record<string, Record<string, unknown>>>({});
+const sceneRevision = computed(() =>
+  JSON.stringify({
+    scene: state.value?.scene_id ?? null,
+    location: state.value?.location_id ?? null,
+    layout: layout.value,
+    fixtures: rigFixtures.value,
+    profiles: rigProfiles.value,
+  }),
+);
+
+function groupsFor(episode: EpisodeCard): readonly string[] {
+  if (!rigFixtures.value) return GROUPS;
+  return offeredGroups(rigFixtures.value, episode.groups);
+}
+
+function episodeNotes(episode: EpisodeCard): string[] {
+  if (!rigFixtures.value) return [];
+  const looks = episode.actions?.length
+    ? episode.actions.map((action) => ({
+        groups: action.groups?.length ? action.groups : episode.groups,
+        effect: action.effect,
+      }))
+    : [{ groups: episode.groups, effect: episode.effect }];
+  return [
+    ...new Set(
+      looks
+        .map((look) => lookCaption(rigFixtures.value ?? [], rigProfiles.value, look.groups, look.effect))
+        .filter(Boolean),
+    ),
+  ];
+}
+
+function effectDisabled(groups: string[], current: string, effect: string): boolean {
+  if (!rigFixtures.value || effect === current) return false;
+  return lookCaption(rigFixtures.value, rigProfiles.value, groups, effect) !== "";
+}
 const loading = ref(true);
 const saving = ref(false);
 const message = ref<string | null>(null);
@@ -89,12 +140,9 @@ const newLabel = ref("Мій пресет");
 const renameLabel = ref("");
 const dragIndex = ref<number | null>(null);
 const selectedId = ref<string | null>(null);
+const selectedDoc = ref<PresetDocument | null>(null);
 
 const preview = usePreviewClip();
-
-const totalDuration = computed(() =>
-  editing.value ? editing.value.episodes.reduce((sum, ep) => sum + Number(ep.duration_s), 0) : 0,
-);
 
 const isBuiltinEditing = computed(() => editing.value?.builtin === true);
 const offline = computed(() => connection.value === "offline");
@@ -115,33 +163,46 @@ function setStatus(ok: string | null, err: string | null = null) {
 
 async function openEditor(id: string) {
   error.value = null;
-  editing.value = await getPreset(id);
-  renameLabel.value = editing.value.label;
+  try {
+    const doc = await getPreset(id);
+    editing.value = doc;
+    renameLabel.value = doc.label;
+  } catch (err) {
+    editing.value = null;
+    setStatus(null, err instanceof Error ? err.message : "Пресет не прочитано");
+    return;
+  }
   savedHintId.value = null;
 }
 
-const episodeDuration = computed(() => {
-  const info = selected.value;
-  const count = info?.episode_count ?? 0;
-  if (!info || count === 0) return 18;
-  return (info.total_duration_s ?? 180) / count;
-});
-
-const previewEpisode = computed(() =>
-  Math.min(
-    (selected.value?.episode_count ?? 10) - 1,
-    Math.floor(preview.timeS.value / Math.max(1, episodeDuration.value)),
-  ),
+const selectedDurations = computed(() =>
+  (selectedDoc.value?.episodes ?? []).map((episode) => Number(episode.duration_s) || 0),
+);
+const previewCount = computed(
+  () => selectedDurations.value.length || selected.value?.episode_count || 0,
 );
 
+const previewEpisode = computed(() => {
+  if (!selectedDurations.value.length) return 0;
+  return episodeIndexAt(selectedDurations.value, preview.timeS.value);
+});
+
 async function choose(id: string) {
+  if (!id || id.toUpperCase() === "NONE") return;
   selectedId.value = id;
+  try {
+    selectedDoc.value = await getPreset(id);
+  } catch (err) {
+    selectedDoc.value = null;
+    setStatus(null, err instanceof Error ? err.message : "Пресет не прочитано");
+  }
   await preview.load(id, 12, 15);
 }
 
 async function previewFrom(episodeIndex: number) {
   if (!selectedId.value) return;
-  await preview.load(selectedId.value, 12, 15, episodeIndex * episodeDuration.value);
+  const start = episodeStartS(selectedDurations.value, episodeIndex);
+  await preview.load(selectedId.value, 12, 15, start);
 }
 
 async function onCreate() {
@@ -165,9 +226,17 @@ async function onSave() {
   saving.value = true;
   try {
     await savePreset(editing.value.id, editing.value);
+    try {
+      await publishLocationDraft();
+      setStatus(`Пресет ${editing.value.id} збережено для локації`);
+    } catch (err) {
+      setStatus(
+        null,
+        `Чернетку збережено. ${err instanceof Error ? err.message : "Публікацію відхилено"}`,
+      );
+    }
     await reloadList();
     savedHintId.value = editing.value.id;
-    setStatus(`Пресет ${editing.value.id} збережено і доступний на пульті`);
   } catch (err) {
     setStatus(null, err instanceof Error ? err.message : "Помилка збереження");
   } finally {
@@ -316,6 +385,143 @@ function onDrop(index: number) {
   dragIndex.value = null;
 }
 
+const actionCursor = ref<Record<string, number>>({});
+const hardwarePreviewAllowed = computed(() => activeScenePort()?.hardwarePreview !== false);
+
+function actionAt(episode: EpisodeCard): number {
+  const count = episode.actions?.length ?? 0;
+  if (count < 1) return 0;
+  return Math.min(actionCursor.value[episode.id] ?? 0, count - 1);
+}
+
+function selectAction(episodeId: string, index: number) {
+  actionCursor.value = { ...actionCursor.value, [episodeId]: index };
+}
+
+function lookGroups(groups: string[]): readonly string[] {
+  if (!rigFixtures.value) return GROUPS;
+  return offeredGroups(rigFixtures.value, groups);
+}
+
+function actionFromEpisode(episode: EpisodeCard): LookAction {
+  return {
+    id: episode.id,
+    groups: [...episode.groups],
+    palette: episode.palette,
+    effect: episode.effect,
+    speed: episode.speed,
+    intensity: episode.intensity,
+    cycle_beats: episode.cycle_beats ?? null,
+  };
+}
+
+function addLook(episodeIndex: number) {
+  if (!editing.value || isBuiltinEditing.value) return;
+  const episode = editing.value.episodes[episodeIndex];
+  if (!episode) return;
+  const actions = episode.actions?.length
+    ? episode.actions.map((action) => ({ ...action, groups: [...action.groups] }))
+    : [actionFromEpisode(episode)];
+  const previous = actions[actions.length - 1];
+  actions.push({ ...previous, id: freshLookId("a"), groups: [...previous.groups] });
+  updateEpisode(episodeIndex, { actions });
+  selectAction(episode.id, actions.length - 1);
+}
+
+function copyLook(episodeIndex: number, actionIndex: number) {
+  if (!editing.value || isBuiltinEditing.value) return;
+  const episode = editing.value.episodes[episodeIndex];
+  const existing = episode?.actions;
+  const source = existing?.[actionIndex];
+  if (!episode || !existing || !source) return;
+  const actions = existing.map((action) => ({ ...action, groups: [...action.groups] }));
+  actions.splice(actionIndex + 1, 0, { ...source, id: freshLookId("a"), groups: [...source.groups] });
+  updateEpisode(episodeIndex, { actions });
+  selectAction(episode.id, actionIndex + 1);
+}
+
+function removeLook(episodeIndex: number, actionIndex: number) {
+  if (!editing.value || isBuiltinEditing.value) return;
+  const episode = editing.value.episodes[episodeIndex];
+  if (!episode?.actions?.length) return;
+  const actions = episode.actions.filter((_, index) => index !== actionIndex);
+  if (actions.length <= 1) {
+    const only = actions[0] ?? actionFromEpisode(episode);
+    updateEpisode(episodeIndex, {
+      groups: [...only.groups],
+      palette: only.palette || episode.palette,
+      effect: only.effect,
+      speed: only.speed,
+      intensity: only.intensity,
+      cycle_beats: only.cycle_beats ?? null,
+      actions: [],
+    });
+    return;
+  }
+  updateEpisode(episodeIndex, { actions });
+  selectAction(episode.id, Math.max(0, actionIndex - 1));
+}
+
+function moveLook(episodeIndex: number, from: number, to: number) {
+  if (!editing.value) return;
+  const episode = editing.value.episodes[episodeIndex];
+  if (!episode?.actions || to < 0 || to >= episode.actions.length) return;
+  const actions = episode.actions.map((action) => ({ ...action, groups: [...action.groups] }));
+  const [item] = actions.splice(from, 1);
+  actions.splice(to, 0, item);
+  updateEpisode(episodeIndex, { actions });
+  selectAction(episode.id, to);
+}
+
+function copyEpisodeCard(index: number) {
+  if (!editing.value || isBuiltinEditing.value) return;
+  const episodes = [...editing.value.episodes];
+  const source = episodes[index];
+  if (!source) return;
+  episodes.splice(index + 1, 0, cloneEpisode(source));
+  editing.value = { ...editing.value, episodes };
+}
+
+function toggleActionGroup(episodeIndex: number, actionIndex: number, group: string) {
+  if (!editing.value) return;
+  const action = editing.value.episodes[episodeIndex]?.actions?.[actionIndex];
+  if (!action) return;
+  const groups = action.groups.includes(group)
+    ? action.groups.filter((item) => item !== group)
+    : [...action.groups, group];
+  if (groups.length === 0) return;
+  updateAction(episodeIndex, actionIndex, { groups });
+}
+
+function overlapNote(episode: EpisodeCard, actionIndex: number): string {
+  const actions = episode.actions ?? [];
+  const fixtures = rigFixtures.value;
+  if (!fixtures || actions.length < 2) return "";
+  const idsFor = (groups: string[]) =>
+    fixtures
+      .filter((fixture) => {
+        const kind = String(fixture.kind ?? "");
+        const groupsOf = Array.isArray(fixture.groups) ? fixture.groups.map(String) : [];
+        return kind !== "face_par" && matchesGroups(groupsOf, groups);
+      })
+      .map((fixture) => String(fixture.id));
+  const current = new Set(idsFor(actions[actionIndex]?.groups ?? []));
+  const replaced = actions
+    .slice(actionIndex + 1)
+    .some((action) => idsFor(action.groups).some((id) => current.has(id)));
+  return replaced ? "Пізніша дія замінює цей прилад цілком" : "";
+}
+
+function updateAction(episodeIndex: number, actionIndex: number, patch: Partial<NonNullable<EpisodeCard["actions"]>[number]>) {
+  if (!editing.value) return;
+  const episode = editing.value.episodes[episodeIndex];
+  if (!episode?.actions?.[actionIndex]) return;
+  const actions = episode.actions.map((action, index) =>
+    index === actionIndex ? { ...action, ...patch } : action,
+  );
+  updateEpisode(episodeIndex, { actions });
+}
+
 function updateEpisode(index: number, patch: Partial<EpisodeCard>) {
   if (!editing.value) return;
   if (isBuiltinEditing.value && patch.duration_s !== undefined) return;
@@ -342,17 +548,40 @@ watch(
   },
 );
 
-onMounted(async () => {
+async function retryLoad() {
+  loading.value = true;
+  error.value = null;
   try {
     await reloadList();
-    layout.value = await fetchStageLayout().catch(() => null);
+    layout.value = await fetchStageLayout();
+    try {
+      const [patch, profiles] = await Promise.all([fetchPatch(), fetchProfiles()]);
+      rigFixtures.value = Array.isArray(patch.fixtures)
+        ? (patch.fixtures as Array<Record<string, unknown>>)
+        : null;
+      rigProfiles.value = profiles ?? {};
+    } catch {
+      rigFixtures.value = null;
+    }
   } catch (err) {
     setStatus(null, err instanceof Error ? err.message : "Помилка завантаження");
   } finally {
     loading.value = false;
   }
-  const first = summaries.value[0];
-  if (first) void choose(engine.value?.preset_id ?? first.id);
+}
+
+watch(catalogKind, (kind) => {
+  if (kind === "auto") preview.clear();
+});
+
+onMounted(async () => {
+  await retryLoad();
+  if (catalogKind.value === "auto") return;
+  const active = engine.value?.preset_id;
+  const pick =
+    summaries.value.find((item) => item.id === active && item.id.toUpperCase() !== "NONE") ??
+    summaries.value.find((item) => item.id.toUpperCase() !== "NONE");
+  if (pick && !error.value) void choose(pick.id);
 });
 
 onBeforeUnmount(() => {
@@ -364,12 +593,37 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="presets-view">
-    <header class="card">
+    <header class="page-title">
       <h1>Пресети</h1>
-      <p class="card__sub">
-        Три окремі дії: візуалізація · тест епізоду на обладнанні · збереження на пульт.
-      </p>
     </header>
+
+    <div
+      class="chips catalog-switch"
+      role="tablist"
+      aria-label="Каталог"
+    >
+      <button
+        type="button"
+        class="chip"
+        :class="{ on: catalogKind === 'presets' }"
+        role="tab"
+        :aria-selected="catalogKind === 'presets'"
+        @click="catalogKind = 'presets'"
+      >
+        Пресети
+      </button>
+      <button
+        type="button"
+        class="chip"
+        :class="{ on: catalogKind === 'auto' }"
+        role="tab"
+        :aria-selected="catalogKind === 'auto'"
+        data-catalog="auto"
+        @click="catalogKind = 'auto'"
+      >
+        Авто-епізоди
+      </button>
+    </div>
 
     <p
       v-if="loading"
@@ -383,6 +637,14 @@ onBeforeUnmount(() => {
       role="alert"
     >
       {{ error }}
+      <button
+        type="button"
+        class="btn btn--sm"
+        style="margin-left: 12px"
+        @click="retryLoad"
+      >
+        Спробувати знову
+      </button>
     </p>
     <p
       v-else-if="message"
@@ -408,11 +670,7 @@ onBeforeUnmount(() => {
     >
       <header class="card__head">
         <div>
-          <h2>Тест на обладнанні активний</h2>
-          <p class="card__sub">
-            {{ editorPreview?.preset_label }} ·
-            {{ editorPreview?.episode_title }}
-          </p>
+          <h2>{{ editorPreview?.preset_label || "Тест" }}</h2>
         </div>
         <div class="row-actions">
           <BlackoutButton
@@ -435,7 +693,10 @@ onBeforeUnmount(() => {
           <strong>{{ formatClock(editorPreview?.elapsed_s ?? 0) }} /
             {{ formatClock(editorPreview?.episode_duration_s ?? 0) }}</strong>
         </div>
-        <div class="field">
+        <div
+          v-if="false"
+          class="field"
+        >
           <span>Art-Net / UDP / Arm</span>
           <strong>
             {{ output?.transport ?? "—" }} /
@@ -447,11 +708,17 @@ onBeforeUnmount(() => {
           <span>Blackout</span>
           <strong>{{ engine?.blackout ? "увімкнено" : "вимкнено" }}</strong>
         </div>
-        <div class="field">
+        <div
+          v-if="false"
+          class="field"
+        >
           <span>DMX source</span>
           <strong>{{ output?.source_owner ?? "—" }}</strong>
         </div>
-        <div class="field">
+        <div
+          v-if="false"
+          class="field"
+        >
           <span>Source NZ / Wire NZ</span>
           <strong>
             {{ editorPreview?.source_nonzero_channels ?? output?.source_nonzero_channels ?? 0 }}
@@ -474,17 +741,14 @@ onBeforeUnmount(() => {
     </section>
 
     <section
+      v-if="catalogKind === 'presets'"
       class="card"
       aria-label="Пульт — 9 пресетів"
     >
       <header class="card__head">
-        <h2>Склад пульта</h2>
-        <p class="card__sub">
-          На головній завжди NONE (клавіша P), далі рівно 9 обраних (клавіші Q–O).
-          NONE тут не налаштовується.
-        </p>
+        <h2>Пульт</h2>
       </header>
-      <div class="form-grid">
+      <div class="form-grid pad-slots">
         <label
           v-for="(_, index) in 9"
           :key="index"
@@ -493,7 +757,7 @@ onBeforeUnmount(() => {
           <span>Слот {{ index + 1 }}</span>
           <select
             :value="padDraft[index] ?? ''"
-            :disabled="offline || padSaving"
+            :disabled="padSaving"
             @change="setPadSlot(index, ($event.target as HTMLSelectElement).value)"
           >
             <option
@@ -502,7 +766,7 @@ onBeforeUnmount(() => {
               :value="preset.id"
               :disabled="padDraft.includes(preset.id) && padDraft[index] !== preset.id"
             >
-              {{ preset.id }} · {{ preset.label }}
+              {{ presetButtonLabel(preset.id, preset.label) }}
             </option>
           </select>
         </label>
@@ -511,7 +775,7 @@ onBeforeUnmount(() => {
         <button
           type="button"
           class="btn"
-          :disabled="offline || padSaving || padDraft.length !== 9"
+          :disabled="padSaving || padDraft.length !== 9"
           @click="savePadSlots"
         >
           Зберегти склад пульта
@@ -519,16 +783,26 @@ onBeforeUnmount(() => {
       </div>
     </section>
 
-    <div class="presets-grid">
+    <AutoCatalogPanel
+      v-if="catalogKind === 'auto'"
+      :layout="layout"
+      :scene-id="state?.scene_id ?? null"
+      :location-id="state?.location_id ?? null"
+      :scene-revision="sceneRevision"
+      :scene-ready="Boolean(layout) && !error"
+      :scene-error="error"
+    />
+
+    <div
+      v-else
+      class="presets-grid"
+    >
       <section
         class="card"
         aria-label="Список пресетів"
       >
         <header class="card__head">
           <h2>Каталог</h2>
-          <p class="card__sub">
-            Вбудовані та власні пресети
-          </p>
         </header>
 
         <div class="preset-cards">
@@ -541,49 +815,28 @@ onBeforeUnmount(() => {
             :data-id="preset.id"
             @click="choose(preset.id)"
           >
-            <span class="preset-card__top">
-              <span class="preset-card__id">{{ preset.id }}</span>
-              <span class="badge badge--muted">{{
-                preset.builtin ? "вбудований" : "власний"
-              }}</span>
-            </span>
-            <span class="preset-card__label">{{ preset.label }}</span>
-            <span class="palette">
+            <span class="preset-card__label">{{ presetButtonLabel(preset.id, preset.label) }}</span>
+            <span
+              v-if="preset.palettes?.length"
+              class="palette"
+            >
               <i
-                v-for="(palette, idx) in preset.palettes ?? []"
+                v-for="(palette, idx) in preset.palettes"
                 :key="idx"
                 :style="{ background: paletteCss(palette) }"
-                :title="palette"
               />
             </span>
-            <span class="intensity-bar"><i
-              :style="{ width: `${Math.round((preset.avg_intensity ?? 0) * 100)}%` }"
-            /></span>
-            <span class="preset-card__meta">
-              <span>{{ preset.episode_count ?? "—" }} еп. ·
-                {{ (preset.total_duration_s ?? 0).toFixed(0) }} с</span>
-              <span>темп {{ Math.round((preset.avg_speed ?? 0) * 100) }}%</span>
-            </span>
           </button>
-
-          <div
-            v-for="slot in PRESET_CATALOG.filter((p) => !summaries.some((s) => s.id === p.id))"
-            :key="`slot-${slot.id}`"
-            class="preset-card"
-          >
-            <span class="preset-card__id">{{ slot.id }}</span>
-            <span class="preset-card__label">Ще не завантажено</span>
-          </div>
         </div>
 
-        <div class="row-actions">
+        <div class="row-actions catalog-actions">
           <button
             type="button"
             class="btn btn--primary"
             :disabled="offline || !selectedId"
             @click="selectedId && onApplyVisualization(selectedId)"
           >
-            Застосувати до візуалізації
+            На сцену
           </button>
           <button
             type="button"
@@ -602,10 +855,11 @@ onBeforeUnmount(() => {
             Дублювати
           </button>
           <button
+            v-if="selected && !selected.builtin"
             type="button"
             class="btn btn--danger"
-            :disabled="saving || !selected || selected.builtin"
-            @click="selected && onDelete(selected.id, selected.builtin)"
+            :disabled="saving"
+            @click="onDelete(selected.id, selected.builtin)"
           >
             Видалити
           </button>
@@ -614,17 +868,17 @@ onBeforeUnmount(() => {
 
       <div class="preview-column">
         <StageSimulator
+          plain
           :layout="layout"
           :view="preview.view"
+          :summary="preview.paletteSample.value ? 'Зразок палітри, не програвання епізоду' : undefined"
           :engine-preset-id="preview.presetId.value ?? '—'"
           :preset-time-s="preview.timeS.value"
           :episode-index="previewEpisode"
-          :episode-count="selected?.episode_count ?? 10"
+          :episode-count="previewCount"
           :cycle-duration-s="selected?.total_duration_s ?? 180"
           :nonzero-channels="1"
           :show-inspector="false"
-          title="Безпечний Mock-перегляд"
-          badge="Не надсилається у transport"
         />
 
         <section
@@ -634,42 +888,30 @@ onBeforeUnmount(() => {
         >
           <header class="card__head">
             <h2>Епізоди</h2>
-            <p class="card__sub">
-              {{ selected.episode_count }} × {{ episodeDuration.toFixed(0) }} с =
-              {{ (selected.total_duration_s ?? 180).toFixed(0) }} с
-            </p>
           </header>
           <div class="episode-strip">
             <button
-              v-for="(palette, index) in selected.palettes"
-              :key="`${selected.id}-${index}`"
+              v-for="n in previewCount"
+              :key="`${selected.id}-${n}`"
               type="button"
               class="episode-chip"
-              :class="{ active: index === previewEpisode }"
-              :style="{ '--chip': paletteCss(palette) }"
-              @click="previewFrom(index)"
+              :class="{ active: n - 1 === previewEpisode }"
+              @click="previewFrom(n - 1)"
             >
-              <span class="episode-chip__n">{{ index + 1 }}</span>
-              <span class="episode-chip__palette">{{ palette }}</span>
+              <span class="episode-chip__n">{{ n }}</span>
             </button>
           </div>
-          <p class="card__sub">
-            Натисніть епізод для Mock-візуалізації. Для реального виводу використайте
-            «Відтворити на обладнанні» в редакторі.
-          </p>
         </section>
       </div>
     </div>
 
     <section
+      v-if="catalogKind === 'presets'"
       class="card"
       aria-label="Створити пресет"
     >
       <header class="card__head">
-        <h2>Створити власний пресет</h2>
-        <p class="card__sub">
-          ID стійкий і не залежить від назви (наприклад C01)
-        </p>
+        <h2>Новий пресет</h2>
       </header>
       <div class="form-grid">
         <label class="field">
@@ -693,7 +935,7 @@ onBeforeUnmount(() => {
         <button
           type="button"
           class="btn"
-          :disabled="saving || offline"
+          :disabled="saving"
           @click="onCreate"
         >
           Створити
@@ -702,21 +944,13 @@ onBeforeUnmount(() => {
     </section>
 
     <section
-      v-if="editing"
+      v-if="catalogKind === 'presets' && editing"
       class="card"
       aria-label="Редактор епізодів"
     >
       <header class="card__head">
         <div>
-          <h2>Редактор · {{ editing.id }}</h2>
-          <p class="card__sub">
-            Σ {{ totalDuration.toFixed(1) }} с · {{ editing.episodes.length }} епізодів ·
-            hardware_tuned=false
-            <span v-if="isBuiltinEditing"> · структура 10 × 18 с зафіксована</span>
-          </p>
-          <p class="card__sub">
-            Після збереження пресет з’явиться на пульті
-          </p>
+          <h2>Редактор</h2>
         </div>
         <div class="row-actions">
           <label class="field field--inline">
@@ -740,7 +974,7 @@ onBeforeUnmount(() => {
             :disabled="saving"
             @click="onSave"
           >
-            Зберегти пресет
+            Зберегти для локації
           </button>
           <button
             type="button"
@@ -763,19 +997,19 @@ onBeforeUnmount(() => {
         @drop="onDrop(index)"
       >
         <div class="card__head">
-          <strong>Епізод {{ index + 1 }} · {{ ep.id }}</strong>
+          <strong>Епізод {{ index + 1 }}</strong>
           <div class="row-actions">
             <button
               type="button"
-              class="btn btn--sm btn--primary"
-              :disabled="offline || saving"
+              class="action-btn"
+              :disabled="offline || saving || !hardwarePreviewAllowed"
               @click="playEpisodeOnHardware(index)"
             >
               Відтворити на обладнанні
             </button>
             <button
               type="button"
-              class="btn btn--sm"
+              class="action-btn"
               :disabled="index === 0"
               @click="moveEpisode(index, index - 1)"
             >
@@ -783,7 +1017,7 @@ onBeforeUnmount(() => {
             </button>
             <button
               type="button"
-              class="btn btn--sm"
+              class="action-btn"
               :disabled="index >= editing.episodes.length - 1"
               @click="moveEpisode(index, index + 1)"
             >
@@ -791,7 +1025,15 @@ onBeforeUnmount(() => {
             </button>
             <button
               type="button"
-              class="btn btn--sm btn--danger"
+              class="action-btn"
+              :disabled="isBuiltinEditing"
+              @click="copyEpisodeCard(index)"
+            >
+              Копія
+            </button>
+            <button
+              type="button"
+              class="action-btn action-btn--danger"
               :disabled="isBuiltinEditing || editing.episodes.length <= 1"
               @click="removeEpisode(index)"
             >
@@ -813,7 +1055,10 @@ onBeforeUnmount(() => {
               @input="updateEpisode(index, { duration_s: Number(($event.target as HTMLInputElement).value) })"
             >
           </label>
-          <label class="field">
+          <label
+            v-if="!ep.actions?.length"
+            class="field"
+          >
             <span>Палітра</span>
             <select
               :value="ep.palette"
@@ -824,11 +1069,14 @@ onBeforeUnmount(() => {
                 :key="p"
                 :value="p"
               >
-                {{ p }}
+                {{ p.replaceAll("_", " ") }}
               </option>
             </select>
           </label>
-          <label class="field">
+          <label
+            v-if="!ep.actions?.length"
+            class="field"
+          >
             <span>Ефект</span>
             <select
               :value="ep.effect"
@@ -838,8 +1086,9 @@ onBeforeUnmount(() => {
                 v-for="fx in EFFECTS"
                 :key="fx"
                 :value="fx"
+                :disabled="effectDisabled(ep.groups, ep.effect, fx)"
               >
-                {{ fx }}
+                {{ fx.replaceAll("_", " ") }}
               </option>
             </select>
           </label>
@@ -854,16 +1103,15 @@ onBeforeUnmount(() => {
                 :key="tr"
                 :value="tr"
               >
-                {{ tr }}
+                {{ TRANSITION_LABELS[tr] }}
               </option>
             </select>
           </label>
-          <p class="card__sub">
-            Ефекти й переходи пишуть лише в канали з призначеною роллю в «Налаштування каналів».
-            Канали unused / без мапінгу завжди 0.
-          </p>
-          <label class="field">
-            <span>Швидкість {{ ep.speed.toFixed(2) }}</span>
+          <label
+            v-if="!ep.actions?.length && effectUsesSpeed(ep.effect)"
+            class="field"
+          >
+            <span class="meter-line"><span>Швидкість</span><span>{{ ep.speed.toFixed(2) }}</span></span>
             <input
               type="range"
               min="0"
@@ -873,8 +1121,11 @@ onBeforeUnmount(() => {
               @input="updateEpisode(index, { speed: Number(($event.target as HTMLInputElement).value) })"
             >
           </label>
-          <label class="field">
-            <span>Інтенсивність {{ ep.intensity.toFixed(2) }}</span>
+          <label
+            v-if="!ep.actions?.length"
+            class="field"
+          >
+            <span class="meter-line"><span>Інтенсивність</span><span>{{ ep.intensity.toFixed(2) }}</span></span>
             <input
               type="range"
               min="0"
@@ -884,20 +1135,220 @@ onBeforeUnmount(() => {
               @input="updateEpisode(index, { intensity: Number(($event.target as HTMLInputElement).value) })"
             >
           </label>
+          <label
+            v-if="!ep.actions?.length && editing.musical_version && effectUsesSpeed(ep.effect)"
+            class="field"
+          >
+            <span>Цикл, долі</span>
+            <select
+              :value="ep.cycle_beats ?? ''"
+              @change="updateEpisode(index, { cycle_beats: Number(($event.target as HTMLSelectElement).value) as 1 | 2 | 4 | 8 })"
+            >
+              <option
+                v-for="beats in [1, 2, 4, 8]"
+                :key="beats"
+                :value="beats"
+              >
+                {{ beats }}
+              </option>
+            </select>
+          </label>
         </div>
 
-        <div class="chips">
+        <div
+          v-if="ep.actions?.length"
+          class="action-list"
+        >
+          <div class="episode-strip">
+            <button
+              v-for="(action, actionIndex) in ep.actions"
+              :key="action.id || actionIndex"
+              type="button"
+              class="episode-chip"
+              :class="{ active: actionIndex === actionAt(ep) }"
+              @click="selectAction(ep.id, actionIndex)"
+            >
+              <span class="episode-chip__n">{{ actionIndex + 1 }}</span>
+            </button>
+            <button
+              type="button"
+              class="action-btn"
+              :disabled="isBuiltinEditing"
+              @click="addLook(index)"
+            >
+              Ще дія
+            </button>
+          </div>
+          <p
+            v-if="overlapNote(ep, actionAt(ep))"
+            class="hint"
+          >
+            {{ overlapNote(ep, actionAt(ep)) }}
+          </p>
+          <div
+            v-for="(action, actionIndex) in ep.actions"
+            v-show="actionIndex === actionAt(ep)"
+            :key="`${action.id || actionIndex}-fields`"
+            class="form-grid"
+          >
+            <label class="field">
+              <span>Ефект</span>
+              <select
+                :value="action.effect"
+                @change="updateAction(index, actionIndex, { effect: ($event.target as HTMLSelectElement).value })"
+              >
+                <option
+                  v-for="fx in EFFECTS"
+                  :key="fx"
+                  :value="fx"
+                  :disabled="effectDisabled(action.groups, action.effect, fx)"
+                >
+                  {{ fx.replaceAll("_", " ") }}
+                </option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Палітра</span>
+              <select
+                :value="action.palette || ep.palette"
+                @change="updateAction(index, actionIndex, { palette: ($event.target as HTMLSelectElement).value })"
+              >
+                <option
+                  v-for="p in PALETTES"
+                  :key="p"
+                  :value="p"
+                >
+                  {{ p.replaceAll("_", " ") }}
+                </option>
+              </select>
+            </label>
+            <label
+              v-if="effectUsesSpeed(action.effect)"
+              class="field"
+            >
+              <span class="meter-line"><span>Швидкість</span><span>{{ Number(action.speed ?? 0).toFixed(2) }}</span></span>
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.01"
+                :value="action.speed"
+                @input="updateAction(index, actionIndex, { speed: Number(($event.target as HTMLInputElement).value) })"
+              >
+            </label>
+            <label class="field">
+              <span class="meter-line"><span>Інтенсивність</span><span>{{ Number(action.intensity ?? 0).toFixed(2) }}</span></span>
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.01"
+                :value="action.intensity"
+                @input="updateAction(index, actionIndex, { intensity: Number(($event.target as HTMLInputElement).value) })"
+              >
+            </label>
+            <label
+              v-if="editing.musical_version && effectUsesSpeed(action.effect)"
+              class="field"
+            >
+              <span>Цикл, долі</span>
+              <select
+                :value="action.cycle_beats ?? ''"
+                @change="updateAction(index, actionIndex, { cycle_beats: Number(($event.target as HTMLSelectElement).value) as 1 | 2 | 4 | 8 })"
+              >
+                <option
+                  v-for="beats in [1, 2, 4, 8]"
+                  :key="beats"
+                  :value="beats"
+                >
+                  {{ beats }}
+                </option>
+              </select>
+            </label>
+          </div>
+          <div class="row-actions">
+            <button
+              type="button"
+              class="action-btn"
+              :disabled="actionAt(ep) === 0"
+              @click="moveLook(index, actionAt(ep), actionAt(ep) - 1)"
+            >
+              ↑
+            </button>
+            <button
+              type="button"
+              class="action-btn"
+              :disabled="actionAt(ep) >= ep.actions.length - 1"
+              @click="moveLook(index, actionAt(ep), actionAt(ep) + 1)"
+            >
+              ↓
+            </button>
+            <button
+              type="button"
+              class="action-btn"
+              :disabled="isBuiltinEditing"
+              @click="copyLook(index, actionAt(ep))"
+            >
+              Копія
+            </button>
+            <button
+              type="button"
+              class="action-btn"
+              :disabled="isBuiltinEditing"
+              @click="removeLook(index, actionAt(ep))"
+            >
+              Прибрати дію
+            </button>
+          </div>
+          <div class="chips">
+            <button
+              v-for="group in lookGroups(ep.actions[actionAt(ep)]?.groups ?? [])"
+              :key="group"
+              type="button"
+              class="chip"
+              :class="{ on: ep.actions[actionAt(ep)]?.groups.includes(group) }"
+              @click="toggleActionGroup(index, actionAt(ep), group)"
+            >
+              {{ group.replaceAll("_", " ") }}
+            </button>
+          </div>
+        </div>
+
+        <div
+          v-if="!ep.actions?.length"
+          class="chips"
+        >
           <button
-            v-for="group in GROUPS"
+            v-for="group in groupsFor(ep)"
             :key="group"
             type="button"
             class="chip"
             :class="{ on: ep.groups.includes(group) }"
             @click="toggleGroup(index, group)"
           >
-            {{ group }}
+            {{ group.replaceAll("_", " ") }}
           </button>
         </div>
+        <div
+          v-if="!ep.actions?.length"
+          class="row-actions"
+        >
+          <button
+            type="button"
+            class="action-btn"
+            :disabled="isBuiltinEditing"
+            @click="addLook(index)"
+          >
+            Ще дія
+          </button>
+        </div>
+        <p
+          v-for="note in episodeNotes(ep)"
+          :key="note"
+          class="hint"
+        >
+          {{ note }}
+        </p>
       </div>
     </section>
   </div>

@@ -9,7 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from orng_led.api.runtime import AppRuntime
-from orng_led.config import default_config_dir, global_channel, load_show_config
+from orng_led.config import default_scene_dir, global_channel, load_show_config
 from orng_led.config.models import (
     ChannelDefinition,
     ChannelRole,
@@ -247,7 +247,7 @@ def test_unconfirmed_beam_blocks_physical_light() -> None:
 
 
 def test_calibration_test_requires_pan_role(tmp_path) -> None:
-    source = default_config_dir()
+    source = default_scene_dir()
     cfg = tmp_path / "config"
     shutil.copytree(source, cfg)
     runtime = AppRuntime.create(autostart_loop=False, config_dir=cfg)
@@ -261,7 +261,7 @@ def test_calibration_test_requires_pan_role(tmp_path) -> None:
 
 
 def test_calibration_test_begin_does_not_move_or_light(tmp_path) -> None:
-    source = default_config_dir()
+    source = default_scene_dir()
     cfg = tmp_path / "config"
     shutil.copytree(source, cfg)
     runtime = AppRuntime.create(autostart_loop=False, config_dir=cfg)
@@ -283,7 +283,7 @@ def test_calibration_test_begin_does_not_move_or_light(tmp_path) -> None:
 
 
 def test_only_one_beam_calibration_at_a_time(tmp_path) -> None:
-    source = default_config_dir()
+    source = default_scene_dir()
     cfg = tmp_path / "config"
     shutil.copytree(source, cfg)
     runtime = AppRuntime.create(autostart_loop=False, config_dir=cfg)
@@ -300,7 +300,7 @@ def test_only_one_beam_calibration_at_a_time(tmp_path) -> None:
 
 
 def test_visible_beam_blocked_by_blackout(tmp_path) -> None:
-    source = default_config_dir()
+    source = default_scene_dir()
     cfg = tmp_path / "config"
     shutil.copytree(source, cfg)
     runtime = AppRuntime.create(autostart_loop=False, config_dir=cfg)
@@ -326,7 +326,7 @@ def test_visible_beam_blocked_by_blackout(tmp_path) -> None:
 
 
 def test_end_clears_calibration_and_disarm_ends_session(tmp_path) -> None:
-    source = default_config_dir()
+    source = default_scene_dir()
     cfg = tmp_path / "config"
     shutil.copytree(source, cfg)
     runtime = AppRuntime.create(autostart_loop=False, config_dir=cfg)
@@ -346,7 +346,7 @@ def test_end_clears_calibration_and_disarm_ends_session(tmp_path) -> None:
 
 
 def test_save_calibration_hot_reload(tmp_path) -> None:
-    source = default_config_dir()
+    source = default_scene_dir()
     cfg = tmp_path / "config"
     shutil.copytree(source, cfg)
     runtime = AppRuntime.create(autostart_loop=False, config_dir=cfg)
@@ -363,7 +363,7 @@ def test_save_calibration_hot_reload(tmp_path) -> None:
 
 
 def test_api_never_sends_to_venue_during_beam_cal(tmp_path) -> None:
-    source = default_config_dir()
+    source = default_scene_dir()
     cfg = tmp_path / "config"
     shutil.copytree(source, cfg)
     runtime = AppRuntime.create(autostart_loop=False, config_dir=cfg)

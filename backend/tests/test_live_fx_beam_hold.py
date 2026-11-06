@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 
-from orng_led.config import default_config_dir, load_show_config
+from orng_led.config import default_scene_dir, load_show_config
 from orng_led.config.models import ChannelRole, FixtureKind
 from orng_led.config.validation import global_channel
 from orng_led.engine.beam import BeamMotionState
@@ -18,7 +18,7 @@ PRESET_IDS = tuple(f"P{i:02d}" for i in range(1, 11))
 
 
 def _programs() -> dict:
-    return PresetStore.load(default_config_dir() / "presets").programs()
+    return PresetStore.load(default_scene_dir() / "presets").programs()
 
 
 def _engine(preset_id: str = "P05") -> Engine:

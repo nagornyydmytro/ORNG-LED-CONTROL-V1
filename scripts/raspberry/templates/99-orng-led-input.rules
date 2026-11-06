@@ -1,0 +1,2 @@
+# Grant orng-led (via group input) access to USB HID event nodes.
+KERNEL=="event*", SUBSYSTEM=="input", MODE="0660", GROUP="input"

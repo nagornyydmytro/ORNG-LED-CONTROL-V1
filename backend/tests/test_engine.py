@@ -178,8 +178,10 @@ def test_face_only_in_face_layer() -> None:
     )
 
 
-def test_live_fx_compose_over_blackout() -> None:
-    """Blackout zeroes the preset base; Live Effects still render on top."""
+def test_blackout_kills_live_fx_light() -> None:
+    """Blackout is dark on the wire. Holds may stay latched, but they emit nothing."""
+    from orng_led.engine.show_whitelist import assert_lights_dark
+
     show = load_show_config()
     engine = Engine(show=show, clock=FakeClock())
     engine.set_face(True, brightness=1.0)
@@ -189,7 +191,10 @@ def test_live_fx_compose_over_blackout() -> None:
     assert snap.blackout is True
     assert engine.overlays.face_on is True
     assert engine.overlays.strobe_held is True
-    assert any(value > 0 for value in snap.frame)
+    assert_lights_dark(show, snap.frame)
+    engine.set_blackout(False)
+    lit = engine.tick(dt_s=0.0)
+    assert any(value > 0 for value in lit.frame)
 
 
 def test_kinds_cover_twelve_fixtures() -> None:

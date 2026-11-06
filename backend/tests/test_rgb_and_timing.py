@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from orng_led.config import default_config_dir, load_show_config
+from orng_led.config import default_scene_dir, load_show_config
 from orng_led.config.models import ChannelRole
 from orng_led.engine.engine import Engine
 from orng_led.engine.timing import effect_rate_hz, movement_rate_hz
@@ -15,7 +15,7 @@ PRESET_IDS = tuple(f"P{i:02d}" for i in range(1, 11))
 
 
 def _programs() -> dict:
-    return PresetStore.load(default_config_dir() / "presets").programs()
+    return PresetStore.load(default_scene_dir() / "presets").programs()
 
 
 def _engine(preset_id: str = "P05") -> Engine:
@@ -59,7 +59,7 @@ def test_bars_and_beams_carry_real_rgb_not_a_fixed_orange() -> None:
 
 def test_presets_are_distinguishable_by_colour_not_only_by_speed() -> None:
     """P01–P10 must differ in palette content, and warm looks cannot own the catalogue."""
-    store = PresetStore.load(default_config_dir() / "presets")
+    store = PresetStore.load(default_scene_dir() / "presets")
     per_preset = {
         preset_id: [ep.palette for ep in store.documents[preset_id].episodes]
         for preset_id in PRESET_IDS

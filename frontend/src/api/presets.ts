@@ -1,4 +1,5 @@
 import type { CommandAck, PresetInfo } from "../vite-env";
+import { takeScenePort } from "../runtime/scenePort";
 
 async function parseJson<T>(response: Response): Promise<T> {
   if (!response.ok) {
@@ -14,6 +15,16 @@ async function parseJson<T>(response: Response): Promise<T> {
   return (await response.json()) as T;
 }
 
+export interface LookAction {
+  id?: string;
+  groups: string[];
+  palette?: string | null;
+  effect: string;
+  speed: number;
+  intensity: number;
+  cycle_beats?: 1 | 2 | 4 | 8 | null;
+}
+
 export interface EpisodeCard {
   id: string;
   duration_s: number;
@@ -24,6 +35,8 @@ export interface EpisodeCard {
   intensity: number;
   transition: string;
   notes?: string | null;
+  cycle_beats?: 1 | 2 | 4 | 8 | null;
+  actions?: LookAction[];
 }
 
 export interface PresetDocument {
@@ -32,6 +45,7 @@ export interface PresetDocument {
   label: string;
   hardware_tuned: boolean;
   builtin: boolean;
+  musical_version?: number | null;
   episodes: EpisodeCard[];
 }
 
@@ -66,6 +80,29 @@ export const EFFECTS = [
 
 export const TRANSITIONS = ["cut", "soft", "fade"] as const;
 
+export const TRANSITION_LABELS: Record<(typeof TRANSITIONS)[number], string> = {
+  cut: "Різко",
+  soft: "М'яко",
+  fade: "Згасання",
+};
+
+export function effectUsesSpeed(effect: string): boolean {
+  return effect !== "static";
+}
+
+export function freshLookId(prefix: string): string {
+  return `${prefix}${Date.now().toString(36)}${Math.floor(Math.random() * 36).toString(36)}`;
+}
+
+export function cloneEpisode(episode: EpisodeCard): EpisodeCard {
+  const copy = JSON.parse(JSON.stringify(episode)) as EpisodeCard;
+  copy.id = freshLookId("ep");
+  if (copy.actions?.length) {
+    copy.actions = copy.actions.map((action) => ({ ...action, id: freshLookId("a") }));
+  }
+  return copy;
+}
+
 export const GROUPS = [
   "all_rear",
   "par",
@@ -79,15 +116,21 @@ export const GROUPS = [
 ] as const;
 
 export async function listPresets(): Promise<PresetInfo[]> {
+  const port = takeScenePort();
+  if (port) return port.listPresets();
   const body = await parseJson<{ presets: PresetInfo[] }>(await fetch("/api/presets"));
   return body.presets;
 }
 
 export async function getPreset(id: string): Promise<PresetDocument> {
+  const port = takeScenePort();
+  if (port) return port.getPreset(id);
   return parseJson(await fetch(`/api/presets/${encodeURIComponent(id)}`));
 }
 
 export async function createCustomPreset(id: string, label: string): Promise<CommandAck> {
+  const port = takeScenePort();
+  if (port) return port.createCustomPreset(id, label);
   return parseJson(
     await fetch("/api/presets", {
       method: "POST",
@@ -98,6 +141,8 @@ export async function createCustomPreset(id: string, label: string): Promise<Com
 }
 
 export async function savePreset(id: string, preset: PresetDocument): Promise<CommandAck> {
+  const port = takeScenePort();
+  if (port) return port.savePreset(id, preset);
   return parseJson(
     await fetch(`/api/presets/${encodeURIComponent(id)}`, {
       method: "PUT",
@@ -108,6 +153,8 @@ export async function savePreset(id: string, preset: PresetDocument): Promise<Co
 }
 
 export async function renamePreset(id: string, label: string): Promise<CommandAck> {
+  const port = takeScenePort();
+  if (port) return port.renamePreset(id, label);
   return parseJson(
     await fetch(`/api/presets/${encodeURIComponent(id)}/rename`, {
       method: "POST",
@@ -122,6 +169,8 @@ export async function duplicatePreset(
   newId: string,
   label?: string,
 ): Promise<CommandAck> {
+  const port = takeScenePort();
+  if (port) return port.duplicatePreset(id, newId, label);
   return parseJson(
     await fetch(`/api/presets/${encodeURIComponent(id)}/duplicate`, {
       method: "POST",
@@ -132,6 +181,8 @@ export async function duplicatePreset(
 }
 
 export async function deletePreset(id: string): Promise<CommandAck> {
+  const port = takeScenePort();
+  if (port) return port.deletePreset(id);
   return parseJson(
     await fetch(`/api/presets/${encodeURIComponent(id)}`, {
       method: "DELETE",
@@ -140,6 +191,8 @@ export async function deletePreset(id: string): Promise<CommandAck> {
 }
 
 export async function previewPreset(id: string, speed = 10): Promise<CommandAck> {
+  const port = takeScenePort();
+  if (port) return port.previewPreset(id, speed);
   return parseJson(
     await fetch(`/api/presets/${encodeURIComponent(id)}/preview`, {
       method: "POST",
@@ -155,6 +208,8 @@ export async function startEditorEpisodePreview(body: {
   episode_index: number;
   episode: EpisodeCard;
 }): Promise<CommandAck> {
+  const port = takeScenePort();
+  if (port) return port.startEditorEpisodePreview(body);
   return parseJson(
     await fetch("/api/presets/editor-preview/start", {
       method: "POST",
@@ -165,6 +220,8 @@ export async function startEditorEpisodePreview(body: {
 }
 
 export async function stopEditorEpisodePreview(): Promise<CommandAck> {
+  const port = takeScenePort();
+  if (port) return port.stopEditorEpisodePreview();
   return parseJson(
     await fetch("/api/presets/editor-preview/stop", {
       method: "POST",

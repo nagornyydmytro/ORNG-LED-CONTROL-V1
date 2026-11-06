@@ -25,6 +25,7 @@ def button_to_event(
     source: InputSource,
     edge: Edge = "pulse",
     client_command_id: str | None = None,
+    source_id: str | None = None,
 ) -> InputEvent:
     if button_id not in ALL_BUTTON_IDS:
         raise ValueError(f"button_id must be 1..16 (got {button_id})")
@@ -37,6 +38,7 @@ def button_to_event(
             pad_slot=BUTTON_PAD_SLOTS[button_id],
             edge="pulse",
             client_command_id=client_command_id,
+            source_id=source_id,
         )
 
     if button_id == BUTTON_NONE:
@@ -47,6 +49,7 @@ def button_to_event(
             preset_id="NONE",
             edge="pulse",
             client_command_id=client_command_id,
+            source_id=source_id,
         )
 
     if button_id == BUTTON_FACE:
@@ -56,6 +59,7 @@ def button_to_event(
             button_id=button_id,
             edge="pulse",
             client_command_id=client_command_id,
+            source_id=source_id,
         )
 
     if button_id == BUTTON_WHITE_HIT:
@@ -65,6 +69,7 @@ def button_to_event(
             button_id=button_id,
             edge="pulse",
             client_command_id=client_command_id,
+            source_id=source_id,
         )
 
     if button_id == BUTTON_STROBE:
@@ -78,6 +83,7 @@ def button_to_event(
             button_id=button_id,
             edge=resolved_edge,
             client_command_id=client_command_id,
+            source_id=source_id,
         )
 
     if button_id == BUTTON_BLACKOUT:
@@ -87,6 +93,7 @@ def button_to_event(
             button_id=button_id,
             edge="pulse",
             client_command_id=client_command_id,
+            source_id=source_id,
         )
 
     if button_id == BUTTON_BRIGHTNESS_DOWN:
@@ -96,6 +103,7 @@ def button_to_event(
             button_id=button_id,
             edge="pulse",
             client_command_id=client_command_id,
+            source_id=source_id,
         )
 
     if button_id == BUTTON_BRIGHTNESS_UP:
@@ -105,19 +113,46 @@ def button_to_event(
             button_id=button_id,
             edge="pulse",
             client_command_id=client_command_id,
+            source_id=source_id,
         )
 
     raise ValueError(f"Unhandled button_id {button_id}")
 
 
-# Keyboard defaults for HOME adapter (Browser KeyboardEvent.code values).
-# Q–O → pad slots 1–9; P → NONE;
-# Space = single-press blackout toggle (pulse; repeats ignored);
-# Hold FX:
-#   Z = strobe, X = horizontal sweep, Delete = vertical sweep (C also works).
-# Escape = face PARs toggle (KeyF also works).
-# Zoom → episode ±1 (does not release or retarget live FX);
-# Volume → program ×0.5–×5, or live-FX speed while Strobe/Sweep held.
+# Canonical HOME keyboard surface for every program/scene fallback:
+#   Q W E R T Y U I O  — pad slots 0..8
+#   P                  — NONE (logical/UI / laptop only; no key on CH57x macropad)
+#   Z X C              — strobe / horizontal sweep / vertical sweep (hold)
+#   Escape / Mute      — face PAR toggle (venue: speed-encoder click = Mute)
+#   Space              — blackout toggle
+#   Volume ±           — program speed (or live-FX speed while FX held)
+#   Zoom ±             — episode ±1
+# No Backspace / Delete / Enter / F on the project surface.
+# Scene controls.yaml may remap HID codes (e.g. CH57x) but requested labels stay
+# this set (P remains NONE in HOME defaults even when a scene reuses KeyP HID).
+
+CANONICAL_KEYBOARD_LABELS: tuple[str, ...] = (
+    "Q",
+    "W",
+    "E",
+    "R",
+    "T",
+    "Y",
+    "U",
+    "I",
+    "O",
+    "P",
+    "Z",
+    "X",
+    "C",
+    "Escape",
+    "Space",
+    "Volume-",
+    "Volume+",
+    "Zoom-",
+    "Zoom+",
+)
+
 KEYBOARD_CODE_MAP: dict[str, tuple[InputAction, Edge]] = {
     "KeyQ": (InputAction.SELECT_PAD_SLOT, "pulse"),
     "KeyW": (InputAction.SELECT_PAD_SLOT, "pulse"),
@@ -132,18 +167,12 @@ KEYBOARD_CODE_MAP: dict[str, tuple[InputAction, Edge]] = {
     "Space": (InputAction.BLACKOUT_TOGGLE, "pulse"),
     "KeyZ": (InputAction.STROBE_PRESS, "press"),
     "KeyX": (InputAction.SWEEP_PRESS, "press"),
-    "Delete": (InputAction.VERTICAL_SWEEP_PRESS, "press"),
     "KeyC": (InputAction.VERTICAL_SWEEP_PRESS, "press"),
-    # Legacy aliases (less reliable for hold in the browser).
-    "Backspace": (InputAction.STROBE_PRESS, "press"),
-    "Enter": (InputAction.SWEEP_PRESS, "press"),
-    "NumpadEnter": (InputAction.SWEEP_PRESS, "press"),
     "Escape": (InputAction.FACE_TOGGLE, "pulse"),
-    "KeyF": (InputAction.FACE_TOGGLE, "pulse"),
+    "AudioVolumeMute": (InputAction.FACE_TOGGLE, "pulse"),
+    "Mute": (InputAction.FACE_TOGGLE, "pulse"),
     "Minus": (InputAction.ZOOM_DOWN, "pulse"),
     "Equal": (InputAction.ZOOM_UP, "pulse"),
-    "NumpadSubtract": (InputAction.ZOOM_DOWN, "pulse"),
-    "NumpadAdd": (InputAction.ZOOM_UP, "pulse"),
     "ZoomOut": (InputAction.ZOOM_DOWN, "pulse"),
     "ZoomIn": (InputAction.ZOOM_UP, "pulse"),
     "AudioVolumeDown": (InputAction.PROGRAM_SPEED_DOWN, "pulse"),
@@ -152,7 +181,7 @@ KEYBOARD_CODE_MAP: dict[str, tuple[InputAction, Edge]] = {
     "VolumeUp": (InputAction.PROGRAM_SPEED_UP, "pulse"),
 }
 
-# Letter-row pad: Q=slot0 … O=slot8; P selects NONE (handled separately).
+# Letter-row pad: Q=slot0 … O=slot8. P is NONE (not a pad slot).
 PAD_KEY_SLOT: dict[str, int] = {
     "KeyQ": 0,
     "KeyW": 1,
@@ -171,12 +200,8 @@ DIGIT_PAD_SLOT = PAD_KEY_SLOT
 HOLD_RELEASE_CODES: dict[str, InputAction] = {
     "KeyZ": InputAction.STROBE_RELEASE,
     "KeyX": InputAction.SWEEP_RELEASE,
-    "Delete": InputAction.VERTICAL_SWEEP_RELEASE,
     "KeyC": InputAction.VERTICAL_SWEEP_RELEASE,
-    "Backspace": InputAction.STROBE_RELEASE,
-    "Enter": InputAction.SWEEP_RELEASE,
-    "NumpadEnter": InputAction.SWEEP_RELEASE,
 }
 
 # Back-compat alias used by older tests/docs.
-STROBE_RELEASE_CODES = frozenset({"KeyZ", "Backspace"})
+STROBE_RELEASE_CODES = frozenset({"KeyZ"})

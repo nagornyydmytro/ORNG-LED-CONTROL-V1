@@ -9,7 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from orng_led.api.runtime import AppRuntime
-from orng_led.config import default_config_dir
+from orng_led.config import default_scene_dir
 from orng_led.engine.presets import NONE_PRESET_ID
 from orng_led.engine.show_whitelist import assert_lights_dark
 from orng_led.main import create_app
@@ -21,7 +21,7 @@ SAFE_TEST_IP = "127.0.0.1"
 
 @pytest.fixture
 def isolated_config(tmp_path: Path) -> Path:
-    source = default_config_dir()
+    source = default_scene_dir()
     target = tmp_path / "config"
     shutil.copytree(source, target)
     return target

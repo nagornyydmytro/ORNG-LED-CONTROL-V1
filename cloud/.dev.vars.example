@@ -1,0 +1,22 @@
+# Copy to .dev.vars for local wrangler (never commit .dev.vars).
+# Production: ADMIN_PASSWORD_HASH + ADMIN_SESSION_SECRET via `wrangler secret put` only.
+# Never put plaintext passwords in git, wrangler vars, or logs.
+
+ADMIN_ORIGIN=http://127.0.0.1:8787
+ADMIN_USERNAME=y3k_notfound
+# Generate: node scripts/hash-admin-password.mjs
+# ADMIN_PASSWORD_HASH=v1$pbkdf2-sha256$100000$...
+# ADMIN_SESSION_SECRET=<random 32+ bytes base64>
+# GATEWAY_HMAC_SECRET=<shared with Notifications edge gateway>
+
+# Local admin only: DEV_BYPASS_ACCESS=1 AND Host is localhost/127.0.0.1.
+# Never enable in production. Requires X-Dev-Access-Email (no default identity).
+DEV_BYPASS_ACCESS=1
+
+# Allow ?token= on device WSS only on localhost (prefer Authorization: Bearer).
+# DEV_ALLOW_QUERY_TOKEN=1
+
+# --- Phase 3 APPLICATION releases ---
+# Trusted keys: APP_TRUSTED_KEYS='{"prod-2026-04":"<raw-ed25519-pubkey-b64>"}'
+#   test-ed25519-1 only when DEV_ALLOW_TEST_APP_KEYS=1 or DEV_BYPASS_ACCESS=1 AND localhost.
+# DEV_ALLOW_TEST_APP_KEYS=1

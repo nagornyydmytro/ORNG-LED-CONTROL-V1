@@ -1,0 +1,321 @@
+schema_version: 1
+default_profile: qwerty
+# CH57x macropad VID:PID 1189:8890 — bindings from live HID observation
+# (laptop + Pi capture 2026-10-26). Codes are what the pad actually emits,
+# not QWERTY labels on the case. Pad preset IDs live only in app.yaml.
+#
+# Project-wide canonical requested keys (all programs):
+#   Q W E R T Y U I O | P=NONE (no physical macropad key) | Z X C
+#   Escape | Space | Volume± | Zoom±
+# No Backspace / Delete / Enter / F.
+# Note: HID KeyP here is physical O (pad slot 8), not logical P/NONE.
+#
+# This scene's observed request → HID (pad firmware remap):
+#   Q→KeyR W→KeyI E→KeyC R→KeyE T→KeyU Y→Space U→KeyW I→KeyY O→KeyP
+#   Z→KeyQ X→KeyT C→KeyO Space→KeyX
+#   Vol± → AudioVolume*; Mute (speed-encoder click) → Face; Zoom± → Minus/Equal
+keyboard:
+# Pad slots 0..8
+- code: KeyR
+  action: select_pad_slot
+  edge: pulse
+  pad_slot: 0
+- code: KeyI
+  action: select_pad_slot
+  edge: pulse
+  pad_slot: 1
+- code: KeyC
+  action: select_pad_slot
+  edge: pulse
+  pad_slot: 2
+- code: KeyE
+  action: select_pad_slot
+  edge: pulse
+  pad_slot: 3
+- code: KeyU
+  action: select_pad_slot
+  edge: pulse
+  pad_slot: 4
+- code: Space
+  action: select_pad_slot
+  edge: pulse
+  pad_slot: 5
+- code: KeyW
+  action: select_pad_slot
+  edge: pulse
+  pad_slot: 6
+- code: KeyY
+  action: select_pad_slot
+  edge: pulse
+  pad_slot: 7
+- code: KeyP
+  action: select_pad_slot
+  edge: pulse
+  pad_slot: 8
+# Blackout (requested Space → HID x)
+- code: KeyX
+  action: blackout_toggle
+  edge: pulse
+# Strobe hold (requested Z → HID q)
+- code: KeyQ
+  action: strobe_press
+  edge: press
+- code: KeyQ
+  action: strobe_release
+  edge: release
+# Horizontal sweep hold (requested X → HID t)
+- code: KeyT
+  action: sweep_press
+  edge: press
+- code: KeyT
+  action: sweep_release
+  edge: release
+# Vertical sweep hold (requested C → HID o / KeyO)
+- code: KeyO
+  action: vertical_sweep_press
+  edge: press
+- code: KeyO
+  action: vertical_sweep_release
+  edge: release
+# Face is the volume-encoder click (Mute) and the captured KeyZ/Escape pulses.
+- code: AudioVolumeMute
+  action: face_toggle
+  edge: pulse
+- code: Mute
+  action: face_toggle
+  edge: pulse
+- code: Escape
+  action: face_toggle
+  edge: pulse
+- code: KeyZ
+  action: face_toggle
+  edge: pulse
+# Zoom (encoders — Minus/Equal; ZoomIn/Out = Ctrl+wheel / media aliases)
+- code: Minus
+  action: zoom_down
+  edge: pulse
+- code: Equal
+  action: zoom_up
+  edge: pulse
+- code: NumpadSubtract
+  action: zoom_down
+  edge: pulse
+- code: NumpadAdd
+  action: zoom_up
+  edge: pulse
+- code: ZoomOut
+  action: zoom_down
+  edge: pulse
+- code: ZoomIn
+  action: zoom_up
+  edge: pulse
+# Volume / program speed (encoders — PASS)
+- code: AudioVolumeDown
+  action: program_speed_down
+  edge: pulse
+- code: AudioVolumeUp
+  action: program_speed_up
+  edge: pulse
+- code: VolumeDown
+  action: program_speed_down
+  edge: pulse
+- code: VolumeUp
+  action: program_speed_up
+  edge: pulse
+profiles:
+  qwerty:
+    label: Клавіатура
+    keyboard:
+    - code: KeyQ
+      action: select_pad_slot
+      edge: pulse
+      pad_slot: 0
+    - code: KeyW
+      action: select_pad_slot
+      edge: pulse
+      pad_slot: 1
+    - code: KeyE
+      action: select_pad_slot
+      edge: pulse
+      pad_slot: 2
+    - code: KeyR
+      action: select_pad_slot
+      edge: pulse
+      pad_slot: 3
+    - code: KeyT
+      action: select_pad_slot
+      edge: pulse
+      pad_slot: 4
+    - code: KeyY
+      action: select_pad_slot
+      edge: pulse
+      pad_slot: 5
+    - code: KeyU
+      action: select_pad_slot
+      edge: pulse
+      pad_slot: 6
+    - code: KeyI
+      action: select_pad_slot
+      edge: pulse
+      pad_slot: 7
+    - code: KeyO
+      action: select_pad_slot
+      edge: pulse
+      pad_slot: 8
+    - code: KeyP
+      action: select_preset
+      edge: pulse
+      preset_id: NONE
+    - code: Space
+      action: blackout_toggle
+      edge: pulse
+    - code: KeyZ
+      action: strobe_press
+      edge: press
+    - code: KeyZ
+      action: strobe_release
+      edge: release
+    - code: KeyX
+      action: sweep_press
+      edge: press
+    - code: KeyX
+      action: sweep_release
+      edge: release
+    - code: KeyC
+      action: vertical_sweep_press
+      edge: press
+    - code: KeyC
+      action: vertical_sweep_release
+      edge: release
+    - code: Escape
+      action: face_toggle
+      edge: pulse
+    - code: Minus
+      action: zoom_down
+      edge: pulse
+    - code: Equal
+      action: zoom_up
+      edge: pulse
+    - code: ZoomOut
+      action: zoom_down
+      edge: pulse
+    - code: ZoomIn
+      action: zoom_up
+      edge: pulse
+    - code: AudioVolumeDown
+      action: program_speed_down
+      edge: pulse
+    - code: AudioVolumeUp
+      action: program_speed_up
+      edge: pulse
+    - code: VolumeDown
+      action: program_speed_down
+      edge: pulse
+    - code: VolumeUp
+      action: program_speed_up
+      edge: pulse
+  ch57x:
+    label: Макропад
+    match:
+    - vid: "1189"
+      pid: "8890"
+    keyboard:
+    - code: KeyR
+      action: select_pad_slot
+      edge: pulse
+      pad_slot: 0
+    - code: KeyI
+      action: select_pad_slot
+      edge: pulse
+      pad_slot: 1
+    - code: KeyC
+      action: select_pad_slot
+      edge: pulse
+      pad_slot: 2
+    - code: KeyE
+      action: select_pad_slot
+      edge: pulse
+      pad_slot: 3
+    - code: KeyU
+      action: select_pad_slot
+      edge: pulse
+      pad_slot: 4
+    - code: Space
+      action: select_pad_slot
+      edge: pulse
+      pad_slot: 5
+    - code: KeyW
+      action: select_pad_slot
+      edge: pulse
+      pad_slot: 6
+    - code: KeyY
+      action: select_pad_slot
+      edge: pulse
+      pad_slot: 7
+    - code: KeyP
+      action: select_pad_slot
+      edge: pulse
+      pad_slot: 8
+    - code: KeyX
+      action: blackout_toggle
+      edge: pulse
+    - code: KeyQ
+      action: strobe_press
+      edge: press
+    - code: KeyQ
+      action: strobe_release
+      edge: release
+    - code: KeyT
+      action: sweep_press
+      edge: press
+    - code: KeyT
+      action: sweep_release
+      edge: release
+    - code: KeyO
+      action: vertical_sweep_press
+      edge: press
+    - code: KeyO
+      action: vertical_sweep_release
+      edge: release
+    - code: AudioVolumeMute
+      action: face_toggle
+      edge: pulse
+    - code: Mute
+      action: face_toggle
+      edge: pulse
+    - code: Escape
+      action: face_toggle
+      edge: pulse
+    - code: KeyZ
+      action: face_toggle
+      edge: pulse
+    - code: Minus
+      action: zoom_down
+      edge: pulse
+    - code: Equal
+      action: zoom_up
+      edge: pulse
+    - code: NumpadSubtract
+      action: zoom_down
+      edge: pulse
+    - code: NumpadAdd
+      action: zoom_up
+      edge: pulse
+    - code: ZoomOut
+      action: zoom_down
+      edge: pulse
+    - code: ZoomIn
+      action: zoom_up
+      edge: pulse
+    - code: AudioVolumeDown
+      action: program_speed_down
+      edge: pulse
+    - code: AudioVolumeUp
+      action: program_speed_up
+      edge: pulse
+    - code: VolumeDown
+      action: program_speed_down
+      edge: pulse
+    - code: VolumeUp
+      action: program_speed_up
+      edge: pulse

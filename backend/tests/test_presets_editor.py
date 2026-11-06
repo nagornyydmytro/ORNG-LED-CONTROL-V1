@@ -10,7 +10,7 @@ import yaml
 from fastapi.testclient import TestClient
 
 from orng_led.api.runtime import AppRuntime
-from orng_led.config import default_config_dir
+from orng_led.config import default_scene_dir
 from orng_led.config.models import ConfigError
 from orng_led.main import create_app
 from orng_led.presets.io import load_preset
@@ -19,7 +19,7 @@ from orng_led.presets.store import PresetStore
 
 @pytest.fixture
 def isolated_config(tmp_path: Path) -> Path:
-    source = default_config_dir()
+    source = default_scene_dir()
     target = tmp_path / "config"
     shutil.copytree(source, target)
     return target
@@ -46,13 +46,14 @@ def test_p05_yaml_loads_into_runtime(client) -> None:
 
 def test_create_custom_preset_without_yaml_editing(client) -> None:
     test_client, runtime, cfg = client
+    # C01 already ships with ORNG BAR; use a free custom id.
     ack = test_client.post(
         "/api/presets",
-        json={"id": "C01", "label": "Мій пресет"},
+        json={"id": "C88", "label": "Мій пресет"},
     ).json()
     assert ack["ok"] is True
-    assert "C01" in ack["state"]["presets"]
-    assert (cfg / "presets" / "C01.yaml").exists()
+    assert "C88" in ack["state"]["presets"]
+    assert (cfg / "presets" / "C88.yaml").exists()
     assert runtime.output.armed is False
     assert runtime.output.transport_kind.value == "mock"
 

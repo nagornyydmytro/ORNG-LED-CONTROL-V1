@@ -103,6 +103,11 @@ def accent(phase_turns: float, sharpness: float = 2.6) -> float:
     return unipolar_sine(phase_turns) ** sharpness
 
 
+def beat_hit(phase_turns: float, sharpness: float = 2.6) -> float:
+    """1 on the grid hit, then decay. The peak is not between hits."""
+    return math.exp(-(float(phase_turns) % 1.0) * max(0.4, float(sharpness)))
+
+
 def saw(phase_turns: float) -> float:
     """0..1 rising ramp, wrapping every turn."""
     return phase_turns - math.floor(phase_turns)

@@ -1,7 +1,9 @@
 import { mount } from "@vue/test-utils";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { nextTick } from "vue";
 import BlackoutButton from "./BlackoutButton.vue";
+import FxHoldButton from "./FxHoldButton.vue";
+import SceneSelector from "./SceneSelector.vue";
 import StrobeButton from "./StrobeButton.vue";
 import PresetPad from "./PresetPad.vue";
 
@@ -66,13 +68,17 @@ describe("PresetPad", () => {
       },
     });
     const buttons = wrapper.findAll("button.preset-btn");
-    expect(buttons.length).toBe(10);
-    expect(wrapper.text()).toContain("Без пресету");
-    expect(wrapper.text()).toContain("C01");
+    expect(buttons.length).toBe(12);
+    expect(wrapper.text()).toContain("NONE");
+    expect(wrapper.text()).not.toContain("Клавіша");
     expect(wrapper.text()).toContain("Мій пресет");
-    expect(buttons[0].text()).toContain("NONE");
+    expect(wrapper.text()).toContain("Look 5");
+    expect(buttons[0].text()).toBe("Look 5");
+    const noneBtn = wrapper.get("button.preset-btn--none");
+    expect(noneBtn.text()).toBe("NONE");
+    expect(wrapper.find(".preset-none-row").exists()).toBe(true);
 
-    const custom = buttons.find((b) => b.text().includes("C01"));
+    const custom = buttons.find((b) => b.text().includes("Мій пресет"));
     expect(custom).toBeTruthy();
     await custom!.trigger("click");
     expect(wrapper.emitted("select")?.[0]).toEqual(["C01"]);
@@ -87,7 +93,7 @@ describe("PresetPad", () => {
         presets: [{ id: "P01", label: "Дуже плавний", builtin: true }],
       },
     });
-    const noneBtn = wrapper.findAll("button.preset-btn")[0];
+    const noneBtn = wrapper.get("button.preset-btn--none");
     expect(noneBtn.classes()).toContain("active");
     expect(noneBtn.attributes("aria-pressed")).toBe("true");
   });
@@ -116,5 +122,103 @@ describe("connection honesty", () => {
     const label = armed ? `${transport} увімкнено` : `${transport} вимкнено`;
     expect(label).toBe("mock вимкнено");
     await nextTick();
+  });
+});
+
+describe("SceneSelector", () => {
+  const scenes = [
+    { scene_id: "orng-bar", name: "ORNG BAR", active: true },
+    { scene_id: "alt-room", name: "Alt Room", active: false },
+  ];
+
+  it("shows current scene and lists available scenes", () => {
+    const wrapper = mount(SceneSelector, {
+      props: {
+        sceneId: "orng-bar",
+        sceneName: "ORNG BAR",
+        scenes,
+      },
+    });
+    expect(wrapper.text()).toContain("Сцена");
+    const options = wrapper.findAll("option");
+    expect(options.map((o) => o.text())).toEqual(["ORNG BAR", "Alt Room"]);
+    expect((wrapper.find("select").element as HTMLSelectElement).value).toBe(
+      "orng-bar",
+    );
+  });
+
+  it("requires confirm before emitting switch (Blackout + Disarm)", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const wrapper = mount(SceneSelector, {
+      props: {
+        sceneId: "orng-bar",
+        sceneName: "ORNG BAR",
+        scenes,
+      },
+    });
+    await wrapper.find("select").setValue("alt-room");
+    await nextTick();
+    expect(confirmSpy).toHaveBeenCalled();
+    const msg = String(confirmSpy.mock.calls[0]?.[0] ?? "");
+    expect(msg).toContain("Blackout");
+    expect(msg).toMatch(/Disarm/i);
+    expect(wrapper.emitted("switch")).toBeUndefined();
+    expect((wrapper.find("select").element as HTMLSelectElement).value).toBe(
+      "orng-bar",
+    );
+    confirmSpy.mockRestore();
+  });
+
+  it("emits switch after confirm", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const wrapper = mount(SceneSelector, {
+      props: {
+        sceneId: "orng-bar",
+        sceneName: "ORNG BAR",
+        scenes,
+      },
+    });
+    await wrapper.find("select").setValue("alt-room");
+    expect(wrapper.emitted("switch")?.[0]).toEqual(["alt-room"]);
+    confirmSpy.mockRestore();
+  });
+});
+
+describe("FxHoldButton", () => {
+  it("changes speed with the same pointer and releases on pointerup", async () => {
+    const wrapper = mount(FxHoldButton, {
+      props: { label: "STROBE", speed: 0.2, active: false },
+    });
+    const button = wrapper.get("button");
+    await button.trigger("pointerdown", { pointerId: 7, clientY: 200, button: 0, pointerType: "touch" });
+    expect(wrapper.emitted("press")).toHaveLength(1);
+    await button.trigger("pointermove", { pointerId: 7, clientY: 40, pointerType: "touch" });
+    const speeds = wrapper.emitted("speed") ?? [];
+    expect(speeds.length).toBeGreaterThan(0);
+    const last = speeds[speeds.length - 1]?.[0] as number;
+    expect(last).toBeGreaterThan(0.2);
+    await button.trigger("pointerup", { pointerId: 7, clientY: 40, pointerType: "touch" });
+    expect(wrapper.emitted("release")).toHaveLength(1);
+    expect(wrapper.find(".fx-speed-overlay").exists()).toBe(false);
+  });
+
+  it("releases when the button becomes unavailable during a hold", async () => {
+    const wrapper = mount(FxHoldButton, {
+      props: { label: "SWEEP H", speed: 0.4, disabled: false },
+    });
+    const button = wrapper.get("button");
+    await button.trigger("pointerdown", { pointerId: 4, clientY: 100, button: 0, pointerType: "touch" });
+    await wrapper.setProps({ disabled: true });
+    expect(wrapper.emitted("release")).toHaveLength(1);
+  });
+
+  it("releases on pointercancel", async () => {
+    const wrapper = mount(FxHoldButton, {
+      props: { label: "SWEEP H", speed: 0.4 },
+    });
+    const button = wrapper.get("button");
+    await button.trigger("pointerdown", { pointerId: 3, clientY: 100, button: 0, pointerType: "touch" });
+    await button.trigger("pointercancel", { pointerId: 3, clientY: 100, pointerType: "touch" });
+    expect(wrapper.emitted("release")).toHaveLength(1);
   });
 });

@@ -9,13 +9,14 @@ import pytest
 from fastapi.testclient import TestClient
 
 from orng_led.api.runtime import AppRuntime
-from orng_led.config import default_config_dir, load_show_config
+from orng_led.config import default_scene_dir, load_show_config
+from orng_led.engine.show_whitelist import assert_blackout_universe
 from orng_led.main import create_app
 
 
 @pytest.fixture
 def isolated_config(tmp_path: Path) -> Path:
-    source = default_config_dir()
+    source = default_scene_dir()
     target = tmp_path / "config"
     shutil.copytree(source, target)
     return target
@@ -46,18 +47,19 @@ def test_raw_tester_starts_and_exits_at_zero(client) -> None:
     assert runtime.output.transport_kind.value == "mock"
     assert runtime.output.armed is False
 
-    # Blackout must still force published zeros over raw tester.
+    # Blackout last-wins: unused leftover is gone; axes/FIXED of this scene may remain.
     bo = test_client.post("/api/commands/blackout", json={"enabled": True}).json()
-    assert bo["state"]["frame"] == [0] * 512
+    assert_blackout_universe(runtime.show, bo["state"]["frame"])
     test_client.post("/api/commands/blackout", json={"enabled": False})
 
     exited = test_client.post("/api/setup/raw-tester/exit", json={}).json()
     assert exited["state"]["raw_tester"]["active"] is False
     assert exited["state"]["raw_tester"]["frame"] is None
-    # Exit clears tester values and publishes a zero frame before returning to engine.
+    # Exit clears tester values and publishes a safe-dark frame before returning to engine.
     assert runtime.raw_tester.nonzero_channels == 0
     last = runtime.output.transport.last_frame  # type: ignore[attr-defined]
-    assert last is not None and all(v == 0 for v in last)
+    assert last is not None
+    assert_blackout_universe(runtime.show, last)
 
 
 def test_patch_errors_visible_before_save(client) -> None:
@@ -137,7 +139,8 @@ def test_identify_fixture_and_readiness(client) -> None:
     assert exit_ack["state"]["raw_tester"]["active"] is False
     assert runtime.raw_tester.nonzero_channels == 0
     last = runtime.output.transport.last_frame  # type: ignore[attr-defined]
-    assert last is not None and all(v == 0 for v in last)
+    assert last is not None
+    assert_blackout_universe(runtime.show, last)
 
 
 def test_layout_save_roundtrip(client) -> None:

@@ -1,3 +1,4 @@
+import { takeScenePort } from "../runtime/scenePort";
 import type {
   AppState,
   CommandAck,
@@ -30,6 +31,8 @@ export async function fetchState(): Promise<AppState> {
 }
 
 export async function fetchPresets(): Promise<PresetInfo[]> {
+  const port = takeScenePort();
+  if (port) return port.fetchPresetSummaries();
   const body = await parseJson<{ presets: PresetInfo[] }>(await fetch("/api/presets"));
   return body.presets;
 }
@@ -47,6 +50,8 @@ export async function postCommand(
 }
 
 export async function fetchStageLayout(): Promise<StageLayout> {
+  const port = takeScenePort();
+  if (port) return port.fetchStageLayout();
   return parseJson(await fetch("/api/stage/layout"));
 }
 

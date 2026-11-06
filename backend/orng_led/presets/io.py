@@ -10,7 +10,10 @@ from orng_led.presets.models import PresetDocument
 
 
 def default_presets_dir() -> Path:
-    return Path(__file__).resolve().parents[3] / "config" / "presets"
+    """Presets directory of the active scene (canonical writable show)."""
+    from orng_led.config.io import default_scene_dir
+
+    return default_scene_dir() / "presets"
 
 
 def load_preset(path: Path) -> PresetDocument:

@@ -32,6 +32,8 @@ VISIBLE_BEAM_DIMMER = 0.12
 class BeamCalibrationTestSession:
     active: bool = False
     fixture_id: str | None = None
+    session_id: str | None = None
+    owner: str | None = None
     semantic_pan: float = 0.5
     semantic_tilt: float = 0.5
     visible_beam_requested: bool = False
@@ -43,6 +45,8 @@ class BeamCalibrationTestSession:
         return {
             "active": self.active,
             "fixture_id": self.fixture_id,
+            "session_id": self.session_id,
+            "owner": self.owner,
             "semantic_pan": self.semantic_pan,
             "semantic_tilt": self.semantic_tilt,
             "visible_beam_requested": self.visible_beam_requested,

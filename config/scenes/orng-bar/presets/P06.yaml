@@ -1,0 +1,111 @@
+schema_version: 1
+id: P06
+label: Ритмічний
+hardware_tuned: false
+builtin: true
+episodes:
+- id: ep1
+  duration_s: 18.0
+  groups:
+  - bar
+  palette: magenta
+  effect: chase
+  speed: 0.55
+  intensity: 0.72
+  transition: cut
+  notes: null
+- id: ep2
+  duration_s: 18.0
+  groups:
+  - par
+  palette: warm_orange
+  effect: pulse
+  speed: 0.5
+  intensity: 0.7
+  transition: cut
+  notes: null
+- id: ep3
+  duration_s: 18.0
+  groups:
+  - bar
+  - outer
+  palette: amber
+  effect: chase
+  speed: 0.58
+  intensity: 0.74
+  transition: cut
+  notes: null
+- id: ep4
+  duration_s: 18.0
+  groups:
+  - inner
+  - bar
+  palette: violet_orange
+  effect: chase
+  speed: 0.56
+  intensity: 0.7
+  transition: cut
+  notes: null
+- id: ep5
+  duration_s: 18.0
+  groups:
+  - all_rear
+  palette: magenta
+  effect: wave
+  speed: 0.52
+  intensity: 0.72
+  transition: cut
+  notes: null
+- id: ep6
+  duration_s: 18.0
+  groups:
+  - beam
+  palette: warm_orange
+  effect: mirror_sweep
+  speed: 0.45
+  intensity: 0.68
+  transition: cut
+  notes: null
+- id: ep7
+  duration_s: 18.0
+  groups:
+  - left
+  - bar
+  palette: amber
+  effect: chase
+  speed: 0.6
+  intensity: 0.73
+  transition: cut
+  notes: null
+- id: ep8
+  duration_s: 18.0
+  groups:
+  - right
+  - bar
+  palette: magenta
+  effect: chase
+  speed: 0.6
+  intensity: 0.73
+  transition: cut
+  notes: null
+- id: ep9
+  duration_s: 18.0
+  groups:
+  - par
+  - bar
+  palette: violet_orange
+  effect: pulse
+  speed: 0.54
+  intensity: 0.71
+  transition: cut
+  notes: null
+- id: ep10
+  duration_s: 18.0
+  groups:
+  - bar
+  palette: magenta
+  effect: chase
+  speed: 0.55
+  intensity: 0.72
+  transition: cut
+  notes: null

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import pytest
 
-from orng_led.config.schema import DMX_UNIVERSE_SIZE
 from orng_led.engine import Engine, FakeClock, create_engine
 from orng_led.engine.frame import empty_frame
 from orng_led.engine.show_whitelist import assert_lights_dark
@@ -147,14 +146,14 @@ def test_nonzero_requires_armed_raw_blackout_still_zeros() -> None:
     controller.publish(bright)
     assert controller.transport.last_frame == bright
 
-    # Engine Live-FX-style frames can pass while Blackout is on (armed).
+    # Blackout last-wins for every source, including a direct engine-style frame.
     controller.engine.set_blackout(True)
     controller.publish(bright)
-    assert controller.transport.last_frame == bright
+    assert_lights_dark(controller.engine.show, controller.transport.last_frame)
 
-    # Raw tester sources stay dark under Blackout.
+    # Raw tester sources stay dark under Blackout (axes / FIXED may remain).
     controller.publish(bright, from_raw=True)
-    assert controller.transport.last_frame == [0] * DMX_UNIVERSE_SIZE
+    assert_lights_dark(controller.engine.show, controller.transport.last_frame)
 
     controller.engine.set_blackout(False)
     before = len(sock.sent)

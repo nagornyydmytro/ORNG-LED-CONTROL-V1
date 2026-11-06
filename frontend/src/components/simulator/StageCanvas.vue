@@ -75,7 +75,7 @@ function drawBackdrop(ctx: CanvasRenderingContext2D, box: Box) {
   ctx.fillStyle = backdrop;
   ctx.fillRect(box.x, box.y, box.width, box.height);
 
-  ctx.strokeStyle = light ? "rgba(15, 23, 42, 0.08)" : "rgba(255, 255, 255, 0.05)";
+  ctx.strokeStyle = light ? "rgba(0, 0, 0, 0.08)" : "rgba(255, 255, 255, 0.05)";
   ctx.lineWidth = 1;
   for (let i = 1; i < 4; i += 1) {
     const y = box.y + box.height * (0.72 + i * 0.07);
@@ -143,8 +143,47 @@ function drawGlow(
   ctx.fill();
 }
 
+function drawUnlitFixture(ctx: CanvasRenderingContext2D, box: Box, placement: StagePlacement) {
+  const label = placement.label ?? placement.fixture_id;
+  if (placement.kind === "bar") {
+    drawBar(ctx, box, placement, {
+      r: 0,
+      g: 0,
+      b: 0,
+      dimmer: 0,
+      segments: [0, 0, 0, 0, 0, 0, 0, 0],
+      label,
+    });
+    return;
+  }
+  if (placement.kind === "beam") {
+    drawBeam(ctx, box, placement, {
+      id: placement.fixture_id,
+      label,
+      kind: "beam",
+      side: "",
+      pan: 0.5,
+      tilt: 0.5,
+      dimmer: 0,
+      shutter_open: false,
+      r: 0,
+      g: 0,
+      b: 0,
+      strobe: 0,
+      dir_x: 0,
+      dir_y: -1,
+      dir_z: 0,
+      hit_x: placement.x,
+      hit_z: placement.z,
+      throw: 0,
+    });
+    return;
+  }
+  drawPar(ctx, box, placement, { r: 0, g: 0, b: 0, w: 0, intensity: 0, label });
+}
+
 function drawLabel(ctx: CanvasRenderingContext2D, box: Box, text: string, x: number, y: number) {
-  ctx.fillStyle = isLightTheme() ? "rgba(15, 23, 42, 0.55)" : "rgba(224, 228, 238, 0.55)";
+  ctx.fillStyle = isLightTheme() ? "rgba(20, 20, 20, 0.45)" : "rgba(230, 230, 230, 0.45)";
   ctx.font = `${Math.max(8, box.width * 0.0118)}px system-ui, sans-serif`;
   ctx.textAlign = "center";
   ctx.fillText(text, x, y);
@@ -330,32 +369,29 @@ function render() {
 
   if (props.showCables !== false) drawCables(ctx, box, layout);
 
+  const lit = new Set<string>();
   // Bodies first, then beams in additive mode: light must never be occluded
   // by the fixtures it flies past.
   for (const bar of view?.bars ?? []) {
     const placement = placements[bar.id];
-    if (placement) drawBar(ctx, box, placement, bar);
+    if (!placement) continue;
+    drawBar(ctx, box, placement, bar);
+    lit.add(bar.id);
   }
   for (const par of [...(view?.pars ?? []), ...(view?.faces ?? [])]) {
     const placement = placements[par.id];
-    if (placement) drawPar(ctx, box, placement, par);
+    if (!placement) continue;
+    drawPar(ctx, box, placement, par);
+    lit.add(par.id);
   }
   for (const beam of view?.beams ?? []) {
     const placement = placements[beam.id];
-    if (placement) drawBeam(ctx, box, placement, beam);
+    if (!placement) continue;
+    drawBeam(ctx, box, placement, beam);
+    lit.add(beam.id);
   }
-
-  if (!view) {
-    for (const placement of layout.placements ?? []) {
-      const point =
-        placement.orientation === "vertical"
-          ? project(box, placement.x, placement.y)
-          : project(box, placement.x, placement.y);
-      ctx.fillStyle = "rgba(90, 94, 104, 0.8)";
-      ctx.beginPath();
-      ctx.arc(point.x, point.y, box.width * 0.008, 0, Math.PI * 2);
-      ctx.fill();
-    }
+  for (const placement of layout.placements ?? []) {
+    if (!lit.has(placement.fixture_id)) drawUnlitFixture(ctx, box, placement);
   }
 
   // Floor reference line so the geometry reads as a stage, not a card grid.

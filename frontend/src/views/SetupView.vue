@@ -3,11 +3,10 @@ import { computed, inject, onBeforeUnmount, onMounted, reactive, ref, watch } fr
 import { RouterLink } from "vue-router";
 import {
   fetchAppConfig,
-  fetchLayout,
   fetchPatch,
+  fetchProfiles,
   fetchReadiness,
   saveAppConfig,
-  saveLayout,
   savePatch,
   setupPost,
   beamCalibrationEnd,
@@ -16,11 +15,16 @@ import {
 import { fetchStageLayout, postCommand, activateArtNet, deactivateArtNet, armOutput, disarmOutput, fetchArmBlockers } from "../api/client";
 import HardwareBadge from "../components/setup/HardwareBadge.vue";
 import BeamCalibrationCard from "../components/setup/BeamCalibrationCard.vue";
+import { applyBeamDraft, beamDraftFromSpatial, type BeamDraft } from "../components/setup/beamDraft";
 import StageSimulator from "../components/simulator/StageSimulator.vue";
+import { isCloudAdminBuild } from "../cloud/mode";
+import { publishLocationDraft, savedLocationMessage, sceneSyncDetail, sceneSyncPhase } from "../runtime/scenePort";
+import { validatePatchShape, type FieldIssue } from "../runtime/sceneValidate";
 import { APP_STATE_KEY } from "../composables/appStateKey";
 import type { BeamCalibrationBeamView, StageLayout } from "../vite-env";
 
 const appState = inject(APP_STATE_KEY, null);
+const cloudScene = isCloudAdminBuild();
 
 const STEPS = [
   "Mock / Art-Net",
@@ -45,8 +49,63 @@ const readiness = ref<Record<string, unknown> | null>(null);
 
 const app = ref<Record<string, unknown> | null>(null);
 const patch = ref<Record<string, unknown> | null>(null);
-const layout = ref<Record<string, unknown> | null>(null);
+const profiles = ref<Record<string, Record<string, unknown>>>({});
 const stageLayout = ref<StageLayout | null>(null);
+const beamDrafts = reactive<Record<string, BeamDraft>>({});
+const fieldIssues = ref<FieldIssue[]>([]);
+const dirty = ref(false);
+const baselineJson = ref("");
+const sceneKey = computed(() => String(appState?.state?.value?.scene_id || "local"));
+
+const SETUP_STASH = "orng-unsaved-setup:";
+
+function stable(value: unknown): string {
+  return JSON.stringify(value);
+}
+
+function writeStash(key: string) {
+  if (!dirty.value || !patch.value) return;
+  sessionStorage.setItem(
+    SETUP_STASH + key,
+    JSON.stringify({ patch: patch.value, beams: beamDrafts }),
+  );
+}
+
+function readStash(key: string): { patch: Record<string, unknown>; beams: Record<string, BeamDraft> } | null {
+  const raw = sessionStorage.getItem(SETUP_STASH + key);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as { patch?: Record<string, unknown>; beams?: Record<string, BeamDraft> };
+    if (!parsed.patch) return null;
+    return { patch: parsed.patch, beams: parsed.beams ?? {} };
+  } catch {
+    return null;
+  }
+}
+
+function clearStash(key: string) {
+  sessionStorage.removeItem(SETUP_STASH + key);
+}
+
+function replaceDrafts(next: Record<string, BeamDraft>) {
+  for (const key of Object.keys(beamDrafts)) delete beamDrafts[key];
+  for (const [key, value] of Object.entries(next)) beamDrafts[key] = value;
+}
+
+function draftsFromPatch(doc: Record<string, unknown>): Record<string, BeamDraft> {
+  const list = Array.isArray(doc.fixtures) ? doc.fixtures : [];
+  const next: Record<string, BeamDraft> = {};
+  for (const raw of list) {
+    if (!raw || typeof raw !== "object") continue;
+    const fixture = raw as Record<string, unknown>;
+    if (fixture.kind !== "beam") continue;
+    const spatial = fixture.spatial && typeof fixture.spatial === "object"
+      ? (fixture.spatial as Record<string, unknown>)
+      : undefined;
+    next[String(fixture.id)] = beamDraftFromSpatial(spatial);
+  }
+  return next;
+}
 
 const rawChannel = ref(1);
 const rawValue = ref(0);
@@ -77,6 +136,36 @@ const beamFixturesOrdered = computed(() => {
   });
 });
 
+const fieldErrors = computed(() => {
+  const map: Record<string, Record<string, string>> = {};
+  for (const issue of fieldIssues.value) {
+    const row = map[issue.id] ?? {};
+    row[issue.field] = issue.message;
+    map[issue.id] = row;
+  }
+  return map;
+});
+
+function mergedPatch(): Record<string, unknown> | null {
+  if (!patch.value) return null;
+  const list = fixtures.value.map((fx) => {
+    const draft = beamDrafts[String(fx.id)];
+    if (!draft) return fx;
+    const spatial = applyBeamDraft(
+      { ...((fx.spatial as Record<string, unknown> | undefined) ?? {}) },
+      draft,
+    );
+    return { ...fx, spatial };
+  });
+  return { ...patch.value, fixtures: list };
+}
+
+function onBeamEdit(id: string, draft: BeamDraft) {
+  beamDrafts[id] = draft;
+  dirty.value = true;
+  fieldIssues.value = fieldIssues.value.filter((issue) => issue.id !== id);
+}
+
 const beamCalibrationState = computed(() => appState?.state.value?.beam_calibration ?? null);
 const beamSession = computed(() => beamCalibrationState.value?.session ?? null);
 
@@ -91,14 +180,12 @@ async function endBeamCalibrationIfActive() {
   try {
     await beamCalibrationEnd();
     await appState?.refreshRest?.();
-  } catch {
-    // best-effort safety stop when leaving the step / page
+  } catch (err) {
+    if (!error.value) {
+      error.value = err instanceof Error ? err.message : "Не вдалося завершити калібрування";
+    }
   }
 }
-
-const calibration = reactive({
-  barInvertNotes: "Фізична орієнтація сегментів Bars — PENDING HARDWARE",
-});
 
 const artnetBusy = ref(false);
 const armBlockers = ref<string[]>([]);
@@ -259,20 +346,41 @@ function setStatus(ok: string | null, err: string | null = null) {
   error.value = err;
 }
 
-async function loadAll() {
+async function loadAll(options?: { keepForm?: boolean }) {
+  if (options?.keepForm && dirty.value && patch.value) {
+    try {
+      const remote = await fetchPatch();
+      if (stable(remote) !== baselineJson.value) {
+        error.value = "З’явилась новіша сцена. Несохранені правки лишились на сторінці.";
+      }
+    } catch (err) {
+      error.value = err instanceof Error ? err.message : "Помилка завантаження";
+    }
+    return;
+  }
   loading.value = true;
   error.value = null;
   try {
-    const [appCfg, patchCfg, layoutCfg, ready] = await Promise.all([
+    const [appCfg, patchCfg, profileMap, ready] = await Promise.all([
       fetchAppConfig(),
       fetchPatch(),
-      fetchLayout(),
+      fetchProfiles(),
       fetchReadiness(),
     ]);
     app.value = appCfg;
-    patch.value = patchCfg;
-    layout.value = layoutCfg;
+    profiles.value = profileMap;
     readiness.value = ready;
+    baselineJson.value = stable(patchCfg);
+    const stashed = readStash(sceneKey.value);
+    if (stashed) {
+      patch.value = stashed.patch;
+      replaceDrafts(stashed.beams);
+      dirty.value = true;
+    } else {
+      patch.value = patchCfg;
+      replaceDrafts(draftsFromPatch(patchCfg));
+      dirty.value = false;
+    }
     stageLayout.value = await fetchStageLayout().catch(() => null);
     await refreshArmBlockers();
   } catch (err) {
@@ -297,44 +405,19 @@ async function persistApp() {
 }
 
 async function runValidatePatch() {
-  if (!patch.value) return;
-  const result = await validatePatch(patch.value);
+  const snapshot = mergedPatch();
+  if (!snapshot) return;
+  const local = validatePatchShape(snapshot, profiles.value);
+  fieldIssues.value = local.fields;
+  if (!local.ok) {
+    patchErrors.value = local.errors;
+    setStatus(null, local.errors[0] ?? "Patch має помилки — збереження заблоковано");
+    return;
+  }
+  const result = await validatePatch(snapshot);
   patchErrors.value = result.errors;
   if (result.ok) setStatus("Patch валідний (перетини не знайдені)");
-  else setStatus(null, "Patch має помилки — збереження заблоковано");
-}
-
-async function persistPatch() {
-  if (!patch.value) return;
-  saving.value = true;
-  try {
-    const result = await validatePatch(patch.value);
-    patchErrors.value = result.errors;
-    if (!result.ok) {
-      setStatus(null, "Виправте помилки patch до збереження");
-      return;
-    }
-    await savePatch(patch.value);
-    setStatus("Patch збережено");
-    readiness.value = await fetchReadiness();
-  } catch (err) {
-    setStatus(null, err instanceof Error ? err.message : "Помилка збереження patch");
-  } finally {
-    saving.value = false;
-  }
-}
-
-async function persistLayout() {
-  if (!layout.value) return;
-  saving.value = true;
-  try {
-    await saveLayout(layout.value);
-    setStatus("Layout збережено");
-  } catch (err) {
-    setStatus(null, err instanceof Error ? err.message : "Помилка збереження layout");
-  } finally {
-    saving.value = false;
-  }
+  else setStatus(null, result.errors[0] ?? "Patch має помилки — збереження заблоковано");
 }
 
 async function enterRaw() {
@@ -384,9 +467,12 @@ async function toggleBlackout(enabled: boolean) {
 function updateFixtureAddress(index: number, value: string) {
   const list = fixtures.value;
   if (!list[index]) return;
-  list[index].start_address = Number(value);
+  const text = value.trim();
+  list[index].start_address = /^-?\d+$/.test(text) ? Number(text) : value;
   patch.value = { ...patch.value!, fixtures: list };
-  void runValidatePatch();
+  dirty.value = true;
+  const id = String(list[index].id ?? "");
+  fieldIssues.value = fieldIssues.value.filter((issue) => issue.id !== id || issue.field !== "start_address");
 }
 
 function updateSpatial(fixtureId: string, field: string, value: boolean) {
@@ -396,6 +482,15 @@ function updateSpatial(fixtureId: string, field: string, value: boolean) {
     return { ...fx, spatial };
   });
   patch.value = { ...patch.value!, fixtures: list };
+  dirty.value = true;
+}
+
+function restoreSaved() {
+  clearStash(sceneKey.value);
+  dirty.value = false;
+  fieldIssues.value = [];
+  patchErrors.value = [];
+  void loadAll();
 }
 
 watch(step, async (next, previous) => {
@@ -407,11 +502,85 @@ watch(step, async (next, previous) => {
   }
 });
 
+async function checkedSnapshot(): Promise<Record<string, unknown> | null> {
+  const snapshot = mergedPatch();
+  if (!snapshot) return null;
+  const local = validatePatchShape(snapshot, profiles.value);
+  fieldIssues.value = local.fields;
+  if (!local.ok) {
+    patchErrors.value = local.errors;
+    setStatus(null, local.errors[0] ?? "Виправте помилки до збереження");
+    return null;
+  }
+  const remote = await validatePatch(snapshot);
+  if (!remote.ok) {
+    patchErrors.value = remote.errors;
+    setStatus(null, remote.errors[0] ?? "Виправте помилки до збереження");
+    return null;
+  }
+  patchErrors.value = [];
+  return mergedPatch();
+}
+
+async function saveForLocation() {
+  if (!patch.value || saving.value) return;
+  saving.value = true;
+  try {
+    const snapshot = await checkedSnapshot();
+    if (!snapshot) return;
+    const remotePatch = await fetchPatch();
+    if (stable(remotePatch) !== baselineJson.value) {
+      setStatus(null, "З’явилась новіша сцена. Правки на сторінці не замінені.");
+      return;
+    }
+    const writing = await checkedSnapshot();
+    if (!writing) return;
+    await savePatch(writing);
+    baselineJson.value = stable(writing);
+    await publishLocationDraft();
+    const latest = mergedPatch();
+    if (latest && stable(latest) !== stable(writing)) {
+      await savePatch(latest);
+      dirty.value = true;
+      writeStash(sceneKey.value);
+      setStatus("Опубліковано попередні правки. Новіші лишились у чернетці.");
+      return;
+    }
+    if (sceneSyncPhase.value === "conflict" || sceneSyncPhase.value === "failed") {
+      dirty.value = true;
+      setStatus(null, sceneSyncDetail.value || "Публікація не вдалася");
+      return;
+    }
+    dirty.value = false;
+    clearStash(sceneKey.value);
+    patch.value = writing;
+    replaceDrafts(draftsFromPatch(writing));
+    setStatus(savedLocationMessage());
+  } catch (err) {
+    dirty.value = true;
+    const failed = sceneSyncPhase.value === "conflict" || sceneSyncPhase.value === "failed";
+    setStatus(null, failed
+      ? (sceneSyncDetail.value || "Публікація не вдалася")
+      : (err instanceof Error ? err.message : "Не вдалося зберегти"));
+  } finally {
+    saving.value = false;
+  }
+}
+
+watch(sceneKey, async (next, prev) => {
+  if (!prev || next === prev) return;
+  if (dirty.value) writeStash(prev);
+  dirty.value = false;
+  fieldIssues.value = [];
+  await loadAll();
+});
+
 onMounted(() => {
   void loadAll();
 });
 
 onBeforeUnmount(() => {
+  if (dirty.value) writeStash(sceneKey.value);
   void endBeamCalibrationIfActive();
 });
 </script>
@@ -419,14 +588,27 @@ onBeforeUnmount(() => {
 <template>
   <section
     class="page setup-wizard"
-    aria-label="Майстер налаштування"
+    aria-label="Калібрування"
   >
-    <header class="page-head">
-      <h1>Налаштування</h1>
-      <p>
-        Покроковий Mock-майстер. Апаратні пункти залишаються
-        <HardwareBadge />.
-      </p>
+    <header class="page-title">
+      <h1>Калібрування</h1>
+      <button
+        type="button"
+        class="action-btn"
+        :disabled="saving"
+        @click="saveForLocation"
+      >
+        Зберегти для локації
+      </button>
+      <button
+        v-if="dirty"
+        type="button"
+        class="action-btn"
+        :disabled="saving"
+        @click="restoreSaved"
+      >
+        Повернути збережене
+      </button>
     </header>
 
     <p
@@ -441,6 +623,14 @@ onBeforeUnmount(() => {
       role="alert"
     >
       {{ error }}
+      <button
+        type="button"
+        class="btn btn--sm"
+        style="margin-left: 12px"
+        @click="loadAll({ keepForm: true })"
+      >
+        Спробувати знову
+      </button>
     </p>
     <p
       v-else-if="message"
@@ -451,6 +641,7 @@ onBeforeUnmount(() => {
     </p>
 
     <nav
+      v-show="false"
       class="wizard-steps"
       aria-label="Кроки майстра"
     >
@@ -473,19 +664,26 @@ onBeforeUnmount(() => {
       class="wizard-panel"
     >
       <!-- 1 Transport -->
-      <div v-show="step === 0">
+      <div v-show="false">
         <h2>1. Mock / Art-Net</h2>
         <HardwareBadge />
         <label class="field">
           Бажаний transport (YAML)
           <select v-model="app.transport">
             <option value="mock">Mock</option>
-            <option value="artnet">Art-Net (конфіг лише, без arm)</option>
+            <option value="artnet">{{ cloudScene ? "Art-Net" : "Art-Net (конфіг лише, без arm)" }}</option>
           </select>
         </label>
         <p class="hint">
-          Runtime залишається на Mock і не вмикає реальну мережу, навіть якщо в YAML
-          вибрано Art-Net. Збереження конфігу лише записує бажаний transport.
+          <template v-if="cloudScene">
+            Збереження публікує нову ревізію сцени. Raspberry застосовує її окремо
+            і не вважається синхронізованою, доки пристрій не підтвердить revision.
+            Ця сторінка не знімає blackout і не змінює arm.
+          </template>
+          <template v-else>
+            Runtime залишається на Mock і не вмикає реальну мережу, навіть якщо в YAML
+            вибрано Art-Net. Збереження конфігу лише записує бажаний transport.
+          </template>
         </p>
         <button
           type="button"
@@ -497,6 +695,7 @@ onBeforeUnmount(() => {
         </button>
 
         <section
+          v-show="false"
           class="artnet-runtime"
           aria-label="Фактичний runtime Art-Net"
         >
@@ -504,7 +703,7 @@ onBeforeUnmount(() => {
           <ul class="kv">
             <li>
               <span>Бажаний (YAML)</span>
-              <strong>{{ String(app.transport ?? "mock") }}</strong>
+              <strong>{{ String(app?.transport ?? "mock") }}</strong>
             </li>
             <li>
               <span>Runtime transport</span>
@@ -610,7 +809,7 @@ onBeforeUnmount(() => {
       </div>
 
       <!-- 2 Network -->
-      <div v-show="step === 1">
+      <div v-show="false">
         <h2>2. Мережа, IP, Universe, FPS</h2>
         <HardwareBadge />
         <label class="field">
@@ -666,22 +865,20 @@ onBeforeUnmount(() => {
       </div>
 
       <!-- 3 Fixture list -->
-      <div v-show="step === 2">
-        <h2>3. Список приладів</h2>
+      <div>
+        <h2>Прилади</h2>
         <ul class="fixture-list">
           <li
             v-for="fx in fixtures"
             :key="String(fx.id)"
           >
             <strong>{{ fx.label }}</strong>
-            <span>{{ fx.id }} · {{ fx.kind }} · {{ fx.profile_id }}</span>
-            <HardwareBadge />
           </li>
         </ul>
       </div>
 
       <!-- 4 Patch -->
-      <div v-show="step === 3">
+      <div v-show="false">
         <h2>4. DMX patch</h2>
         <p class="hint">
           Помилки перетинів видно до збереження.
@@ -699,9 +896,16 @@ onBeforeUnmount(() => {
                 type="number"
                 min="1"
                 max="512"
-                :value="Number(fx.start_address)"
+                :value="fx.start_address ?? ''"
                 @input="updateFixtureAddress(index, ($event.target as HTMLInputElement).value)"
               >
+              <p
+                v-if="fieldErrors[String(fx.id)]?.start_address"
+                class="hint beam-card__status--error"
+                role="alert"
+              >
+                {{ fieldErrors[String(fx.id)]?.start_address }}
+              </p>
             </label>
           </div>
         </div>
@@ -729,7 +933,7 @@ onBeforeUnmount(() => {
             type="button"
             class="action-btn"
             :disabled="saving || patchErrors.length > 0"
-            @click="persistPatch"
+            @click="saveForLocation"
           >
             Зберегти patch
           </button>
@@ -737,7 +941,7 @@ onBeforeUnmount(() => {
       </div>
 
       <!-- 5 Profiles → canonical channel mapper -->
-      <div v-show="step === 4">
+      <div v-show="false">
         <h2>5. Профілі приладів / Налаштування каналів</h2>
         <HardwareBadge />
         <p class="hint">
@@ -765,7 +969,7 @@ onBeforeUnmount(() => {
       </div>
 
       <!-- 6 Raw tester -->
-      <div v-show="step === 5">
+      <div v-show="false">
         <h2>6. Raw DMX tester</h2>
         <p class="hint">
           Підготовлений source-кадр. Не вмикає Art-Net, UDP чи Arm і не знімає
@@ -848,82 +1052,61 @@ onBeforeUnmount(() => {
         </p>
       </div>
 
-      <!-- 7 Layout -->
-      <div v-show="step === 6">
-        <h2>7. Розташування</h2>
-        <HardwareBadge />
-        <label class="field">
-          Опис
-          <textarea
-            v-if="layout"
-            v-model="(layout.description as string)"
-            rows="3"
-          />
-        </label>
-        <p class="hint">
-          viewer_facing = true (з боку глядача). Фізична орієнтація — PENDING HARDWARE.
-        </p>
-        <button
-          type="button"
-          class="action-btn"
-          :disabled="saving"
-          @click="persistLayout"
-        >
-          Зберегти layout
-        </button>
-      </div>
-
       <!-- 8 Calibration -->
-      <div v-show="step === 7">
-        <h2>8. Калібрація Bars / Beam</h2>
-        <HardwareBadge />
-        <p class="hint">
-          {{ calibration.barInvertNotes }}
-        </p>
-        <p class="hint">
-          Pan/Tilt у пресетах задаються відносно сцени. Інверсія, offset і безпечні межі
-          застосовуються окремо для кожної фізичної голови.
-        </p>
-
-        <h3>Bars — invert_segments</h3>
+      <div>
+        <h2>Промені</h2>
+        <div class="invert-list">
         <div
           v-for="fx in fixtures.filter((f) => f.kind === 'bar')"
           :key="String(fx.id)"
-          class="table-row"
+          class="invert-row"
         >
           <strong>{{ fx.label }}</strong>
-          <label class="check">
-            <input
-              type="checkbox"
-              :checked="Boolean((fx.spatial as Record<string, unknown>).invert_segments)"
-              @change="updateSpatial(String(fx.id), 'invert_segments', ($event.target as HTMLInputElement).checked)"
-            >
-            invert_segments (draft)
-          </label>
+          <button
+            type="button"
+            class="action-btn"
+            :class="{ active: Boolean((fx.spatial as Record<string, unknown>).invert_segments) }"
+            :aria-pressed="Boolean((fx.spatial as Record<string, unknown>).invert_segments)"
+            @click="updateSpatial(String(fx.id), 'invert_segments', !Boolean((fx.spatial as Record<string, unknown>).invert_segments))"
+          >
+            Інверсія
+          </button>
         </div>
-        <button
-          type="button"
-          class="action-btn"
-          :disabled="saving"
-          @click="persistPatch"
+        </div>
+        <ul
+          v-if="patchErrors.length"
+          class="errors"
+          role="alert"
         >
-          Зберегти draft spatial flags
-        </button>
+          <li
+            v-for="err in patchErrors"
+            :key="err"
+          >
+            {{ err }}
+          </li>
+        </ul>
 
-        <h3>Beam Heads — калібрування Pan/Tilt</h3>
+        <h3>Голови</h3>
         <div class="beam-cal-grid">
-          <BeamCalibrationCard
+          <template
             v-for="fx in beamFixturesOrdered"
             :key="String(fx.id)"
-            :fixture="{ id: String(fx.id), label: String(fx.label), spatial: fx.spatial as Record<string, unknown> }"
-            :beam-state="beamStateFor(String(fx.id))"
-            :session="beamSession"
-          />
+          >
+            <BeamCalibrationCard
+              v-if="beamDrafts[String(fx.id)]"
+              :fixture="{ id: String(fx.id), label: String(fx.label) }"
+              :draft="beamDrafts[String(fx.id)]!"
+              :errors="fieldErrors[String(fx.id)]"
+              :beam-state="beamStateFor(String(fx.id))"
+              :session="beamSession"
+              @edit="onBeamEdit(String(fx.id), $event)"
+            />
+          </template>
         </div>
       </div>
 
       <!-- 9 Tests -->
-      <div v-show="step === 8">
+      <div v-show="false">
         <h2>9. Тест приладу / групи / Blackout</h2>
         <HardwareBadge />
         <div class="row-actions">
@@ -973,7 +1156,7 @@ onBeforeUnmount(() => {
       </div>
 
       <!-- 10 Readiness -->
-      <div v-show="step === 9">
+      <div v-show="false">
         <h2>10. Зведення готовності</h2>
         <HardwareBadge />
         <ul
@@ -1011,6 +1194,7 @@ onBeforeUnmount(() => {
 
     <StageSimulator
       v-if="appState"
+      plain
       :layout="stageLayout"
       :view="appState.liveView"
       :frame="appState.liveFrame"
@@ -1026,12 +1210,13 @@ onBeforeUnmount(() => {
       :face-on="appState.engine.value?.face_on ?? false"
       :preview-speed="appState.state.value?.preview_speed ?? 1"
       :disabled="appState.connection.value === 'offline'"
-      title="Жива сцена (Mock)"
-      badge="Фактичний кадр виводу"
       @update:preview-speed="appState.setPreviewSpeed"
     />
 
-    <footer class="wizard-nav">
+    <footer
+      v-show="false"
+      class="wizard-nav"
+    >
       <button
         type="button"
         class="action-btn"

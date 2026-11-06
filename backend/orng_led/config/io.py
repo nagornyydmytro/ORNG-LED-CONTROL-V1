@@ -22,8 +22,44 @@ from orng_led.config.validation import validate_patch
 
 
 def default_config_dir() -> Path:
-    """Repository `config/` directory (provisional YAML lives here)."""
+    """Config/data root: ``ORNG_CONFIG_ROOT`` (managed data) or repo ``config/``."""
+    import os
+
+    override = os.environ.get("ORNG_CONFIG_ROOT", "").strip()
+    if override:
+        return Path(override)
     return Path(__file__).resolve().parents[3] / "config"
+
+
+def scenes_dir(config_dir: Path | None = None) -> Path:
+    """Directory that holds per-scene folders."""
+    return (config_dir or default_config_dir()) / "scenes"
+
+
+def runtime_state_path(config_dir: Path | None = None) -> Path:
+    """Device-local runtime state (active scene), not part of a scene."""
+    return (config_dir or default_config_dir()) / "runtime.yaml"
+
+
+def default_scene_dir(config_dir: Path | None = None) -> Path:
+    """Directory of the active scene (defaults to orng-bar when unset/missing)."""
+    root = config_dir or default_config_dir()
+    try:
+        state = load_runtime_state(root)
+        scene_id = state.active_scene_id
+    except ConfigError:
+        scene_id = "orng-bar"
+    candidate = scenes_dir(root) / scene_id
+    if candidate.is_dir() and (candidate / "app.yaml").is_file():
+        return candidate
+    fallback = scenes_dir(root) / "orng-bar"
+    if fallback.is_dir():
+        return fallback
+    raise ConfigError(f"No usable scene directory under {scenes_dir(root)}")
+
+
+def is_scene_directory(path: Path) -> bool:
+    return (path / "app.yaml").is_file() and (path / "profiles").is_dir()
 
 
 def _read_yaml(path: Path) -> Any:
@@ -38,6 +74,11 @@ def _read_yaml(path: Path) -> Any:
     if data is None:
         raise ConfigError(f"YAML document is empty: {path}")
     return data
+
+
+def read_yaml(path: Path) -> Any:
+    """Public YAML reader used by scene loaders."""
+    return _read_yaml(path)
 
 
 def _validation_message(exc: ValidationError, path: Path) -> str:
@@ -119,8 +160,46 @@ def load_layout(path: Path) -> SpatialLayout:
     return parse_model(SpatialLayout, _read_yaml(path), source=path)
 
 
-def load_show_config(config_dir: Path | None = None) -> ShowConfig:
+def load_controls(path: Path):
+    """Load scene controls.yaml when present; return None if missing.
+
+    Legacy ``pad_presets`` keys in controls.yaml are ignored — pad slots are
+    owned exclusively by ``app.yaml``.
+    """
+    from orng_led.scenes.models import SceneControls
+
+    if not path.is_file():
+        return None
+    data = _read_yaml(path)
+    if isinstance(data, dict):
+        data.pop("pad_presets", None)
+    return parse_model(SceneControls, data, source=path)
+
+
+def load_runtime_state(config_dir: Path | None = None):
+    from orng_led.scenes.models import RuntimeState
+
     root = config_dir or default_config_dir()
+    path = runtime_state_path(root)
+    if not path.is_file():
+        return RuntimeState()
+    return parse_model(RuntimeState, _read_yaml(path), source=path)
+
+
+def save_runtime_state(config_dir: Path | None, state) -> None:
+    from orng_led.scenes.models import RuntimeState
+
+    if not isinstance(state, RuntimeState):
+        state = RuntimeState.model_validate(state)
+    root = config_dir or default_config_dir()
+    atomic_write_yaml(runtime_state_path(root), state.model_dump(mode="json"))
+
+
+def load_show_config_from_scene_dir(scene_dir: Path) -> ShowConfig:
+    """Load app/patch/layout/profiles from a scene directory."""
+    root = Path(scene_dir)
+    if not (root / "app.yaml").is_file():
+        raise ConfigError(f"Scene directory missing app.yaml: {root}")
     app = load_app_config(root / "app.yaml")
     profiles = load_profiles(root / "profiles")
     patch = load_patch(root / "patch.yaml")
@@ -144,6 +223,29 @@ def load_show_config(config_dir: Path | None = None) -> ShowConfig:
             )
 
     return ShowConfig(app=app, profiles=profiles, patch=patch, layout=layout)
+
+
+def load_show_config(config_dir: Path | None = None) -> ShowConfig:
+    """Load show config.
+
+    - ``None`` → active scene under the repository ``config/`` (via runtime.yaml).
+    - Path to a scene directory (has ``app.yaml``) → load that scene directly.
+    - Path to a config root (has ``scenes/`` or ``runtime.yaml``) → active scene
+      under that root.
+    """
+    if config_dir is None:
+        return load_show_config_from_scene_dir(default_scene_dir())
+
+    root = Path(config_dir)
+    if is_scene_directory(root):
+        return load_show_config_from_scene_dir(root)
+
+    # Config root: resolve active scene.
+    if (root / "scenes").is_dir() or (root / "runtime.yaml").is_file():
+        return load_show_config_from_scene_dir(default_scene_dir(root))
+
+    # Last resort: treat as scene dir and let loaders raise clear errors.
+    return load_show_config_from_scene_dir(root)
 
 
 def dump_default_schema_version() -> int:

@@ -74,6 +74,7 @@ const sampleRoles = {
 
 describe("ChannelsView", () => {
   beforeEach(() => {
+    sessionStorage.clear();
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
@@ -86,9 +87,6 @@ describe("ChannelsView", () => {
         if (url.endsWith("/api/config/patch")) return json(samplePatch);
         if (url.endsWith("/api/config/profiles")) return json(sampleProfiles);
         if (url.endsWith("/api/setup/channel-roles")) return json(sampleRoles);
-        if (url.includes("/api/setup/fixture-channel-test/")) {
-          return json({ ok: true, state: {} });
-        }
         if (url.includes("/api/config/profiles/")) {
           return json({ ok: true, state: {} });
         }
@@ -111,52 +109,49 @@ describe("ChannelsView", () => {
     return wrapper;
   }
 
+  async function pick(wrapper: Awaited<ReturnType<typeof mountView>>, label: string) {
+    const button = wrapper.findAll("button").find((item) => item.text() === label);
+    expect(button).toBeTruthy();
+    await button!.trigger("click");
+    await flushPromises();
+  }
+
   it("shows 7 channels for PAR type", async () => {
     const wrapper = await mountView();
-    const typeSelect = wrapper.find("select");
-    await typeSelect.setValue("par");
-    await flushPromises();
+    await pick(wrapper, "PAR");
     expect(wrapper.findAll(".channel-row")).toHaveLength(7);
     expect(wrapper.find('[data-testid="channel-list"]').exists()).toBe(true);
   });
 
   it("shows 15 channels for LED Bar type", async () => {
     const wrapper = await mountView();
-    await wrapper.find("select").setValue("bar");
-    await flushPromises();
+    await pick(wrapper, "LED Bar");
     expect(wrapper.findAll(".channel-row")).toHaveLength(15);
   });
 
   it("shows 13 channels for Beam Head type", async () => {
     const wrapper = await mountView();
-    await wrapper.find("select").setValue("beam");
-    await flushPromises();
+    await pick(wrapper, "Beam Head");
     expect(wrapper.findAll(".channel-row")).toHaveLength(13);
   });
 
   it("renders Ukrainian controls and fixture mapping", async () => {
     const wrapper = await mountView();
-    expect(wrapper.text()).toContain("Налаштування каналів");
-    await wrapper.find("select").setValue("par");
-    await flushPromises();
+    expect(wrapper.text()).toContain("Канали");
+    await pick(wrapper, "PAR");
+    await pick(wrapper, "PAR 1");
 
-    const fixtureSelect = wrapper.findAll("select")[1];
-    await fixtureSelect.setValue("par_1");
-    await flushPromises();
-
-    expect(wrapper.text()).toContain("→ DMX 1");
-    expect(wrapper.text()).toContain("Почати тестування");
+    expect(wrapper.text()).not.toContain("Почати тестування");
     expect(wrapper.text()).toContain("Зберегти мапінг");
     expect(wrapper.text()).toContain("Функція каналу");
-    expect(wrapper.findAll('input[type="range"]').length).toBe(7);
-    expect(wrapper.findAll('input[type="number"]').length).toBeGreaterThanOrEqual(7);
+    expect(wrapper.text()).not.toContain("Тест 0–255");
+    expect(wrapper.findAll('input[type="range"]').length).toBe(0);
   });
 
-  it("shows beam safety warning", async () => {
+  it("opens the beam head channels from a button", async () => {
     const wrapper = await mountView();
-    await wrapper.find("select").setValue("beam");
-    await flushPromises();
+    await pick(wrapper, "Beam Head");
     expect(wrapper.text()).toContain("Beam Head");
-    expect(wrapper.text()).toMatch(/рухом|reset/i);
+    expect(wrapper.findAll(".channel-row")).toHaveLength(13);
   });
 });

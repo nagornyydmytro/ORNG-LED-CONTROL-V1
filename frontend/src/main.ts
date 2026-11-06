@@ -1,9 +1,24 @@
 import { createApp } from "vue";
-import App from "./App.vue";
-import { router } from "./router";
+import { isCloudAdminBuild } from "./cloud/mode";
 import { bootTheme } from "./composables/theme";
 import "./styles.css";
 
 bootTheme();
 
-createApp(App).use(router).mount("#app");
+async function boot() {
+  if (isCloudAdminBuild()) {
+    const [{ default: CloudAdminApp }, { router }] = await Promise.all([
+      import("./CloudAdminApp.vue"),
+      import("./router"),
+    ]);
+    createApp(CloudAdminApp).use(router).mount("#app");
+    return;
+  }
+  const [{ default: App }, { router }] = await Promise.all([
+    import("./App.vue"),
+    import("./router"),
+  ]);
+  createApp(App).use(router).mount("#app");
+}
+
+void boot();

@@ -102,7 +102,7 @@ def test_arm_with_prepared_nonzero_source_keeps_wire_zero() -> None:
 
 
 def test_armed_plus_blackout_zeros_preset_and_raw() -> None:
-    """Blackout zeroes preset base and Raw wire; Live FX may still light (see mapping tests)."""
+    """Blackout last-wins: preset and Raw light channels are dark on the wire."""
     runtime = _runtime()
     sock = RecordingSocket()
     _activate_network(runtime, sock)
@@ -110,11 +110,11 @@ def test_armed_plus_blackout_zeros_preset_and_raw() -> None:
     assert runtime.output.armed is True
     assert runtime.engine.overlays.blackout is True
 
-    # Raw under Blackout stays dark on the wire.
+    # Raw under Blackout stays dark on the wire (axes / FIXED may remain).
     bright = [0] * 512
     bright[0] = 200
     runtime.output.publish(bright, from_raw=True)
-    assert sock.sent[-1][0][-512:] == bytes(512)
+    assert_lights_dark(runtime.show, list(sock.sent[-1][0][-512:]))
 
     # Engine tick with Blackout and no Live FX → lights dark on wire.
     runtime.tick(dt_s=0.05)

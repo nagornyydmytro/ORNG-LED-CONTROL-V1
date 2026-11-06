@@ -1,4 +1,4 @@
-/** Session-scoped UI theme (dark default, light = liquid-glass). */
+/** Session-scoped UI theme (dark default; light = minimal neutral). */
 
 export type UiTheme = "dark" | "light";
 

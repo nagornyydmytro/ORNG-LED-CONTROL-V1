@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Developer checkout only. This is not the installed macOS product.
+# Product status: ./scripts/macos-product.sh
 # Clone ORNG LED CONTROL from GitHub (or update), bootstrap, venue-start.
 # Usage on a Mac:
 #   curl -fsSL https://raw.githubusercontent.com/<owner>/<repo>/<branch>/scripts/macos-install.sh | bash

@@ -1,9 +1,19 @@
 <script setup lang="ts">
-import { computed, provide } from "vue";
+import { computed, onMounted, provide } from "vue";
 import AppShell from "./components/AppShell.vue";
 import { APP_STATE_KEY } from "./composables/appStateKey";
 import { useAppState } from "./composables/useAppState";
 import { provideToasts } from "./composables/useToasts";
+import { createLocalScenePort, pullCanonicalScene } from "./runtime/localScenePort";
+import {
+  installScenePort,
+  locationStatusLabel,
+  sceneSyncPhase,
+  useLocalSceneBackend,
+} from "./runtime/scenePort";
+
+useLocalSceneBackend();
+installScenePort(createLocalScenePort());
 
 const toasts = provideToasts();
 const appState = useAppState(toasts);
@@ -22,6 +32,20 @@ const nonzeroChannels = computed(
 );
 const outputError = computed(() => appState.output.value?.last_error ?? null);
 const blackout = computed(() => appState.engine.value?.blackout ?? false);
+const sceneId = computed(() => appState.sceneId.value);
+const sceneName = computed(() => appState.sceneName.value);
+const scenes = computed(() => appState.availableScenes.value);
+const sceneSwitching = computed(() => appState.sceneSwitching.value);
+
+function onSwitchScene(nextId: string) {
+  void appState.switchScene(nextId);
+}
+
+const syncLabel = computed(() => locationStatusLabel(sceneSyncPhase.value));
+
+onMounted(() => {
+  void pullCanonicalScene();
+});
 </script>
 
 <template>
@@ -35,5 +59,11 @@ const blackout = computed(() => appState.engine.value?.blackout ?? false);
     :nonzero-channels="nonzeroChannels"
     :output-error="outputError"
     :blackout="blackout"
+    :scene-id="sceneId"
+    :scene-name="sceneName"
+    :scenes="scenes"
+    :scene-switching="sceneSwitching"
+    :sync-label="syncLabel"
+    @switch-scene="onSwitchScene"
   />
 </template>

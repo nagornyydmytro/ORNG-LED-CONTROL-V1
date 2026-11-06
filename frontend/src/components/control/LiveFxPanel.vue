@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { RouterLink } from "vue-router";
-import MomentaryButton from "./MomentaryButton.vue";
+import FxHoldButton from "./FxHoldButton.vue";
 import type { LiveEffectsState } from "../../vite-env";
 
 const props = defineProps<{
@@ -13,6 +12,9 @@ const props = defineProps<{
   sweepSpeed: number;
   liveEffects?: LiveEffectsState | null;
   disabled?: boolean;
+  showColorHit?: boolean;
+  faceOn?: boolean;
+  lockTempo?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -25,6 +27,7 @@ const emit = defineEmits<{
   colorHit: [];
   "update:strobeSpeed": [value: number];
   "update:sweepSpeed": [value: number];
+  face: [];
 }>();
 
 const warnings = computed(() => props.liveEffects?.warnings ?? []);
@@ -32,80 +35,50 @@ const warnings = computed(() => props.liveEffects?.warnings ?? []);
 
 <template>
   <section
-    class="card fx-panel"
-    aria-label="Живі ефекти"
+    class="fx-panel"
+    aria-label="Ефекти"
   >
-    <header class="card__head">
-      <h2>Живі ефекти</h2>
-      <p class="card__sub">
-        Утримання = momentary. Volume під час ефекту крутить швидкість
-        (мін. 5%). Zoom / Ctrl+колесо завжди міняє епізод — ефект не скидає.
-      </p>
-    </header>
-
     <div class="fx-grid">
-      <MomentaryButton
+      <FxHoldButton
         label="STROBE"
-        hint="білий · утримуйте · Z"
-        variant="danger"
         :active="strobeHeld"
         :disabled="disabled"
+        :show-speed="!lockTempo"
+        :speed="strobeSpeed"
         @press="emit('strobePress')"
         @release="emit('strobeRelease')"
+        @speed="emit('update:strobeSpeed', $event)"
       />
-      <MomentaryButton
-        label="SWEEP"
-        hint="зліва→направо · X"
+      <FxHoldButton
+        label="SWEEP H"
         :active="sweepActive"
         :disabled="disabled"
+        :show-speed="!lockTempo"
+        :speed="sweepSpeed"
         @press="emit('sweepPress')"
         @release="emit('sweepRelease')"
+        @speed="emit('update:sweepSpeed', $event)"
       />
-      <MomentaryButton
-        label="V-SWEEP"
-        hint="знизу→вгору · Delete"
+      <FxHoldButton
+        label="SWEEP V"
         :active="verticalSweepActive"
         :disabled="disabled"
+        :show-speed="!lockTempo"
+        :speed="sweepSpeed"
         @press="emit('verticalSweepPress')"
         @release="emit('verticalSweepRelease')"
+        @speed="emit('update:sweepSpeed', $event)"
       />
       <button
         type="button"
         class="fx-btn"
-        :class="{ active: colorHitActive }"
+        :class="{ active: faceOn }"
+        :aria-pressed="faceOn ?? false"
         :disabled="disabled"
-        @click="emit('colorHit')"
+        @click="emit('face')"
       >
-        <span class="fx-btn__label">COLOR HIT</span>
-        <span class="fx-btn__hint">контрастний колір</span>
+        <span class="fx-btn__label">FACE</span>
       </button>
-    </div>
-
-    <div class="fx-speeds">
-      <label class="field">
-        <span>Швидкість Strobe {{ Math.round(strobeSpeed * 100) }}%</span>
-        <input
-          type="range"
-          min="0.05"
-          max="1"
-          step="0.05"
-          :value="strobeSpeed"
-          :disabled="disabled"
-          @input="emit('update:strobeSpeed', Number(($event.target as HTMLInputElement).value))"
-        >
-      </label>
-      <label class="field">
-        <span>Швидкість Sweep {{ Math.round(sweepSpeed * 100) }}%</span>
-        <input
-          type="range"
-          min="0.05"
-          max="1"
-          step="0.05"
-          :value="sweepSpeed"
-          :disabled="disabled"
-          @input="emit('update:sweepSpeed', Number(($event.target as HTMLInputElement).value))"
-        >
-      </label>
     </div>
 
     <div
@@ -119,12 +92,6 @@ const warnings = computed(() => props.liveEffects?.warnings ?? []);
       >
         {{ w }}
       </p>
-      <RouterLink
-        class="btn btn--sm"
-        to="/channels"
-      >
-        Відкрити налаштування каналів
-      </RouterLink>
     </div>
   </section>
 </template>

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from orng_led.config import default_config_dir, load_show_config
+from orng_led.config import default_scene_dir, load_show_config
 from orng_led.config.models import ChannelRole, FixtureKind
 from orng_led.config.validation import global_channel
 from orng_led.engine.engine import Engine, FakeClock
@@ -22,7 +22,7 @@ FORBIDDEN_BAR_ROLES = (
 
 
 def _programs() -> dict:
-    return PresetStore.load(default_config_dir() / "presets").programs()
+    return PresetStore.load(default_scene_dir() / "presets").programs()
 
 
 def _engine(preset_id: str = "P05") -> Engine:
@@ -386,7 +386,8 @@ def test_p09_pulse_episodes_light_bars_without_fixture_strobe() -> None:
                 # At deep troughs segments may still be coloured while dimmer is low.
                 if dimmer > 30:
                     assert all(v > 0 for v in segs), (episode_index, fixture.id, segs)
-                assert _read_role_values(show, frame, fixture.id, ChannelRole.WHOLE_COLOR)[0][2] == 0
+                whole = _read_role_values(show, frame, fixture.id, ChannelRole.WHOLE_COLOR)
+                assert whole[0][2] == 0
         # High-contrast software pulse: near-full peak, clearly darker trough.
         assert max(dimmers) > 220, (episode_index, dimmers[:8])
         assert min(dimmers) < 100, (episode_index, dimmers[:8])

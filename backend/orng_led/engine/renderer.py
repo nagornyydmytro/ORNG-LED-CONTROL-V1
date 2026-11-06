@@ -703,7 +703,9 @@ def render_stage(
             continue
         if fixture.kind is FixtureKind.FACE_PAR and not isinstance(intent, ParIntent):
             continue
-        render_fixture(frame, fixture, profile, intent, beam_motion, master=master)
+        # Face brightness is the face fader only. Show master and BPM do not scale it.
+        fixture_master = 1.0 if fixture.kind is FixtureKind.FACE_PAR else master
+        render_fixture(frame, fixture, profile, intent, beam_motion, master=fixture_master)
 
     if scrub:
         scrub_show_frame(show, frame)

@@ -17,11 +17,33 @@ class HealthResponse(ApiModel):
     status: Literal["ok"] = "ok"
     service: str
     version: str
+    build_id: str | None = None
     transport: str
     output_armed: bool
     artnet_network_enabled: bool
     frontend_dist_present: bool
     ready: bool = True
+    frame_cycle_alive: bool = False
+    scene_id: str | None = None
+    scene_name: str | None = None
+    blackout: bool | None = None
+    install_mode: str | None = None
+    platform: str | None = None
+    arch: str | None = None
+    scene_error: str | None = None
+    degraded: bool = False
+    udp_active: bool | None = None
+    output_policy: str | None = None
+    venue_ready_state: str | None = None
+    venue_last_error: str | None = None
+    ethernet_link: bool | None = None
+    artnet_route_valid: bool | None = None
+    keyboard_connected: bool | None = None
+    startup_preset: str | None = None
+    instance_id: str | None = None
+    desk_role: str | None = None
+    executor_online: bool | None = None
+    frame_timing: dict[str, Any] | None = None
 
 
 class ReadyResponse(ApiModel):
@@ -111,16 +133,45 @@ class AppStateResponse(ApiModel):
     preset_editor_preview: dict[str, Any] | None = None
     live_effects: dict[str, Any] | None = None
     beam_calibration: dict[str, Any] | None = None
+    bpm: dict[str, Any] | None = None
+    scene_id: str | None = None
+    scene_name: str | None = None
+    desk_role: str | None = None
+    executor_online: bool | None = None
+    executor_installation_id: str | None = None
+    capabilities: list[str] | None = None
+
+
+class BpmSyncCommand(ApiModel):
+    enabled: bool | None = None
+    mode: str | None = None
+    scope: str | None = None
+    palette: str | None = None
+    cast: str | None = None
+    character: str | None = None
+    intensity: str | None = None
+    period: float | str | None = None
+    par_rhythm: bool | None = None
+    accent: float | None = None
+    client_command_id: str | None = None
+    source_id: str | None = None
+
+
+class NextLookCommand(ApiModel):
+    client_command_id: str | None = None
+    source_id: str | None = None
 
 
 class PreviewSpeedCommand(ApiModel):
-    value: Annotated[float, Field(ge=1.0, le=120.0)]
+    value: Annotated[float, Field(ge=0.5, le=120.0)]
     client_command_id: str | None = None
+    source_id: str | None = None
 
 
 class PadPresetsCommand(ApiModel):
     preset_ids: Annotated[list[str], Field(min_length=9, max_length=9)]
     client_command_id: str | None = None
+    source_id: str | None = None
 
 
 class LiveFxSpeedCommand(ApiModel):
@@ -128,6 +179,7 @@ class LiveFxSpeedCommand(ApiModel):
     sweep_speed: Annotated[float, Field(ge=0.05, le=1.0)] | None = None
     persist: bool = True
     client_command_id: str | None = None
+    source_id: str | None = None
 
 
 class RawTesterSetCommand(ApiModel):
@@ -174,18 +226,22 @@ class ValidatePatchRequest(ApiModel):
 
 class SaveAppConfigRequest(ApiModel):
     config: dict[str, Any]
+    base_version: int | None = None
 
 
 class SavePatchRequest(ApiModel):
     patch: dict[str, Any]
+    base_version: int | None = None
 
 
 class SaveProfileRequest(ApiModel):
     profile: dict[str, Any]
+    base_version: int | None = None
 
 
 class SaveLayoutRequest(ApiModel):
     layout: dict[str, Any]
+    base_version: int | None = None
 
 
 class PresetCreateRequest(ApiModel):
@@ -216,6 +272,7 @@ class InputButtonRequest(ApiModel):
     edge: Literal["press", "release", "pulse"] = "pulse"
     source: Literal["ui", "keyboard", "mock", "gpio"] = "mock"
     client_command_id: str | None = None
+    source_id: str | None = None
 
 
 class InputKeyboardRequest(ApiModel):
@@ -223,6 +280,25 @@ class InputKeyboardRequest(ApiModel):
     type: Literal["keydown", "keyup"] = "keydown"
     repeat: bool = False
     client_command_id: str | None = None
+    source_id: str | None = None
+    profile_id: str | None = None
+
+
+class ActivateSceneRequest(ApiModel):
+    scene_id: Annotated[str, Field(min_length=1, max_length=64)]
+    client_command_id: str | None = None
+
+
+class InputActionRequest(ApiModel):
+    """Direct InputAction dispatch (UI holds that are not pad buttons)."""
+
+    action: Annotated[str, Field(min_length=1, max_length=64)]
+    edge: Literal["press", "release", "pulse"] | None = None
+    source: Literal["ui", "keyboard", "mock", "gpio"] = "ui"
+    pad_slot: Annotated[int, Field(ge=0, le=8)] | None = None
+    preset_id: Annotated[str, Field(min_length=1, max_length=32)] | None = None
+    client_command_id: str | None = None
+    source_id: str | None = None
 
 
 class InputDispatchResponse(ApiModel):
@@ -243,11 +319,13 @@ class SelectPresetCommand(ApiModel):
     preset_id: str
     reset_clock: bool = True
     client_command_id: str | None = None
+    source_id: str | None = None
 
 
 class SeekEpisodeCommand(ApiModel):
     episode_index: Annotated[int, Field(ge=0, le=63)]
     client_command_id: str | None = None
+    source_id: str | None = None
 
 
 class FixtureChannelTestSetCommand(ApiModel):
@@ -270,17 +348,20 @@ class StrobeCommand(ApiModel):
 class BlackoutCommand(ApiModel):
     enabled: bool | None = None
     client_command_id: str | None = None
+    source_id: str | None = None
 
 
 class FaceCommand(ApiModel):
     enabled: bool
     brightness: Annotated[float, Field(ge=0.0, le=1.0)] | None = None
     client_command_id: str | None = None
+    source_id: str | None = None
 
 
 class MasterBrightnessCommand(ApiModel):
     value: Annotated[float, Field(ge=0.0, le=1.0)]
     client_command_id: str | None = None
+    source_id: str | None = None
 
 
 class WhiteHitCommand(ApiModel):
@@ -302,6 +383,7 @@ class ColorHitCommand(ApiModel):
     g: Unit | None = None
     b: Unit | None = None
     client_command_id: str | None = None
+    source_id: str | None = None
 
     def rgb(self) -> tuple[float, float, float] | None:
         if self.r is None or self.g is None or self.b is None:
@@ -370,6 +452,7 @@ class BeamCalibrationSaveCommand(ApiModel):
 
 class FailsafeCommand(ApiModel):
     client_command_id: str | None = None
+    source_id: str | None = None
 
 
 class ErrorBody(ApiModel):

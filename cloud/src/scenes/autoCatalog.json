@@ -1,0 +1,4656 @@
+{
+  "families": [
+    {
+      "id": "vertical_wave",
+      "title": "Вертикальна хвиля",
+      "motion": "знизу вгору і назад по сегментах",
+      "envelope": "трикутник"
+    },
+    {
+      "id": "fill_drain",
+      "title": "Заповнення / спустошення",
+      "motion": "поріг по осі росте або спадає",
+      "envelope": "пила / спад"
+    },
+    {
+      "id": "band_tail",
+      "title": "Вузька смуга з хвостом",
+      "motion": "біжить пік по полотну",
+      "envelope": "лінійний спад хвоста"
+    },
+    {
+      "id": "meet",
+      "title": "Зустрічні смуги",
+      "motion": "два фронти назустріч",
+      "envelope": "трикутник зближення"
+    },
+    {
+      "id": "open_close",
+      "title": "Розкриття / збірка",
+      "motion": "відкриття від краю або центру",
+      "envelope": "трикутник"
+    },
+    {
+      "id": "diagonal",
+      "title": "Діагональ по полотну",
+      "motion": "u = (x+up)/2",
+      "envelope": "хвиля або заливка"
+    },
+    {
+      "id": "cascade",
+      "title": "Ступінчастий каскад",
+      "motion": "дискретні сходи по барах або висоті",
+      "envelope": "сходи"
+    },
+    {
+      "id": "multi_band",
+      "title": "Кілька бігучих смуг",
+      "motion": "кілька піків на одному циклі",
+      "envelope": "хвости"
+    },
+    {
+      "id": "spatial_sine",
+      "title": "Просторова синусоїда",
+      "motion": "sin по осі або 2d",
+      "envelope": "синус"
+    },
+    {
+      "id": "layer",
+      "title": "Послідовне наслоєння",
+      "motion": "групи входять по третинах циклу",
+      "envelope": "сходи ролей"
+    },
+    {
+      "id": "negative",
+      "title": "Негативна хвиля",
+      "motion": "темне на освітленому тлі",
+      "envelope": "інверсія поля"
+    },
+    {
+      "id": "dark_window",
+      "title": "Бігуче темне вікно",
+      "motion": "щілина в заливці",
+      "envelope": "вузький провал"
+    },
+    {
+      "id": "phase_pulse",
+      "title": "Пульс зі зсувом",
+      "motion": "спільна огинаюча, фаза від координати",
+      "envelope": "косинус"
+    },
+    {
+      "id": "hit_decay",
+      "title": "Удар і експонента",
+      "motion": "різкий пік, плавний спад димера",
+      "envelope": "exp"
+    },
+    {
+      "id": "double_hit",
+      "title": "Подвійний акцент",
+      "motion": "два удари в циклі",
+      "envelope": "дві експоненти"
+    },
+    {
+      "id": "breathe",
+      "title": "Плавне дихання",
+      "motion": "цілий прилад, без малюнка сегментів",
+      "envelope": "косинус"
+    },
+    {
+      "id": "density_build",
+      "title": "Наростаюча щільність",
+      "motion": "більше клітин протягом фрази",
+      "envelope": "пила"
+    },
+    {
+      "id": "sparse_hits",
+      "title": "Розріджені акценти",
+      "motion": "підмножина клітин на удар",
+      "envelope": "exp"
+    },
+    {
+      "id": "call_response",
+      "title": "Перекличка груп",
+      "motion": "дві групи по половинах циклу",
+      "envelope": "ворота"
+    },
+    {
+      "id": "compound",
+      "title": "Тло + акцент",
+      "motion": "повільне поле і швидкий удар",
+      "envelope": "сума огинаючих"
+    }
+  ],
+  "compositions": [
+    {
+      "id": "pulse",
+      "family": "phase_pulse",
+      "family_title": "Пульс зі зсувом",
+      "title": "Спільний пульс",
+      "groups": [
+        "par",
+        "bar",
+        "beam"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "heads"
+      ],
+      "motion": "спільна огинаюча, фаза від координати",
+      "envelope": "pulse",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        0.5,
+        1.0,
+        2.0
+      ],
+      "durations": [
+        8
+      ],
+      "transition": "beat",
+      "pool": "phrase",
+      "needs_segments": false,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "groups",
+      "family": "call_response",
+      "family_title": "Перекличка груп",
+      "title": "Перекличка ліво/право",
+      "groups": [
+        "par",
+        "bar",
+        "beam"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "heads"
+      ],
+      "motion": "дві групи по половинах циклу",
+      "envelope": "pulse",
+      "axis": "x",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "call_lr",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": false,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "wash",
+      "family": "breathe",
+      "family_title": "Плавне дихання",
+      "title": "Спокійна заливка",
+      "groups": [
+        "par",
+        "bar",
+        "beam"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars",
+        "heads"
+      ],
+      "motion": "цілий прилад, без малюнка сегментів",
+      "envelope": "breathe",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        4.0,
+        8.0
+      ],
+      "durations": [
+        16,
+        32
+      ],
+      "transition": "bar",
+      "pool": "calm",
+      "needs_segments": false,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "smooth"
+    },
+    {
+      "id": "bloom",
+      "family": "open_close",
+      "family_title": "Розкриття / збірка",
+      "title": "Розкриття від центру ряду",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "відкриття від краю або центру",
+      "envelope": "triangle",
+      "axis": "x",
+      "direction": "out",
+      "stagger": "distance",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "Колишній bloom: внутрішні бари раніше.",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "smooth"
+    },
+    {
+      "id": "accent",
+      "family": "hit_decay",
+      "family_title": "Удар і експонента",
+      "title": "Удар і експонента на всіх",
+      "groups": [
+        "par",
+        "bar",
+        "beam"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars",
+        "heads"
+      ],
+      "motion": "різкий пік, плавний спад димера",
+      "envelope": "hit",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0
+      ],
+      "durations": [
+        2,
+        4
+      ],
+      "transition": "beat",
+      "pool": "accent",
+      "needs_segments": false,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "density",
+      "family": "density_build",
+      "family_title": "Наростаюча щільність",
+      "title": "Набір приладів від осі",
+      "groups": [
+        "par",
+        "bar",
+        "beam"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "heads"
+      ],
+      "motion": "більше клітин протягом фрази",
+      "envelope": "saw",
+      "axis": "x",
+      "direction": "out",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "rise",
+      "needs_segments": false,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "vertical_wave",
+      "family": "vertical_wave",
+      "family_title": "Вертикальна хвиля",
+      "title": "Вертикальна хвиля синхронно",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "знизу вгору і назад по сегментах",
+      "envelope": "triangle",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "Регресійний приклад: усі бари, низ→верх→низ.",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "smooth"
+    },
+    {
+      "id": "vertical_wave_stagger_x",
+      "family": "vertical_wave",
+      "family_title": "Вертикальна хвиля",
+      "title": "Вертикальна хвиля зі зсувом по x",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "знизу вгору і назад по сегментах",
+      "envelope": "triangle",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "x",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "smooth"
+    },
+    {
+      "id": "vertical_wave_stagger_outer",
+      "family": "vertical_wave",
+      "family_title": "Вертикальна хвиля",
+      "title": "Крайні бари пізніше",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "знизу вгору і назад по сегментах",
+      "envelope": "triangle",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "distance",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "smooth"
+    },
+    {
+      "id": "vertical_wave_stagger_inner",
+      "family": "vertical_wave",
+      "family_title": "Вертикальна хвиля",
+      "title": "Внутрішні бари пізніше",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "знизу вгору і назад по сегментах",
+      "envelope": "triangle",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "inner",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "smooth"
+    },
+    {
+      "id": "vertical_wave_down",
+      "family": "vertical_wave",
+      "family_title": "Вертикальна хвиля",
+      "title": "Хвиля згори вниз і назад",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "знизу вгору і назад по сегментах",
+      "envelope": "triangle",
+      "axis": "y",
+      "direction": "down",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "smooth"
+    },
+    {
+      "id": "vertical_wave_scan_bars",
+      "family": "vertical_wave",
+      "family_title": "Вертикальна хвиля",
+      "title": "Хвиля по барах як по сходах",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "знизу вгору і назад по сегментах",
+      "envelope": "triangle",
+      "axis": "bar",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": false,
+      "notes": "Кожен бар — сходинка полотна.",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "smooth"
+    },
+    {
+      "id": "vertical_wave_with_pars",
+      "family": "vertical_wave",
+      "family_title": "Вертикальна хвиля",
+      "title": "Хвиля барів, PAR дихають по висоті",
+      "groups": [
+        "par",
+        "bar",
+        "beam"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "heads"
+      ],
+      "motion": "знизу вгору і назад по сегментах",
+      "envelope": "triangle",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "pars_echo",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "smooth"
+    },
+    {
+      "id": "fill_up",
+      "family": "fill_drain",
+      "family_title": "Заповнення / спустошення",
+      "title": "Заповнення знизу",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "поріг по осі росте або спадає",
+      "envelope": "saw",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "fill_down",
+      "family": "fill_drain",
+      "family_title": "Заповнення / спустошення",
+      "title": "Заповнення згори",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "поріг по осі росте або спадає",
+      "envelope": "saw",
+      "axis": "y",
+      "direction": "down",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "drain_down",
+      "family": "fill_drain",
+      "family_title": "Заповнення / спустошення",
+      "title": "Спустошення вниз",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "поріг по осі росте або спадає",
+      "envelope": "fall",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "fill_left",
+      "family": "fill_drain",
+      "family_title": "Заповнення / спустошення",
+      "title": "Заповнення зліва направо",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "поріг по осі росте або спадає",
+      "envelope": "saw",
+      "axis": "x",
+      "direction": "right",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "fill_right",
+      "family": "fill_drain",
+      "family_title": "Заповнення / спустошення",
+      "title": "Заповнення справа наліво",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "поріг по осі росте або спадає",
+      "envelope": "saw",
+      "axis": "x",
+      "direction": "left",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "fill_center_x",
+      "family": "fill_drain",
+      "family_title": "Заповнення / спустошення",
+      "title": "Заповнення від осі",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "поріг по осі росте або спадає",
+      "envelope": "saw",
+      "axis": "x",
+      "direction": "out",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "drain_center_x",
+      "family": "fill_drain",
+      "family_title": "Заповнення / спустошення",
+      "title": "Спустошення до осі",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "поріг по осі росте або спадає",
+      "envelope": "fall",
+      "axis": "x",
+      "direction": "in",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "band_up",
+      "family": "band_tail",
+      "family_title": "Вузька смуга з хвостом",
+      "title": "Смуга вгору з хвостом",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "біжить пік по полотну",
+      "envelope": "travel",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "band_down",
+      "family": "band_tail",
+      "family_title": "Вузька смуга з хвостом",
+      "title": "Смуга вниз з хвостом",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "біжить пік по полотну",
+      "envelope": "travel",
+      "axis": "y",
+      "direction": "down",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "band_left",
+      "family": "band_tail",
+      "family_title": "Вузька смуга з хвостом",
+      "title": "Смуга вліво",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "біжить пік по полотну",
+      "envelope": "travel",
+      "axis": "x",
+      "direction": "left",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "band_right",
+      "family": "band_tail",
+      "family_title": "Вузька смуга з хвостом",
+      "title": "Смуга вправо",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "біжить пік по полотну",
+      "envelope": "travel",
+      "axis": "x",
+      "direction": "right",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "band_diag",
+      "family": "band_tail",
+      "family_title": "Вузька смуга з хвостом",
+      "title": "Діагональна смуга",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "біжить пік по полотну",
+      "envelope": "travel",
+      "axis": "diag",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "band_diag_flip",
+      "family": "band_tail",
+      "family_title": "Вузька смуга з хвостом",
+      "title": "Зворотна діагональна смуга",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "біжить пік по полотну",
+      "envelope": "travel",
+      "axis": "diag",
+      "direction": "down",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "band_up_long_tail",
+      "family": "band_tail",
+      "family_title": "Вузька смуга з хвостом",
+      "title": "Широкий хвіст вгору",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "біжить пік по полотну",
+      "envelope": "travel",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "band_left_short",
+      "family": "band_tail",
+      "family_title": "Вузька смуга з хвостом",
+      "title": "Коротка смуга вліво",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "біжить пік по полотну",
+      "envelope": "travel",
+      "axis": "x",
+      "direction": "left",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        0.5,
+        1.0,
+        2.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "meet_vertical",
+      "family": "meet",
+      "family_title": "Зустрічні смуги",
+      "title": "Зустріч зверху і знизу",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "два фронти назустріч",
+      "envelope": "meet",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "smooth"
+    },
+    {
+      "id": "meet_horizontal",
+      "family": "meet",
+      "family_title": "Зустрічні смуги",
+      "title": "Зустріч зліва і справа",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "два фронти назустріч",
+      "envelope": "meet",
+      "axis": "x",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "smooth"
+    },
+    {
+      "id": "meet_diag",
+      "family": "meet",
+      "family_title": "Зустрічні смуги",
+      "title": "Зустріч по діагоналі",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "два фронти назустріч",
+      "envelope": "meet",
+      "axis": "diag",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "smooth"
+    },
+    {
+      "id": "meet_bounce",
+      "family": "meet",
+      "family_title": "Зустрічні смуги",
+      "title": "Зустріч і розбіжність",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "два фронти назустріч",
+      "envelope": "oppose",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "smooth"
+    },
+    {
+      "id": "open_bottom",
+      "family": "open_close",
+      "family_title": "Розкриття / збірка",
+      "title": "Розкриття від низу полотна",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "відкриття від краю або центру",
+      "envelope": "iris_bottom",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "smooth"
+    },
+    {
+      "id": "open_center_y",
+      "family": "open_close",
+      "family_title": "Розкриття / збірка",
+      "title": "Розкриття від середини висоти",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "відкриття від краю або центру",
+      "envelope": "iris",
+      "axis": "y",
+      "direction": "out",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "smooth"
+    },
+    {
+      "id": "open_center_x",
+      "family": "open_close",
+      "family_title": "Розкриття / збірка",
+      "title": "Розкриття від осі x",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "відкриття від краю або центру",
+      "envelope": "iris",
+      "axis": "x",
+      "direction": "out",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "smooth"
+    },
+    {
+      "id": "open_outer",
+      "family": "open_close",
+      "family_title": "Розкриття / збірка",
+      "title": "Збірка з країв",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "відкриття від краю або центру",
+      "envelope": "iris",
+      "axis": "x",
+      "direction": "in",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "smooth"
+    },
+    {
+      "id": "iris",
+      "family": "open_close",
+      "family_title": "Розкриття / збірка",
+      "title": "Ірис полотна",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "відкриття від краю або центру",
+      "envelope": "iris",
+      "axis": "radial",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "smooth"
+    },
+    {
+      "id": "diag_wave",
+      "family": "diagonal",
+      "family_title": "Діагональ по полотну",
+      "title": "Діагональна хвиля",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "u = (x+up)/2",
+      "envelope": "triangle",
+      "axis": "diag",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "smooth"
+    },
+    {
+      "id": "diag_wave_rev",
+      "family": "diagonal",
+      "family_title": "Діагональ по полотну",
+      "title": "Діагональна хвиля назад",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "u = (x+up)/2",
+      "envelope": "triangle",
+      "axis": "diag",
+      "direction": "down",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "smooth"
+    },
+    {
+      "id": "diag_fill",
+      "family": "diagonal",
+      "family_title": "Діагональ по полотну",
+      "title": "Діагональне заповнення",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "u = (x+up)/2",
+      "envelope": "saw",
+      "axis": "diag",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "diag_fill_rev",
+      "family": "diagonal",
+      "family_title": "Діагональ по полотну",
+      "title": "Діагональне заповнення назад",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "u = (x+up)/2",
+      "envelope": "fall",
+      "axis": "diag",
+      "direction": "down",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "diag_cascade",
+      "family": "diagonal",
+      "family_title": "Діагональ по полотну",
+      "title": "Діагональний каскад",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "u = (x+up)/2",
+      "envelope": "cascade",
+      "axis": "diag",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "cascade_left",
+      "family": "cascade",
+      "family_title": "Ступінчастий каскад",
+      "title": "Каскад зліва",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "дискретні сходи по барах або висоті",
+      "envelope": "cascade",
+      "axis": "bar",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "cascade_right",
+      "family": "cascade",
+      "family_title": "Ступінчастий каскад",
+      "title": "Каскад справа",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "дискретні сходи по барах або висоті",
+      "envelope": "cascade",
+      "axis": "bar",
+      "direction": "left",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "cascade_up",
+      "family": "cascade",
+      "family_title": "Ступінчастий каскад",
+      "title": "Каскад вгору по висоті",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "дискретні сходи по барах або висоті",
+      "envelope": "cascade",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "cascade_down",
+      "family": "cascade",
+      "family_title": "Ступінчастий каскад",
+      "title": "Каскад вниз",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "дискретні сходи по барах або висоті",
+      "envelope": "cascade",
+      "axis": "y",
+      "direction": "down",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "cascade_bars_then_segments",
+      "family": "cascade",
+      "family_title": "Ступінчастий каскад",
+      "title": "Спочатку бари, потім сегменти",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "дискретні сходи по барах або висоті",
+      "envelope": "cascade",
+      "axis": "bar",
+      "direction": "up",
+      "stagger": "y",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "bands_2_up",
+      "family": "multi_band",
+      "family_title": "Кілька бігучих смуг",
+      "title": "Дві смуги вгору",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "кілька піків на одному циклі",
+      "envelope": "travel",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "bands_3_up",
+      "family": "multi_band",
+      "family_title": "Кілька бігучих смуг",
+      "title": "Три смуги вгору",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "кілька піків на одному циклі",
+      "envelope": "travel",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "bands_2_left",
+      "family": "multi_band",
+      "family_title": "Кілька бігучих смуг",
+      "title": "Дві смуги вліво",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "кілька піків на одному циклі",
+      "envelope": "travel",
+      "axis": "x",
+      "direction": "left",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "bands_2_diag",
+      "family": "multi_band",
+      "family_title": "Кілька бігучих смуг",
+      "title": "Дві діагональні смуги",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "кілька піків на одному циклі",
+      "envelope": "travel",
+      "axis": "diag",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "bands_oppose",
+      "family": "multi_band",
+      "family_title": "Кілька бігучих смуг",
+      "title": "Дві зустрічні смуги",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "кілька піків на одному циклі",
+      "envelope": "oppose",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "smooth"
+    },
+    {
+      "id": "sine_vertical",
+      "family": "spatial_sine",
+      "family_title": "Просторова синусоїда",
+      "title": "Стояча синусоїда по висоті",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "sin по осі або 2d",
+      "envelope": "sine",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "smooth"
+    },
+    {
+      "id": "sine_horizontal",
+      "family": "spatial_sine",
+      "family_title": "Просторова синусоїда",
+      "title": "Синусоїда по ряду",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "sin по осі або 2d",
+      "envelope": "sine",
+      "axis": "x",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "smooth"
+    },
+    {
+      "id": "sine_2d",
+      "family": "spatial_sine",
+      "family_title": "Просторова синусоїда",
+      "title": "Синусоїда x+up",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "sin по осі або 2d",
+      "envelope": "sine2d",
+      "axis": "diag",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "smooth"
+    },
+    {
+      "id": "sine_travel",
+      "family": "spatial_sine",
+      "family_title": "Просторова синусоїда",
+      "title": "Біжуча синусоїда",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "sin по осі або 2d",
+      "envelope": "sine_travel",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "sine_standing",
+      "family": "spatial_sine",
+      "family_title": "Просторова синусоїда",
+      "title": "Стояча хвиля з диханням",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "sin по осі або 2d",
+      "envelope": "sine",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "y",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "smooth"
+    },
+    {
+      "id": "layer_bars_pars",
+      "family": "layer",
+      "family_title": "Послідовне наслоєння",
+      "title": "Спочатку бари, потім PAR",
+      "groups": [
+        "par",
+        "bar",
+        "beam"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "heads"
+      ],
+      "motion": "групи входять по третинах циклу",
+      "envelope": "triangle",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "layer_bars_pars",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "smooth"
+    },
+    {
+      "id": "layer_pars_bars",
+      "family": "layer",
+      "family_title": "Послідовне наслоєння",
+      "title": "Спочатку PAR, потім бари",
+      "groups": [
+        "par",
+        "bar",
+        "beam"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "heads"
+      ],
+      "motion": "групи входять по третинах циклу",
+      "envelope": "triangle",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "layer_pars_bars",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "smooth"
+    },
+    {
+      "id": "layer_left_right",
+      "family": "layer",
+      "family_title": "Послідовне наслоєння",
+      "title": "Ліва половина, потім права",
+      "groups": [
+        "par",
+        "bar",
+        "beam"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "heads"
+      ],
+      "motion": "групи входять по третинах циклу",
+      "envelope": "triangle",
+      "axis": "x",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "layer_left_right",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "smooth"
+    },
+    {
+      "id": "layer_bottom_top",
+      "family": "layer",
+      "family_title": "Послідовне наслоєння",
+      "title": "Низ, потім верх",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "групи входять по третинах циклу",
+      "envelope": "triangle",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "layer_bottom_top",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "smooth"
+    },
+    {
+      "id": "layer_corners",
+      "family": "layer",
+      "family_title": "Послідовне наслоєння",
+      "title": "Кути полотна по черзі",
+      "groups": [
+        "par",
+        "bar",
+        "beam"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "heads"
+      ],
+      "motion": "групи входять по третинах циклу",
+      "envelope": "triangle",
+      "axis": "radial",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "layer_corners",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "smooth"
+    },
+    {
+      "id": "negative_wave_up",
+      "family": "negative",
+      "family_title": "Негативна хвиля",
+      "title": "Темна хвиля вгору",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "темне на освітленому тлі",
+      "envelope": "travel",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "negative_wave_left",
+      "family": "negative",
+      "family_title": "Негативна хвиля",
+      "title": "Темна хвиля вліво",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "темне на освітленому тлі",
+      "envelope": "travel",
+      "axis": "x",
+      "direction": "left",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "negative_diag",
+      "family": "negative",
+      "family_title": "Негативна хвиля",
+      "title": "Темна діагональ",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "темне на освітленому тлі",
+      "envelope": "travel",
+      "axis": "diag",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "negative_pulse_hole",
+      "family": "negative",
+      "family_title": "Негативна хвиля",
+      "title": "Пульсуюча дірка",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "темне на освітленому тлі",
+      "envelope": "iris",
+      "axis": "radial",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "smooth"
+    },
+    {
+      "id": "window_up",
+      "family": "dark_window",
+      "family_title": "Бігуче темне вікно",
+      "title": "Темне вікно вгору",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "щілина в заливці",
+      "envelope": "window",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "smooth"
+    },
+    {
+      "id": "window_left",
+      "family": "dark_window",
+      "family_title": "Бігуче темне вікно",
+      "title": "Темне вікно вліво",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "щілина в заливці",
+      "envelope": "window",
+      "axis": "x",
+      "direction": "left",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "smooth"
+    },
+    {
+      "id": "window_two",
+      "family": "dark_window",
+      "family_title": "Бігуче темне вікно",
+      "title": "Два темні вікна",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "щілина в заливці",
+      "envelope": "window",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "smooth"
+    },
+    {
+      "id": "shutter",
+      "family": "dark_window",
+      "family_title": "Бігуче темне вікно",
+      "title": "Шторка що сходиться",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "щілина в заливці",
+      "envelope": "shutter",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "pulse_by_x",
+      "family": "phase_pulse",
+      "family_title": "Пульс зі зсувом",
+      "title": "Пульс зі зсувом по x",
+      "groups": [
+        "par",
+        "bar",
+        "beam"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "heads"
+      ],
+      "motion": "спільна огинаюча, фаза від координати",
+      "envelope": "pulse",
+      "axis": "x",
+      "direction": "up",
+      "stagger": "x",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": false,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "pulse_by_y",
+      "family": "phase_pulse",
+      "family_title": "Пульс зі зсувом",
+      "title": "Пульс зі зсувом по висоті",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "спільна огинаюча, фаза від координати",
+      "envelope": "pulse_scan",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "y",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "pulse_by_bar",
+      "family": "phase_pulse",
+      "family_title": "Пульс зі зсувом",
+      "title": "Пульс по індексу бара",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "спільна огинаюча, фаза від координати",
+      "envelope": "pulse",
+      "axis": "bar",
+      "direction": "up",
+      "stagger": "bar",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": false,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "pulse_pars_lag",
+      "family": "phase_pulse",
+      "family_title": "Пульс зі зсувом",
+      "title": "PAR відстають від барів",
+      "groups": [
+        "par",
+        "bar",
+        "beam"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "heads"
+      ],
+      "motion": "спільна огинаюча, фаза від координати",
+      "envelope": "pulse",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "pars_echo",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": false,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "hit_bars",
+      "family": "hit_decay",
+      "family_title": "Удар і експонента",
+      "title": "Удар тільки барів",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "різкий пік, плавний спад димера",
+      "envelope": "hit",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0
+      ],
+      "durations": [
+        2,
+        4
+      ],
+      "transition": "beat",
+      "pool": "accent",
+      "needs_segments": false,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "hit_pars",
+      "family": "hit_decay",
+      "family_title": "Удар і експонента",
+      "title": "Удар PAR",
+      "groups": [
+        "par"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "heads"
+      ],
+      "motion": "різкий пік, плавний спад димера",
+      "envelope": "hit",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0
+      ],
+      "durations": [
+        2
+      ],
+      "transition": "beat",
+      "pool": "accent",
+      "needs_segments": false,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "hit_bars_pars_decay",
+      "family": "hit_decay",
+      "family_title": "Удар і експонента",
+      "title": "Бари б'ють, PAR гаснуть довше",
+      "groups": [
+        "par",
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "heads"
+      ],
+      "motion": "різкий пік, плавний спад димера",
+      "envelope": "hit",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "pars_echo",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        4
+      ],
+      "transition": "bar",
+      "pool": "accent",
+      "needs_segments": false,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "hit_wide",
+      "family": "hit_decay",
+      "family_title": "Удар і експонента",
+      "title": "Широкий спад",
+      "groups": [
+        "par",
+        "bar",
+        "beam"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "heads"
+      ],
+      "motion": "різкий пік, плавний спад димера",
+      "envelope": "hit_wide",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        4
+      ],
+      "transition": "bar",
+      "pool": "accent",
+      "needs_segments": false,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "double_hit",
+      "family": "double_hit",
+      "family_title": "Подвійний акцент",
+      "title": "Два удари",
+      "groups": [
+        "par",
+        "bar",
+        "beam"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "heads"
+      ],
+      "motion": "два удари в циклі",
+      "envelope": "double",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0
+      ],
+      "durations": [
+        4,
+        8
+      ],
+      "transition": "bar",
+      "pool": "accent",
+      "needs_segments": false,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "double_hit_roles",
+      "family": "double_hit",
+      "family_title": "Подвійний акцент",
+      "title": "Удар барів, потім PAR",
+      "groups": [
+        "par",
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "heads"
+      ],
+      "motion": "два удари в циклі",
+      "envelope": "double",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "bars_lead",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "accent",
+      "needs_segments": false,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "double_hit_offbeat",
+      "family": "double_hit",
+      "family_title": "Подвійний акцент",
+      "title": "Доля і слабка доля",
+      "groups": [
+        "par",
+        "bar",
+        "beam"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "heads"
+      ],
+      "motion": "два удари в циклі",
+      "envelope": "double_offbeat",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "accent",
+      "needs_segments": false,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "breathe_bars",
+      "family": "breathe",
+      "family_title": "Плавне дихання",
+      "title": "Дихання барів",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "цілий прилад, без малюнка сегментів",
+      "envelope": "breathe",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        16
+      ],
+      "transition": "bar",
+      "pool": "calm",
+      "needs_segments": false,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "smooth"
+    },
+    {
+      "id": "breathe_pars",
+      "family": "breathe",
+      "family_title": "Плавне дихання",
+      "title": "Дихання PAR",
+      "groups": [
+        "par"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "heads"
+      ],
+      "motion": "цілий прилад, без малюнка сегментів",
+      "envelope": "breathe",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "calm",
+      "needs_segments": false,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "smooth"
+    },
+    {
+      "id": "breathe_mirror",
+      "family": "breathe",
+      "family_title": "Плавне дихання",
+      "title": "Симетричне дихання від осі",
+      "groups": [
+        "par",
+        "bar",
+        "beam"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "heads"
+      ],
+      "motion": "цілий прилад, без малюнка сегментів",
+      "envelope": "breathe",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "distance",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "calm",
+      "needs_segments": false,
+      "notes": "Симетрія як художній варіант, не закон.",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "smooth"
+    },
+    {
+      "id": "breathe_opposite",
+      "family": "breathe",
+      "family_title": "Плавне дихання",
+      "title": "Ліва і права у протифазі",
+      "groups": [
+        "par",
+        "bar",
+        "beam"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "heads"
+      ],
+      "motion": "цілий прилад, без малюнка сегментів",
+      "envelope": "breathe",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "opposite",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "calm",
+      "needs_segments": false,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "smooth"
+    },
+    {
+      "id": "breathe_gradient",
+      "family": "breathe",
+      "family_title": "Плавне дихання",
+      "title": "Дихання з градієнтом висоти",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "цілий прилад, без малюнка сегментів",
+      "envelope": "breathe",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "y",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "calm",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "smooth"
+    },
+    {
+      "id": "density_segments",
+      "family": "density_build",
+      "family_title": "Наростаюча щільність",
+      "title": "Набір сегментів знизу",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "більше клітин протягом фрази",
+      "envelope": "density",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "rise",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "density_groups",
+      "family": "density_build",
+      "family_title": "Наростаюча щільність",
+      "title": "PAR, бари, потім голови",
+      "groups": [
+        "par",
+        "bar",
+        "beam"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "heads"
+      ],
+      "motion": "більше клітин протягом фрази",
+      "envelope": "saw",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "layer_bars_pars",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "rise",
+      "needs_segments": false,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "density_beams_last",
+      "family": "density_build",
+      "family_title": "Наростаюча щільність",
+      "title": "Голови входять останніми",
+      "groups": [
+        "par",
+        "bar",
+        "beam"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "heads"
+      ],
+      "motion": "більше клітин протягом фрази",
+      "envelope": "saw",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "beams_last",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "rise",
+      "needs_segments": false,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "sparse_alternate",
+      "family": "sparse_hits",
+      "family_title": "Розріджені акценти",
+      "title": "Через бар",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "підмножина клітин на удар",
+      "envelope": "hit",
+      "axis": "bar",
+      "direction": "up",
+      "stagger": "alternate",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "sparse_corners",
+      "family": "sparse_hits",
+      "family_title": "Розріджені акценти",
+      "title": "Кути полотна",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "підмножина клітин на удар",
+      "envelope": "hit",
+      "axis": "radial",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "corners",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "sparse_inner",
+      "family": "sparse_hits",
+      "family_title": "Розріджені акценти",
+      "title": "Тільки внутрішні бари",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "підмножина клітин на удар",
+      "envelope": "hit",
+      "axis": "x",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "inner",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "sparse_every_third",
+      "family": "sparse_hits",
+      "family_title": "Розріджені акценти",
+      "title": "Кожна третя клітина",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "підмножина клітин на удар",
+      "envelope": "hit",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "every_third",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "call_bars_pars",
+      "family": "call_response",
+      "family_title": "Перекличка груп",
+      "title": "Перекличка бари/PAR",
+      "groups": [
+        "par",
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "heads"
+      ],
+      "motion": "дві групи по половинах циклу",
+      "envelope": "pulse",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "call_bars_pars",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": false,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "call_inner_outer",
+      "family": "call_response",
+      "family_title": "Перекличка груп",
+      "title": "Внутрішні / крайні",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "дві групи по половинах циклу",
+      "envelope": "triangle",
+      "axis": "x",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "call_inner_outer",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "smooth"
+    },
+    {
+      "id": "call_beams",
+      "family": "call_response",
+      "family_title": "Перекличка груп",
+      "title": "Голови відповідають барам",
+      "groups": [
+        "par",
+        "bar",
+        "beam"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "heads"
+      ],
+      "motion": "дві групи по половинах циклу",
+      "envelope": "pulse",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "call_beams",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": false,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "compound_breathe_hit",
+      "family": "compound",
+      "family_title": "Тло + акцент",
+      "title": "Дихання тла і удар",
+      "groups": [
+        "par",
+        "bar",
+        "beam"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "heads"
+      ],
+      "motion": "повільне поле і швидкий удар",
+      "envelope": "compound_breathe_hit",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": false,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "compound_fill_band",
+      "family": "compound",
+      "family_title": "Тло + акцент",
+      "title": "Повільне заповнення і швидка смуга",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "повільне поле і швидкий удар",
+      "envelope": "compound_fill_band",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        2.0,
+        4.0,
+        8.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "compound_sine_cascade",
+      "family": "compound",
+      "family_title": "Тло + акцент",
+      "title": "Синус тла і каскад",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "повільне поле і швидкий удар",
+      "envelope": "compound_sine_cascade",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "compound_negative_window",
+      "family": "compound",
+      "family_title": "Тло + акцент",
+      "title": "Негатив і бігуче вікно",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "повільне поле і швидкий удар",
+      "envelope": "compound_negative_window",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "compound_wave_accent",
+      "family": "compound",
+      "family_title": "Тло + акцент",
+      "title": "Вертикальна хвиля і удар димера",
+      "groups": [
+        "bar"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "bars"
+      ],
+      "motion": "повільне поле і швидкий удар",
+      "envelope": "compound_wave_accent",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": true,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "breathe_heads",
+      "family": "breathe",
+      "family_title": "Плавне дихання",
+      "title": "Дихання PAR і голів",
+      "groups": [
+        "par",
+        "beam"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "heads"
+      ],
+      "motion": "цілий прилад, без малюнка сегментів",
+      "envelope": "breathe",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        4.0,
+        8.0
+      ],
+      "durations": [
+        16,
+        32
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": false,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "smooth"
+    },
+    {
+      "id": "breathe_heads_split",
+      "family": "breathe",
+      "family_title": "Плавне дихання",
+      "title": "PAR і голови в протифазі",
+      "groups": [
+        "par",
+        "beam"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "heads"
+      ],
+      "motion": "цілий прилад, без малюнка сегментів",
+      "envelope": "breathe",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "opposite",
+      "roles": "together",
+      "cycles": [
+        4.0,
+        8.0
+      ],
+      "durations": [
+        16,
+        32
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": false,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "smooth"
+    },
+    {
+      "id": "sine_heads",
+      "family": "spatial_sine",
+      "family_title": "Просторова синусоїда",
+      "title": "Синус по ряду голів",
+      "groups": [
+        "par",
+        "beam"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "heads"
+      ],
+      "motion": "sin по осі або 2d",
+      "envelope": "sine",
+      "axis": "x",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        4.0,
+        8.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": false,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "smooth"
+    },
+    {
+      "id": "sine_heads_travel",
+      "family": "spatial_sine",
+      "family_title": "Просторова синусоїда",
+      "title": "Біжучий синус голів",
+      "groups": [
+        "par",
+        "beam"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "heads"
+      ],
+      "motion": "sin по осі або 2d",
+      "envelope": "sine_travel",
+      "axis": "x",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        2.0,
+        4.0,
+        8.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": false,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "layer_heads_lr",
+      "family": "layer",
+      "family_title": "Послідовне наслоєння",
+      "title": "Ліва і права голови по черзі",
+      "groups": [
+        "par",
+        "beam"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "heads"
+      ],
+      "motion": "групи входять по третинах циклу",
+      "envelope": "breathe",
+      "axis": "x",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "layer_left_right",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": false,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "smooth"
+    },
+    {
+      "id": "hit_heads",
+      "family": "hit_decay",
+      "family_title": "Удар і експонента",
+      "title": "Удар PAR і голів",
+      "groups": [
+        "par",
+        "beam"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "heads"
+      ],
+      "motion": "різкий пік, плавний спад димера",
+      "envelope": "hit",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "beat",
+      "pool": "phrase",
+      "needs_segments": false,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "hit_heads_wide",
+      "family": "hit_decay",
+      "family_title": "Удар і експонента",
+      "title": "Широкий удар голів",
+      "groups": [
+        "par",
+        "beam"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "heads"
+      ],
+      "motion": "різкий пік, плавний спад димера",
+      "envelope": "hit_wide",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "beat",
+      "pool": "phrase",
+      "needs_segments": false,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "hit_heads_stagger",
+      "family": "hit_decay",
+      "family_title": "Удар і експонента",
+      "title": "Удар голів зі зсувом по x",
+      "groups": [
+        "par",
+        "beam"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "heads"
+      ],
+      "motion": "різкий пік, плавний спад димера",
+      "envelope": "hit",
+      "axis": "x",
+      "direction": "up",
+      "stagger": "x",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "beat",
+      "pool": "phrase",
+      "needs_segments": false,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "double_hit_heads",
+      "family": "double_hit",
+      "family_title": "Подвійний акцент",
+      "title": "Два удари голів",
+      "groups": [
+        "par",
+        "beam"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "heads"
+      ],
+      "motion": "два удари в циклі",
+      "envelope": "double",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": false,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "sparse_heads",
+      "family": "sparse_hits",
+      "family_title": "Розріджені акценти",
+      "title": "Розріджений удар голів",
+      "groups": [
+        "par",
+        "beam"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "heads"
+      ],
+      "motion": "підмножина клітин на удар",
+      "envelope": "hit",
+      "axis": "x",
+      "direction": "up",
+      "stagger": "alternate",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "beat",
+      "pool": "phrase",
+      "needs_segments": false,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "cascade_heads",
+      "family": "cascade",
+      "family_title": "Ступінчастий каскад",
+      "title": "Каскад голів по ряду",
+      "groups": [
+        "par",
+        "beam"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet",
+        "heads"
+      ],
+      "motion": "дискретні сходи по барах або висоті",
+      "envelope": "cascade",
+      "axis": "x",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "together",
+      "cycles": [
+        1.0,
+        2.0,
+        4.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": false,
+      "notes": "",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "heads_only_fan",
+      "family": "open_close",
+      "family_title": "Розкриття / збірка",
+      "title": "Тільки голови: віяло",
+      "groups": [
+        "beam"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet"
+      ],
+      "motion": "відкриття від краю або центру",
+      "envelope": "breathe",
+      "axis": "x",
+      "direction": "out",
+      "stagger": "none",
+      "roles": "fan",
+      "cycles": [
+        8.0,
+        16.0,
+        32.0
+      ],
+      "durations": [
+        16,
+        32
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": false,
+      "notes": "PAR і бари вимкнені. Повільне розкриття голів.",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "smooth"
+    },
+    {
+      "id": "heads_only_arcs",
+      "family": "meet",
+      "family_title": "Зустрічні смуги",
+      "title": "Тільки голови: дуги",
+      "groups": [
+        "beam"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet"
+      ],
+      "motion": "два фронти назустріч",
+      "envelope": "breathe",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "arcs",
+      "cycles": [
+        8.0,
+        16.0,
+        32.0
+      ],
+      "durations": [
+        16,
+        32
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": false,
+      "notes": "PAR і бари вимкнені. Дзеркальні дуги.",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "smooth"
+    },
+    {
+      "id": "heads_only_rise",
+      "family": "vertical_wave",
+      "family_title": "Вертикальна хвиля",
+      "title": "Тільки голови: підйом",
+      "groups": [
+        "beam"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet"
+      ],
+      "motion": "знизу вгору і назад по сегментах",
+      "envelope": "breathe",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "rise",
+      "cycles": [
+        8.0,
+        16.0,
+        32.0
+      ],
+      "durations": [
+        16,
+        32
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": false,
+      "notes": "PAR і бари вимкнені. Підйом знизу, pan у центрі калібрування.",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "smooth"
+    },
+    {
+      "id": "heads_only_oval",
+      "family": "spatial_sine",
+      "family_title": "Просторова синусоїда",
+      "title": "Тільки голови: овали",
+      "groups": [
+        "beam"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet"
+      ],
+      "motion": "sin по осі або 2d",
+      "envelope": "breathe",
+      "axis": "x",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "oval",
+      "cycles": [
+        8.0,
+        16.0,
+        32.0
+      ],
+      "durations": [
+        16,
+        32
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": false,
+      "notes": "PAR і бари вимкнені. Невеликі дзеркальні овали.",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "smooth"
+    },
+    {
+      "id": "heads_only_meet",
+      "family": "open_close",
+      "family_title": "Розкриття / збірка",
+      "title": "Тільки голови: зведення",
+      "groups": [
+        "beam"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet"
+      ],
+      "motion": "відкриття від краю або центру",
+      "envelope": "breathe",
+      "axis": "x",
+      "direction": "in",
+      "stagger": "none",
+      "roles": "converge",
+      "cycles": [
+        8.0,
+        16.0,
+        32.0
+      ],
+      "durations": [
+        16,
+        32
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": false,
+      "notes": "PAR і бари вимкнені. Плавне зведення і розведення.",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "smooth"
+    },
+    {
+      "id": "heads_beat_pass",
+      "family": "hit_decay",
+      "family_title": "Удар і експонента",
+      "title": "Тільки голови: прохід на долі",
+      "groups": [
+        "beam"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet"
+      ],
+      "motion": "різкий пік, плавний спад димера",
+      "envelope": "hit",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "pass",
+      "cycles": [
+        2.0,
+        4.0,
+        8.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": false,
+      "notes": "PAR і бари вимкнені. Механіка на 2/4/8 долях, без апаратного strobe.",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    },
+    {
+      "id": "heads_rise_pulse",
+      "family": "breathe",
+      "family_title": "Плавне дихання",
+      "title": "Тільки голови: підйом із серією",
+      "groups": [
+        "beam"
+      ],
+      "palettes": [
+        "orange",
+        "red",
+        "blue",
+        "violet"
+      ],
+      "motion": "цілий прилад, без малюнка сегментів",
+      "envelope": "breathe",
+      "axis": "y",
+      "direction": "up",
+      "stagger": "none",
+      "roles": "head_pulse",
+      "cycles": [
+        4.0,
+        8.0
+      ],
+      "durations": [
+        8,
+        16
+      ],
+      "transition": "bar",
+      "pool": "phrase",
+      "needs_segments": false,
+      "notes": "Серія димера лише зі свіжою сіткою і підтвердженим розгоном. Інакше рівний підйом. Апаратний strobe не чіпається.",
+      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
+      "program": "beat"
+    }
+  ],
+  "cycles": [
+    0.5,
+    1.0,
+    2.0,
+    4.0,
+    8.0
+  ],
+  "tempos": [
+    60,
+    90,
+    120,
+    140,
+    174
+  ],
+  "palettes": [
+    "orange",
+    "red",
+    "blue",
+    "violet",
+    "amber",
+    "white",
+    "ember",
+    "sunset",
+    "ice",
+    "night",
+    "contrast",
+    "forest",
+    "carnival",
+    "traffic"
+  ],
+  "characters": [
+    "smooth",
+    "rhythmic",
+    "impact"
+  ],
+  "character_families": {
+    "smooth": [
+      "breathe",
+      "compound",
+      "fill_drain",
+      "layer",
+      "open_close",
+      "spatial_sine",
+      "vertical_wave"
+    ],
+    "rhythmic": [
+      "band_tail",
+      "call_response",
+      "cascade",
+      "diagonal",
+      "layer",
+      "meet",
+      "multi_band",
+      "phase_pulse",
+      "vertical_wave"
+    ],
+    "impact": [
+      "band_tail",
+      "cascade",
+      "dark_window",
+      "density_build",
+      "double_hit",
+      "hit_decay",
+      "negative",
+      "sparse_hits"
+    ]
+  },
+  "character_looks": {
+    "smooth": "sine_vertical",
+    "rhythmic": "vertical_wave",
+    "impact": "hit_bars"
+  },
+  "featured": [
+    "vertical_wave",
+    "hit_bars",
+    "cascade_up",
+    "pulse_by_y",
+    "sine_vertical"
+  ],
+  "sources": [
+    {
+      "id": "script",
+      "title": "Сценарна секція (задана вручну, не з мікрофона)"
+    },
+    {
+      "id": "analysis",
+      "title": "Розпізнавання аудіо SectionTracker"
+    }
+  ],
+  "regression": "vertical_wave",
+  "note": "Перегляд. Зал з цієї сторінки не керується.",
+  "count": 119,
+  "default_look": "vertical_wave",
+  "intensities": [
+    "soft",
+    "normal",
+    "full"
+  ]
+}

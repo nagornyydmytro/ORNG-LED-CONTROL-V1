@@ -23,6 +23,29 @@ def client(runtime: AppRuntime):
         yield test_client, runtime
 
 
+def test_desk_commands_accept_the_web_source_id(client) -> None:
+    test_client, runtime = client
+    body = {
+        "enabled": True,
+        "mode": "smooth",
+        "scope": "preset",
+        "palette": "orange",
+        "source_id": "web:desk",
+        "client_command_id": "bpm-web-1",
+    }
+    response = test_client.post("/api/commands/bpm-sync", json=body)
+    assert response.status_code == 200
+    assert runtime.bpm.enabled is True
+    again = test_client.post("/api/commands/bpm-sync", json=body)
+    assert again.status_code == 200
+    assert again.json()["idempotent_replay"] is True
+    blackout = test_client.post(
+        "/api/commands/blackout",
+        json={"enabled": True, "source_id": "web:desk", "client_command_id": "bo-web-1"},
+    )
+    assert blackout.status_code == 200
+
+
 def test_health_and_ready(client) -> None:
     test_client, _runtime = client
     health = test_client.get("/api/health").json()
@@ -127,10 +150,10 @@ def test_commands_update_state(client) -> None:
 
     blackout = test_client.post("/api/commands/blackout", json={"enabled": True}).json()
     assert blackout["state"]["engine"]["blackout"] is True
-    # Face / strobe / white-hit still compose over a zeroed preset base.
+    # Holds stay latched, but Blackout removes their light from the wire.
     assert blackout["state"]["engine"]["face_on"] is True
     assert blackout["state"]["engine"]["strobe_held"] is True
-    assert any(value > 0 for value in blackout["state"]["frame"])
+    assert_lights_dark(runtime.show, blackout["state"]["frame"])
 
     test_client.post("/api/commands/face", json={"enabled": False}).json()
     test_client.post("/api/commands/strobe", json={"action": "release"}).json()
@@ -194,12 +217,18 @@ def test_websocket_reconnect_does_not_duplicate_engine(client) -> None:
     with test_client.websocket_connect("/api/ws") as ws1:
         hello1 = ws1.receive_json()
         assert hello1["type"] == "hello"
-        test_client.post("/api/commands/strobe", json={"action": "press"})
+        source_id = hello1["source_id"]
+        # Hold via this session's source_id (commands/strobe bypasses the registry).
+        ack = test_client.post(
+            "/api/input/button",
+            json={"button_id": 13, "edge": "press", "source": "ui", "source_id": source_id},
+        ).json()
+        assert ack["accepted"] is True
         # drain broadcast
         ws1.receive_json()
         assert runtime.engine.overlays.strobe_held is True
 
-    # Disconnect releases held strobe but keeps the same engine instance.
+    # Disconnect releases only this session's holds; engine instance is reused.
     assert runtime.engine.overlays.strobe_held is False
     assert id(runtime.engine) == engine_id
 
@@ -211,16 +240,30 @@ def test_websocket_reconnect_does_not_duplicate_engine(client) -> None:
 
 def test_websocket_focus_and_visibility_failsafe(client) -> None:
     test_client, runtime = client
-    runtime.engine.strobe_press()
     with test_client.websocket_connect("/api/ws") as ws:
-        ws.receive_json()  # hello
+        hello = ws.receive_json()
+        source_id = hello["source_id"]
+        ack = test_client.post(
+            "/api/input/button",
+            json={"button_id": 13, "edge": "press", "source": "ui", "source_id": source_id},
+        ).json()
+        assert ack["accepted"] is True
+        ws.receive_json()  # broadcast
+        assert runtime.engine.overlays.strobe_held is True
         ws.send_json({"type": "focus_loss"})
         update = ws.receive_json()
         assert update["state"]["engine"]["strobe_held"] is False
 
-    runtime.engine.strobe_press()
     with test_client.websocket_connect("/api/ws") as ws:
+        hello = ws.receive_json()
+        source_id = hello["source_id"]
+        ack = test_client.post(
+            "/api/input/button",
+            json={"button_id": 13, "edge": "press", "source": "ui", "source_id": source_id},
+        ).json()
+        assert ack["accepted"] is True
         ws.receive_json()
+        assert runtime.engine.overlays.strobe_held is True
         ws.send_json({"type": "visibility_hidden"})
         update = ws.receive_json()
         assert update["state"]["engine"]["strobe_held"] is False

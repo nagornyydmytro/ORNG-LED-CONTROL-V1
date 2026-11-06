@@ -1,17 +1,22 @@
 <script setup lang="ts">
-import { computed, inject, onMounted, ref, watch } from "vue";
+import { computed, inject, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { useAutoPreview } from "../composables/useAutoPreview";
 import { useRoute } from "vue-router";
 import BlackoutButton from "../components/control/BlackoutButton.vue";
+import BpmModePicker from "../components/control/BpmModePicker.vue";
 import LiveFxPanel from "../components/control/LiveFxPanel.vue";
 import PresetPad from "../components/control/PresetPad.vue";
-import StatusBar from "../components/control/StatusBar.vue";
 import StageSimulator from "../components/simulator/StageSimulator.vue";
 import { fetchStageLayout } from "../api/client";
 import { getPreset, type EpisodeCard, type PresetDocument } from "../api/presets";
+import { isCloudAdminBuild } from "../cloud/mode";
 import { APP_STATE_KEY } from "../composables/appStateKey";
-import { formatClock, paletteCss } from "../lib/presets";
+import { acceptedBpmValue, bpmDeskReason } from "../lib/acceptedBpm";
+import { bpmControlsLocked, hasBpmSync } from "../lib/bpmPalettes";
+import { presetButtonLabel } from "../lib/presetLabel";
 import type { StageLayout } from "../vite-env";
 
+const cloudScene = isCloudAdminBuild();
 const api = inject(APP_STATE_KEY);
 if (!api) {
   throw new Error("App state is not provided");
@@ -20,7 +25,6 @@ if (!api) {
 const {
   state,
   engine,
-  output,
   availableIds,
   availablePresets,
   connection,
@@ -28,25 +32,26 @@ const {
   liveView,
   liveFrame,
   selectPreset,
-  seekEpisode,
+  nudgeEpisode,
   strobePress,
   strobeRelease,
   toggleBlackout,
   setFace,
-  setMasterBrightness,
   setPreviewSpeed,
-  colorHit,
+  nextAutoLook,
+  setBpmSync,
   sweepPress,
   sweepRelease,
   verticalSweepPress,
+  verticalSweepRelease,
   setLiveFxSpeeds,
+  lastError,
 } = api;
 
 const route = useRoute();
 const layout = ref<StageLayout | null>(null);
 const offline = computed(() => connection.value === "offline");
 const activePresetId = computed(() => engine.value?.preset_id ?? null);
-const isNonePreset = computed(() => !activePresetId.value || activePresetId.value === "NONE");
 const highlightId = computed(() => {
   const q = route.query.highlight;
   return typeof q === "string" && q.length ? q : null;
@@ -56,24 +61,12 @@ const strobeSpeed = computed(() => state.value?.strobe_speed ?? engine.value?.st
 const sweepSpeed = computed(() => state.value?.sweep_speed ?? engine.value?.sweep_speed ?? 0.10);
 
 const presetDoc = ref<PresetDocument | null>(null);
+const loadError = ref<string | null>(null);
 const episodes = computed<EpisodeCard[]>(() => presetDoc.value?.episodes ?? []);
 
-const currentEpisode = computed(() => {
-  const index = engine.value?.episode_index ?? 0;
-  return episodes.value[index] ?? null;
-});
-
-const episodeTimeLabel = computed(() => {
-  const t = engine.value?.episode_time_s ?? 0;
-  return formatClock(t);
-});
-
-const currentEpisodeTitle = computed(() => {
-  const index = engine.value?.episode_index ?? 0;
-  const ep = currentEpisode.value;
-  if (!ep) return `Епізод ${index + 1}`;
-  return `Епізод ${index + 1} · ${ep.effect} · ${ep.palette}`;
-});
+const episodeCount = computed(
+  () => episodes.value.length || engine.value?.episode_count || 0,
+);
 
 watch(
   activePresetId,
@@ -84,8 +77,9 @@ watch(
     }
     try {
       presetDoc.value = await getPreset(id);
-    } catch {
+    } catch (err) {
       presetDoc.value = null;
+      loadError.value = err instanceof Error ? err.message : "Пресет не прочитано";
     }
   },
   { immediate: true },
@@ -94,36 +88,315 @@ watch(
 onMounted(async () => {
   try {
     layout.value = await fetchStageLayout();
-  } catch {
+  } catch (err) {
     layout.value = null;
+    loadError.value = err instanceof Error ? err.message : "Макет не прочитано";
   }
 });
 
+const lookBusy = ref(false);
+
+async function onNextLook() {
+  if (lookBusy.value || !autoDesk.value) return;
+  lookBusy.value = true;
+  try {
+    await nextAutoLook();
+  } catch {
+    // The command layer already shows the refusal.
+  } finally {
+    window.setTimeout(() => {
+      lookBusy.value = false;
+    }, 700);
+  }
+}
+
+const playingTitle = computed(() => {
+  const bpm = state.value?.bpm;
+  if (bpm?.enabled && bpm.scope === "auto") {
+    return String(bpm.look_title || bpm.look || "Auto");
+  }
+  const id = shownPreset.value;
+  if (!id || id === "NONE") return "NONE";
+  const item = availablePresets.value.find((preset) => preset.id === id);
+  return presetButtonLabel(id, item?.label ?? id);
+});
+const remoteDesk = computed(
+  () => cloudScene || state.value?.desk_role === "raspberry",
+);
+const executorFrame = computed(() => {
+  const view = state.value?.simulator;
+  const fixtures = view
+    ? view.pars.length + view.bars.length + view.beams.length + view.faces.length
+    : 0;
+  return fixtures > 0 && state.value?.executor_online !== false;
+});
+const playingSeconds = computed(() => {
+  if (remoteDesk.value && !executorFrame.value) return null;
+  return engine.value?.preset_time_s ?? 0;
+});
+const playingMeta = computed(() => {
+  const count = episodeCount.value || engine.value?.episode_count || 0;
+  const index = episodeShown.value + 1;
+  const seconds = playingSeconds.value == null ? "—" : playingSeconds.value.toFixed(1);
+  const clock = !count ? `${seconds} с` : `Епізод ${index}/${count} · ${seconds} с`;
+  return `${clock} · ${frameNote.value}`;
+});
+const frameNote = computed(() => {
+  const view = state.value?.simulator;
+  const fixtures = view
+    ? view.pars.length + view.bars.length + view.beams.length + view.faces.length
+    : 0;
+  if (cloudScene || state.value?.desk_role === "raspberry") {
+    return fixtures > 0 && state.value?.executor_online !== false
+      ? "кадр виконавця"
+      : "немає кадру виконавця";
+  }
+  return "кадр цього комп'ютера";
+});
+
+const presetHold = ref<string | null>(null);
+const stageOpen = ref(window.matchMedia("(min-width: 861px)").matches);
+const blackoutHold = ref<boolean | null>(null);
+const episodeHold = ref<number | null>(null);
+const faceHold = ref<boolean | null>(null);
+let holdTicket = 0;
+let holdTimer: number | null = null;
+
+function clearOptimistic() {
+  presetHold.value = null;
+  episodeHold.value = null;
+  blackoutHold.value = null;
+  faceHold.value = null;
+}
+
+function beginHold(): number {
+  const mine = ++holdTicket;
+  if (holdTimer !== null) window.clearTimeout(holdTimer);
+  holdTimer = window.setTimeout(() => {
+    if (holdTicket === mine) clearOptimistic();
+  }, 4000);
+  return mine;
+}
+
+function finishHold(mine: number) {
+  if (holdTicket !== mine) return;
+  if (holdTimer !== null) {
+    window.clearTimeout(holdTimer);
+    holdTimer = null;
+  }
+  clearOptimistic();
+}
+
+watch(
+  () => `${connection.value}|${state.value?.scene_id ?? ""}`,
+  (_next, prev) => {
+    if (prev === undefined) return;
+    holdTicket += 1;
+    clearOptimistic();
+  },
+);
+
+onBeforeUnmount(() => {
+  if (holdTimer !== null) window.clearTimeout(holdTimer);
+});
+const faceLevel = ref(1);
+const strobeUi = ref<boolean | null>(null);
+const sweepUi = ref<boolean | null>(null);
+const sweepVUi = ref<boolean | null>(null);
+const shownPreset = computed(() => presetHold.value ?? engine.value?.preset_id ?? null);
+const blackoutShown = computed(() => blackoutHold.value ?? Boolean(engine.value?.blackout));
+const episodeShown = computed(() => episodeHold.value ?? engine.value?.episode_index ?? 0);
+const faceShown = computed(() => faceHold.value ?? Boolean(engine.value?.face_on));
+const strobeShown = computed(() => strobeUi.value ?? Boolean(engine.value?.strobe_held));
+const sweepShown = computed(() => sweepUi.value ?? Boolean(engine.value?.sweep_active));
+const sweepVShown = computed(() => sweepVUi.value ?? Boolean(engine.value?.vertical_sweep_active));
+
+watch(
+  () => engine.value?.preset_id,
+  (id) => {
+    if (presetHold.value !== null && id === presetHold.value) presetHold.value = null;
+  },
+);
+watch(
+  () => engine.value?.blackout,
+  (value) => {
+    if (blackoutHold.value !== null && value === blackoutHold.value) blackoutHold.value = null;
+  },
+);
+watch(
+  () => engine.value?.episode_index,
+  (value) => {
+    if (episodeHold.value !== null && value === episodeHold.value) episodeHold.value = null;
+  },
+);
+watch(
+  () => engine.value?.face_on,
+  (on) => {
+    if (faceHold.value !== null && on === faceHold.value) faceHold.value = null;
+  },
+);
+watch(
+  () => engine.value?.face_brightness,
+  (value) => {
+    if (typeof value === "number") faceLevel.value = value;
+  },
+  { immediate: true },
+);
+
+function onSelectPreset(id: string) {
+  if (autoDesk.value) return;
+  const mine = beginHold();
+  presetHold.value = id;
+  episodeHold.value = 0;
+  void Promise.resolve(selectPreset(id))
+    .finally(() => finishHold(mine))
+    .catch(() => undefined);
+}
+
+function onBlackout() {
+  const next = !blackoutShown.value;
+  const mine = beginHold();
+  blackoutHold.value = next;
+  void Promise.resolve(toggleBlackout())
+    .finally(() => finishHold(mine))
+    .catch(() => undefined);
+}
+
+function onStrobePress() {
+  strobeUi.value = true;
+  void Promise.resolve(strobePress()).catch(() => {
+    strobeUi.value = null;
+  });
+}
+
+function onStrobeRelease() {
+  strobeUi.value = false;
+  void Promise.resolve(strobeRelease()).finally(() => {
+    strobeUi.value = null;
+  });
+}
+
+function onSweepPress() {
+  sweepUi.value = true;
+  void Promise.resolve(sweepPress("horizontal")).catch(() => {
+    sweepUi.value = null;
+  });
+}
+
+function onSweepRelease() {
+  sweepUi.value = false;
+  void Promise.resolve(sweepRelease("horizontal")).finally(() => {
+    sweepUi.value = null;
+  });
+}
+
+function onVerticalPress() {
+  sweepVUi.value = true;
+  void Promise.resolve(verticalSweepPress()).catch(() => {
+    sweepVUi.value = null;
+  });
+}
+
+function onVerticalRelease() {
+  sweepVUi.value = false;
+  void Promise.resolve(verticalSweepRelease()).finally(() => {
+    sweepVUi.value = null;
+  });
+}
+
 function onFaceBrightness(value: number) {
-  void setFace(engine.value?.face_on ?? true, value);
+  faceLevel.value = value;
+  const mine = beginHold();
+  faceHold.value = true;
+  void Promise.resolve(setFace(true, value))
+    .finally(() => finishHold(mine))
+    .catch(() => undefined);
 }
 
 function onToggleFace() {
-  void setFace(!(engine.value?.face_on ?? false), engine.value?.face_brightness);
+  const next = !faceShown.value;
+  const mine = beginHold();
+  faceHold.value = next;
+  void Promise.resolve(setFace(next, faceLevel.value))
+    .finally(() => finishHold(mine))
+    .catch(() => undefined);
+}
+
+const bpmLocked = computed(() => bpmControlsLocked(state.value?.bpm));
+const speedUi = ref(1);
+
+watch(
+  () => state.value?.preview_speed,
+  (value) => {
+    if (typeof value === "number") speedUi.value = value;
+  },
+  { immediate: true },
+);
+
+function onProgramSpeed(value: number) {
+  speedUi.value = value;
+  if (bpmLocked.value) return;
+  void setPreviewSpeed(value);
+}
+
+const bpmCapable = computed(() => hasBpmSync(state.value?.capabilities));
+const bpmOn = computed(() => bpmCapable.value && state.value?.bpm?.enabled === true);
+const autoDesk = computed(
+  () => bpmOn.value && state.value?.bpm?.scope === "auto",
+);
+const bpmAccepted = computed(() => acceptedBpmValue(state.value?.bpm ?? null));
+const bpmStatus = computed(() => bpmDeskReason(state.value?.bpm ?? null));
+const deskPreview = useAutoPreview();
+const deskPreviewKey = computed(() => {
+  if (!autoDesk.value) return "";
+  const bpm = state.value?.bpm;
+  return [bpm?.look || "", bpm?.palette || "orange", bpm?.intensity || "full", state.value?.scene_id || ""].join("|");
+});
+watch(deskPreviewKey, (key) => {
+  if (!key) return;
+  const [look, palette, intensity, sceneId] = key.split("|");
+  if (!look) return;
+  void deskPreview.load(
+    { look, cycleBeats: 8, palette, intensity, bpm: 96, frames: 24 },
+    sceneId,
+    sceneId || null,
+  );
+}, { immediate: true });
+
+function stageView() {
+  if (autoDesk.value) return deskPreview.view();
+  return liveView();
+}
+
+function toggleBpm() {
+  void setBpmSync({ enabled: !bpmOn.value });
+}
+
+function shiftEpisode(delta: number) {
+  const count = episodeCount.value || engine.value?.episode_count || 0;
+  const current = episodeShown.value;
+  const next = Math.max(0, count > 0 ? Math.min(count - 1, current + delta) : current + delta);
+  const mine = beginHold();
+  episodeHold.value = next;
+  void Promise.resolve(nudgeEpisode(delta))
+    .finally(() => finishHold(mine))
+    .catch(() => undefined);
 }
 
 function goPrevEpisode() {
-  const count = episodes.value.length || engine.value?.episode_count || 0;
-  if (count <= 0) return;
-  const index = engine.value?.episode_index ?? 0;
-  void seekEpisode((index - 1 + count) % count);
+  shiftEpisode(-1);
 }
 
 function goNextEpisode() {
-  const count = episodes.value.length || engine.value?.episode_count || 0;
-  if (count <= 0) return;
-  const index = engine.value?.episode_index ?? 0;
-  void seekEpisode((index + 1) % count);
+  shiftEpisode(1);
 }
 </script>
 
 <template>
-  <div class="control-view">
+  <div
+    class="control-view"
+    data-light-pad
+  >
     <p
       v-if="loading"
       class="banner"
@@ -137,189 +410,182 @@ function goNextEpisode() {
     >
       Немає зв'язку з backend. Керування обмежене.
     </p>
+    <p
+      v-if="loadError"
+      class="banner banner--warn"
+      role="alert"
+    >
+      {{ loadError }}
+    </p>
+    <p
+      v-else-if="lastError && !offline"
+      class="banner banner--warn"
+      role="alert"
+    >
+      {{ lastError }}
+    </p>
 
     <div class="control-grid">
       <div class="control-grid__stage">
-        <StatusBar
-          :engine="engine"
-          :output="output"
-        />
-
-        <StageSimulator
-          :layout="layout"
-          :view="liveView"
-          :frame="liveFrame"
-          :nonzero-channels="state?.simulator?.nonzero_channels ?? 0"
-          :engine-preset-id="engine?.preset_id ?? '—'"
-          :preset-time-s="engine?.preset_time_s ?? 0"
-          :episode-index="engine?.episode_index ?? 0"
-          :episode-count="engine?.episode_count ?? 10"
-          :cycle-duration-s="engine?.cycle_duration_s ?? 180"
-          :blackout="engine?.blackout ?? false"
-          :strobe-held="engine?.strobe_held ?? false"
-          :white-hit-active="engine?.white_hit_active ?? false"
-          :color-hit-active="engine?.color_hit_active ?? false"
-          :sweep-active="(engine?.sweep_active || engine?.vertical_sweep_active) ?? false"
-          :face-on="engine?.face_on ?? false"
-          :preview-speed="state?.preview_speed ?? 1"
-          :disabled="offline"
-          title="Жива сцена"
-          badge="Фактичний кадр виводу"
-          @update:preview-speed="setPreviewSpeed"
-        />
+        <section class="stage-card">
+          <button
+            type="button"
+            class="stage-card__toggle"
+            :aria-expanded="stageOpen"
+            @click="stageOpen = !stageOpen"
+          >
+            <span class="stage-card__copy">
+              <strong>{{ playingTitle }}</strong>
+              <button
+                v-if="autoDesk"
+                type="button"
+                class="look-next"
+                :disabled="offline || lookBusy || (remoteDesk && !executorFrame)"
+                aria-label="Змінити ефект"
+                title="Змінити ефект"
+                @click.stop="onNextLook"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="M7 7h11l-2.2-2.2 1.4-1.4L22 8l-4.8 4.6-1.4-1.4L18 9H7a4 4 0 0 0 0 8h2v2H7a6 6 0 0 1 0-12zm10 10H6l2.2 2.2-1.4 1.4L2 16l4.8-4.6 1.4 1.4L6 15h11a4 4 0 0 0 0-8h-2V5h2a6 6 0 0 1 0 12z"
+                    fill="currentColor"
+                  />
+                </svg>
+              </button>
+              <span>{{ playingMeta }}</span>
+            </span>
+            <span
+              class="stage-card__chevron"
+              :class="{ 'is-open': stageOpen }"
+            />
+          </button>
+          <div
+            v-show="stageOpen"
+            class="stage-card__body"
+          >
+            <StageSimulator
+              plain
+              :show-cables="false"
+              :layout="layout"
+              :view="stageView"
+              :frame="liveFrame"
+              :nonzero-channels="cloudScene ? undefined : (state?.simulator?.nonzero_channels ?? 0)"
+              :blackout="autoDesk ? false : blackoutShown"
+              :disabled="offline"
+              :show-inspector="false"
+            />
+          </div>
+        </section>
       </div>
 
       <aside class="control-grid__side">
         <BlackoutButton
-          :active="engine?.blackout ?? false"
+          :active="blackoutShown"
           :disabled="offline"
-          @toggle="toggleBlackout"
+          @toggle="onBlackout"
         />
 
-        <section
-          class="card"
-          aria-label="Пресет"
-        >
-          <header class="card__head">
-            <h2>Пресети</h2>
-            <p class="card__sub">
-              NONE + 9 обраних · клавіші P / Q–O
-            </p>
-          </header>
-          <PresetPad
-            :active-id="engine?.preset_id ?? null"
-            :available-ids="availableIds"
-            :presets="availablePresets"
-            :pad-preset-ids="padPresetIds"
-            :highlight-id="highlightId"
-            :disabled="offline"
-            @select="selectPreset"
-          />
-        </section>
-
-        <section
-          class="card"
-          aria-label="Епізоди"
-        >
-          <header class="card__head">
-            <h2>Епізоди</h2>
-            <p
-              v-if="isNonePreset"
-              class="card__sub"
-            >
-              Пресет не вибрано
-            </p>
-            <p
-              v-else
-              class="card__sub"
-            >
-              {{ currentEpisodeTitle }} · {{ episodeTimeLabel }}
-            </p>
-          </header>
-
-          <template v-if="!isNonePreset">
-            <div class="episode-nav">
-              <button
-                type="button"
-                class="action-btn"
-                :disabled="offline"
-                @click="goPrevEpisode"
-              >
-                ← Попередній
-              </button>
-              <button
-                type="button"
-                class="action-btn"
-                :disabled="offline"
-                @click="goNextEpisode"
-              >
-                Наступний →
-              </button>
-            </div>
-            <div
-              v-if="episodes.length"
-              class="episode-strip"
-            >
-              <button
-                v-for="(ep, index) in episodes"
-                :key="ep.id"
-                type="button"
-                class="episode-chip"
-                :class="{ active: index === (engine?.episode_index ?? 0) }"
-                :style="{ '--chip': paletteCss(ep.palette) }"
-                :disabled="offline"
-                @click="seekEpisode(index)"
-              >
-                <span class="episode-chip__n">{{ index + 1 }}</span>
-                <span class="episode-chip__palette">{{ ep.palette }}</span>
-              </button>
-            </div>
-          </template>
-        </section>
+        <PresetPad
+          :active-id="shownPreset"
+          :available-ids="availableIds"
+          :presets="availablePresets"
+          :pad-preset-ids="padPresetIds"
+          :highlight-id="highlightId"
+          :disabled="offline || autoDesk"
+          :episode-disabled="offline || autoDesk || shownPreset === 'NONE' || !shownPreset || episodeCount <= 0"
+          @select="onSelectPreset"
+          @prev-episode="goPrevEpisode"
+          @next-episode="goNextEpisode"
+        />
 
         <LiveFxPanel
-          :strobe-held="engine?.strobe_held ?? false"
-          :sweep-active="engine?.sweep_active ?? false"
-          :vertical-sweep-active="engine?.vertical_sweep_active ?? false"
-          :color-hit-active="engine?.color_hit_active ?? false"
+          :strobe-held="strobeShown"
+          :sweep-active="sweepShown"
+          :vertical-sweep-active="sweepVShown"
+          :color-hit-active="(engine?.color_hit_active ?? false) && !autoDesk"
+          :face-on="faceShown"
           :strobe-speed="strobeSpeed"
           :sweep-speed="sweepSpeed"
           :live-effects="state?.live_effects ?? null"
+          :lock-tempo="false"
           :disabled="offline"
-          @strobe-press="strobePress"
-          @strobe-release="strobeRelease"
-          @sweep-press="() => sweepPress('horizontal')"
-          @sweep-release="sweepRelease"
-          @vertical-sweep-press="verticalSweepPress"
-          @vertical-sweep-release="sweepRelease"
-          @color-hit="() => colorHit()"
+          @strobe-press="onStrobePress"
+          @strobe-release="onStrobeRelease"
+          @sweep-press="onSweepPress"
+          @sweep-release="onSweepRelease"
+          @vertical-sweep-press="onVerticalPress"
+          @vertical-sweep-release="onVerticalRelease"
+          @face="onToggleFace"
           @update:strobe-speed="(v) => setLiveFxSpeeds({ strobe_speed: v })"
           @update:sweep-speed="(v) => setLiveFxSpeeds({ sweep_speed: v })"
         />
 
-        <section
-          class="card"
-          aria-label="Рівні"
+        <label
+          class="meter"
+          aria-label="speed"
         >
-          <header class="card__head">
-            <h2>Рівні</h2>
-          </header>
+          <span class="meter__name">speed</span>
+          <input
+            type="range"
+            min="0.5"
+            max="5"
+            step="0.25"
+            :value="speedUi"
+            :disabled="offline || bpmLocked || autoDesk"
+            @input="onProgramSpeed(Number(($event.target as HTMLInputElement).value))"
+          >
+          <span class="meter__value">{{ speedUi.toFixed(2) }}</span>
+        </label>
+        <div
+          v-if="bpmCapable"
+          class="bpm-row"
+        >
+          <span class="meter__name">Музика</span>
           <button
             type="button"
-            class="fx-btn"
-            :class="{ active: engine?.face_on }"
-            :aria-pressed="engine?.face_on ?? false"
+            class="theme-slider"
+            :class="{ 'is-dark': bpmOn }"
+            role="switch"
+            :aria-checked="bpmOn"
+            aria-label="Музика"
             :disabled="offline"
-            @click="onToggleFace"
+            @click="toggleBpm"
           >
-            <span class="fx-btn__label">DJ FACE</span>
-            <span class="fx-btn__hint">світло на обличчя · Esc</span>
+            <span class="theme-slider__thumb" />
           </button>
-          <label class="field">
-            <span>Яскравість Face</span>
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.01"
-              :value="engine?.face_brightness ?? 1"
-              :disabled="offline || !engine?.face_on"
-              @input="onFaceBrightness(Number(($event.target as HTMLInputElement).value))"
-            >
-          </label>
-          <label class="field">
-            <span>Master {{ Math.round((engine?.master_brightness ?? 1) * 100) }}%</span>
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.01"
-              :value="engine?.master_brightness ?? 1"
-              :disabled="offline"
-              @input="setMasterBrightness(Number(($event.target as HTMLInputElement).value))"
-            >
-          </label>
-        </section>
+          <div
+            v-if="bpmOn"
+            class="bpm-row__reading"
+          >
+            <span
+              class="meter__value"
+              data-accepted-bpm
+            >{{ bpmAccepted }}</span>
+            <span
+              v-if="bpmStatus"
+              class="bpm-row__reason"
+            >{{ bpmStatus }}</span>
+          </div>
+        </div>
+        <BpmModePicker v-if="bpmCapable && bpmOn" />
+
+        <label
+          v-if="faceShown"
+          class="meter"
+          aria-label="face"
+        >
+          <span class="meter__name">face</span>
+          <input
+            type="range"
+            min="0"
+            max="1"
+            step="0.01"
+            :value="faceLevel"
+            :disabled="offline"
+            @input="onFaceBrightness(Number(($event.target as HTMLInputElement).value))"
+          >
+          <span class="meter__value">{{ faceLevel.toFixed(2) }}</span>
+        </label>
       </aside>
     </div>
   </div>

@@ -28,9 +28,14 @@ const props = withDefaults(defineProps<{
   showInspector?: boolean;
   title?: string;
   badge?: string | null;
+  plain?: boolean;
+  /** Replaces the episode clock line when the clip is not a playback. */
+  summary?: string | null;
+  /** Desk stage hides cables and the Art-Net node. Other pages keep them. */
+  showCables?: boolean;
 }>(), {
   frame: undefined,
-  nonzeroChannels: 0,
+  nonzeroChannels: undefined,
   enginePresetId: "—",
   presetTimeS: 0,
   episodeIndex: 0,
@@ -40,6 +45,9 @@ const props = withDefaults(defineProps<{
   showInspector: true,
   title: "Симулятор",
   badge: null,
+  plain: false,
+  summary: null,
+  showCables: true,
 });
 
 const emit = defineEmits<{
@@ -49,9 +57,11 @@ const emit = defineEmits<{
 const SPEED_OPTIONS = [
   0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.25, 2.5, 2.75, 3, 3.25, 3.5, 3.75, 4, 4.25, 4.5, 4.75, 5,
 ];
-const showCables = ref(true);
+const cablesToggle = ref(true);
+const cablesOn = computed(() => props.showCables !== false && cablesToggle.value);
 
 const meta = computed(() => {
+  if (props.summary) return props.summary;
   const episode = (props.episodeIndex ?? 0) + 1;
   const count = props.episodeCount ?? 10;
   const time = (props.presetTimeS ?? 0).toFixed(1);
@@ -69,9 +79,13 @@ function onSpeed(value: string) {
 <template>
   <section
     class="simulator card"
+    :class="{ 'simulator--plain': plain }"
     aria-label="Симулятор сцени"
   >
-    <header class="simulator__head">
+    <header
+      v-if="!plain"
+      class="simulator__head"
+    >
       <div>
         <h2>{{ title ?? "Симулятор" }}</h2>
         <p class="simulator__meta">
@@ -85,7 +99,7 @@ function onSpeed(value: string) {
         >{{ badge }}</span>
         <label class="switch">
           <input
-            v-model="showCables"
+            v-model="cablesToggle"
             type="checkbox"
           >
           <span>Показувати з'єднання</span>
@@ -114,6 +128,7 @@ function onSpeed(value: string) {
     </header>
 
     <div
+      v-if="!plain"
       class="chips"
       aria-live="polite"
     >
@@ -146,24 +161,30 @@ function onSpeed(value: string) {
         :class="{ on: faceOn }"
       >Face</span>
       <span
-        v-if="(nonzeroChannels ?? 0) === 0"
+        v-if="nonzeroChannels === 0"
         class="chip on"
       >Кадр = 0</span>
     </div>
 
+    <p
+      v-if="plain && summary"
+      class="simulator__meta"
+    >
+      {{ summary }}
+    </p>
     <div
       class="stage"
-      :class="{ blackout: blackout || (nonzeroChannels ?? 0) === 0 }"
+      :class="{ blackout: blackout || nonzeroChannels === 0 }"
     >
       <StageCanvas
         :layout="layout"
         :view="view"
-        :show-cables="showCables"
+        :show-cables="cablesOn"
       />
     </div>
 
     <ChannelInspector
-      v-if="showInspector && frame"
+      v-if="!plain && showInspector && frame"
       :frame="frame"
       :nonzero="nonzeroChannels ?? 0"
     />

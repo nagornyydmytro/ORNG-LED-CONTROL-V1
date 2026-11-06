@@ -14,6 +14,7 @@ import logging
 import sys
 import threading
 import time
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -44,6 +45,7 @@ class WindowsEncoderHooks:
     on_volume_down: Callable[[], None]
     on_zoom_up: Callable[[], None]
     on_zoom_down: Callable[[], None]
+    capture_enabled: Callable[[], bool] = field(default=lambda: True)
     _thread: threading.Thread | None = field(default=None, init=False, repr=False)
     _stop: threading.Event = field(default_factory=threading.Event, init=False, repr=False)
     _kb_hook: int = field(default=0, init=False, repr=False)
@@ -177,22 +179,26 @@ class WindowsEncoderHooks:
                 info = ctypes.cast(l_param, ctypes.POINTER(KBDLLHOOKSTRUCT)).contents
                 if info.flags & LLKHF_INJECTED:
                     return _pass(n_code, w_param, l_param)
-                if info.vkCode == VK_VOLUME_UP:
+                if info.vkCode in {VK_VOLUME_UP, VK_VOLUME_DOWN}:
+                    if not self.capture_enabled():
+                        return _pass(n_code, w_param, l_param)
                     try:
-                        self.on_volume_up()
+                        if info.vkCode == VK_VOLUME_UP:
+                            self.on_volume_up()
+                        else:
+                            self.on_volume_down()
                     except Exception:  # noqa: BLE001
-                        logger.exception("volume-up hook failed")
-                    return 1
-                if info.vkCode == VK_VOLUME_DOWN:
-                    try:
-                        self.on_volume_down()
-                    except Exception:  # noqa: BLE001
-                        logger.exception("volume-down hook failed")
+                        logger.exception("volume hook failed")
                     return 1
             return _pass(n_code, w_param, l_param)
 
         def _mouse_callback(n_code: int, w_param: int, l_param: int) -> int:
-            if n_code == HC_ACTION and w_param == WM_MOUSEWHEEL and self._ctrl_down(user32):
+            if (
+                n_code == HC_ACTION
+                and w_param == WM_MOUSEWHEEL
+                and self._ctrl_down(user32)
+                and self.capture_enabled()
+            ):
                 info = ctypes.cast(l_param, ctypes.POINTER(MSLLHOOKSTRUCT)).contents
                 if info.flags & LLMHF_INJECTED:
                     return _pass(n_code, w_param, l_param)
@@ -241,6 +247,39 @@ class WindowsEncoderHooks:
 WindowsVolumeKeyHook = WindowsEncoderHooks
 
 
+WINDOWS_ENCODER_SOURCE = "cloud:desk:windows-encoder"
+
+
+def encoder_remote_action(
+    role: str,
+    kind: str,
+    delta: float,
+) -> tuple[str, dict[str, object]] | None:
+    """Remote desks forward the encoder. A local desk returns None and keeps its engine."""
+    if role != "raspberry":
+        return None
+    return encoder_remote_command(kind, delta)
+
+
+def encoder_remote_command(kind: str, delta: float) -> tuple[str, dict[str, object]]:
+    """Volume and zoom for the selected executor. Not the local Art-Net engine."""
+    command_id = uuid.uuid4().hex
+    if kind == "episode":
+        return (
+            "episode_nudge",
+            {"delta": int(delta), "source": WINDOWS_ENCODER_SOURCE, "command_id": command_id},
+        )
+    return (
+        "speed",
+        {
+            "kind": "program",
+            "delta": delta,
+            "source": WINDOWS_ENCODER_SOURCE,
+            "command_id": command_id,
+        },
+    )
+
+
 def start_volume_hook_for_runtime(runtime: Any) -> WindowsEncoderHooks | None:
     """Attach Windows volume + Ctrl+wheel hooks to ``runtime`` if possible."""
     if sys.platform != "win32":
@@ -261,12 +300,35 @@ def start_volume_hook_for_runtime(runtime: Any) -> WindowsEncoderHooks | None:
         except Exception:  # noqa: BLE001
             logger.exception("Failed to broadcast after encoder nudge")
 
+    def _forward(command_type: str, payload: dict[str, object]) -> None:
+        if loop is None:
+            return
+
+        async def _send() -> None:
+            from orng_led.desktop.remote_desk import forward_operator_command
+
+            await forward_operator_command(command_type, payload)
+
+        asyncio.run_coroutine_threadsafe(_send(), loop)
+
     def _nudge_speed(delta: float) -> None:
+        from orng_led.desktop.desk_role import desk_role
+
+        remote = encoder_remote_action(desk_role(runtime.config_root), "speed", delta)
+        if remote is not None:
+            _forward(remote[0], remote[1])
+            return
         # Routes to live-FX speed when Strobe/Sweep is held (see runtime).
         runtime.apply_nudge_program_speed(delta, client_command_id=None)
         _broadcast()
 
     def _nudge_zoom(delta: int) -> None:
+        from orng_led.desktop.desk_role import desk_role
+
+        remote = encoder_remote_action(desk_role(runtime.config_root), "episode", float(delta))
+        if remote is not None:
+            _forward(remote[0], remote[1])
+            return
         # Same path as ZoomIn/ZoomOut keys: always episode ±1 (FX stays held).
         runtime.apply_zoom(delta, client_command_id=None)
         _broadcast()
@@ -276,6 +338,7 @@ def start_volume_hook_for_runtime(runtime: Any) -> WindowsEncoderHooks | None:
         on_volume_down=lambda: _nudge_speed(-PROGRAM_SPEED_STEP),
         on_zoom_up=lambda: _nudge_zoom(1),
         on_zoom_down=lambda: _nudge_zoom(-1),
+        capture_enabled=lambda: bool(getattr(runtime, "_subscribers", None)),
     )
     if hook.start():
         runtime._volume_key_hook = hook  # noqa: SLF001 — lifecycle ownership

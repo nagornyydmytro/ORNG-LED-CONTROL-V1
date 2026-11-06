@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 
-from orng_led.config import default_config_dir, load_show_config
+from orng_led.config import default_scene_dir, load_show_config
 from orng_led.config.models import ChannelRole, FixtureKind
 from orng_led.config.validation import global_channel
 from orng_led.engine.beam import BeamMotionState
@@ -22,7 +22,7 @@ PRESET_IDS = tuple(f"P{i:02d}" for i in range(1, 11))
 
 
 def _programs() -> dict:
-    return PresetStore.load(default_config_dir() / "presets").programs()
+    return PresetStore.load(default_scene_dir() / "presets").programs()
 
 
 def _engine(preset_id: str = "P05") -> Engine:
@@ -105,12 +105,20 @@ def test_master_scales_dimmer_only() -> None:
     engine.set_master_brightness(0.4)
     dim = engine.tick(dt_s=0.0, wall_dt_s=0.0).frame
 
-    # Pick a rear PAR with dimmer + red.
-    par = next(fx for fx in show.patch.fixtures if fx.kind is FixtureKind.PAR)
-    d_full = _role_value(show, full, par.id, ChannelRole.DIMMER)
-    d_dim = _role_value(show, dim, par.id, ChannelRole.DIMMER)
-    r_full = _role_value(show, full, par.id, ChannelRole.RED)
-    r_dim = _role_value(show, dim, par.id, ChannelRole.RED)
+    # Pick a rear PAR with enough dimmer headroom so integer DMX quantisation
+    # does not dominate the Master scale check (low values like 4→2 look like 0.5).
+    par = None
+    d_full = d_dim = r_full = r_dim = None
+    for candidate in (fx for fx in show.patch.fixtures if fx.kind is FixtureKind.PAR):
+        df = _role_value(show, full, candidate.id, ChannelRole.DIMMER)
+        if df is not None and df >= 20:
+            par = candidate
+            d_full = df
+            d_dim = _role_value(show, dim, candidate.id, ChannelRole.DIMMER)
+            r_full = _role_value(show, full, candidate.id, ChannelRole.RED)
+            r_dim = _role_value(show, dim, candidate.id, ChannelRole.RED)
+            break
+    assert par is not None
     assert d_full is not None and d_dim is not None
     assert d_full > 0
     assert abs(d_dim / d_full - 0.4) < 0.08
@@ -122,7 +130,8 @@ def test_master_scales_dimmer_only() -> None:
     fd_full = _role_value(show, full, face.id, ChannelRole.DIMMER)
     fd_dim = _role_value(show, dim, face.id, ChannelRole.DIMMER)
     assert fd_full and fd_dim
-    assert abs(fd_dim / fd_full - 0.4) < 0.08
+    # Face has its own fader. Show master must not scale that channel.
+    assert fd_dim == fd_full
 
 
 def test_bar_segment_and_whole_modes_exclusive() -> None:

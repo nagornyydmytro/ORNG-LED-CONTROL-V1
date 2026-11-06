@@ -3,14 +3,14 @@
 Priority, lowest first::
 
     preset → sweep → colour hit → white hit → strobe → drop
-           → face → master → blackout
+           → face → master
 
 Strobe and Sweep are live presets: while held they discard the pad preset's
 light/colour entirely and keep only moving-head pan/tilt from the episode.
 
-Blackout is not a layer here: the engine zeroes the *base* before composition,
-so Live Effects still compose on top. Absolute physical stop is Disarm / Art-Net
-gates — not Blackout.
+Blackout is a hard dark: while it is on, this function returns an empty stage.
+Live Effects may stay logically held, but they do not emit light until Blackout
+lifts. Beam axes are held by the renderer from the last pose, not from this stage.
 """
 
 from __future__ import annotations
@@ -601,6 +601,9 @@ def compose_layers(
     overlays: OverlayState,
     now: float,
 ) -> StageIntent:
+    if overlays.blackout:
+        return StageIntent()
+
     progress = sweep_progress(overlays, now)
     strobe_on = _strobe_active(overlays, now)
     # Strobe / Sweep = live preset: ignore pad colours, keep head motion only.

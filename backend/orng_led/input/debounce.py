@@ -46,6 +46,8 @@ class EdgeDebouncer:
             return False
         self._held.discard(key)
         self._last_accept[f"{key}:release"] = now
+        # Allow an immediate re-press after a clean release (hold keys).
+        self._last_accept.pop(f"{key}:press", None)
         return True
 
     def is_held(self, key: str) -> bool:

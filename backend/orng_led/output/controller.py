@@ -249,21 +249,26 @@ class OutputController:
         return []
 
     def wire_frame(self, frame: list[int], *, from_raw: bool = False) -> list[int]:
-        """Outbound safety: Art-Net light only when armed.
+        """Outbound safety: Art-Net light only when armed; blackout last-wins.
 
         While Art-Net UDP is active but disarmed, emit a safe-dark frame that
         keeps Beam axes at motion/home (never Pan/Tilt 0/0) and FIXED service
-        values, with light channels extinguished.
+        values, with light channels extinguished. Blackout then constrains every
+        source (engine, raw, calibration, phone, keyboard, macropad).
         """
+        from orng_led.engine.show_whitelist import apply_blackout_constraint
+
         if len(frame) != DMX_UNIVERSE_SIZE:
             raise OutputError(f"Frame length must be {DMX_UNIVERSE_SIZE}")
-        if from_raw and self.engine.overlays.blackout:
-            return empty_frame()
+        _ = from_raw  # Blackout last-wins for every source; raw is not exempt.
+        outbound = list(frame)
         if self.transport.kind is TransportKind.ARTNET and not self.armed:
             from orng_led.engine.renderer import safe_dark_frame
 
-            return safe_dark_frame(self.engine.show, self.engine.beam_motion)
-        return list(frame)
+            outbound = safe_dark_frame(self.engine.show, self.engine.beam_motion)
+        if self.engine.overlays.blackout:
+            outbound = apply_blackout_constraint(self.engine.show, outbound)
+        return outbound
 
     def publish(self, frame: list[int], *, from_raw: bool = False) -> None:
         """Send a frame according to safety rules."""
@@ -294,6 +299,26 @@ class OutputController:
 
     def on_visibility_hidden(self) -> dict[str, object]:
         return release_held_controls(self.engine, FailsafeReason.VISIBILITY_HIDDEN)
+
+    def emit_failsafe_dark(self) -> str:
+        """One attempt to send a safe-dark frame, then disarm. No retry.
+
+        Returns ``"sent"`` when the transport accepted the frame, or
+        ``"undeliverable"`` when the network/transport cannot confirm delivery.
+        """
+        from orng_led.engine.renderer import safe_dark_frame
+
+        self.engine.set_blackout(True)
+        self.armed = False
+        dark = safe_dark_frame(self.engine.show, self.engine.beam_motion)
+        try:
+            self.transport.send_frame(dark)
+            self.frames_sent += 1
+            self.last_error = None
+            return "sent"
+        except Exception as exc:  # noqa: BLE001 — delivery cannot be confirmed
+            self.last_error = str(exc)
+            return "undeliverable"
 
     def shutdown(self, *, zero_count: int = ZERO_FRAME_SHUTDOWN_COUNT) -> list[list[int]]:
         """Release holds, emit safe-dark frames, disarm, and return to Mock."""

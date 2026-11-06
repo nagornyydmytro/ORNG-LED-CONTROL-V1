@@ -1,6 +1,18 @@
 /// <reference types="vite/client" />
 /// <reference types="vitest/globals" />
 
+interface ImportMetaEnv {
+  readonly VITE_ORNG_CLOUD_ADMIN?: string;
+  /** Local FastAPI UI only: show DEV approve helper when `"true"`. */
+  readonly VITE_ORNG_CLOUD_DEV_APPROVE?: string;
+  /** App version from repo VERSION or VITE_ORNG_APP_VERSION. */
+  readonly VITE_ORNG_APP_VERSION?: string;
+}
+
+interface ImportMeta {
+  readonly env: ImportMetaEnv;
+}
+
 export interface HealthResponse {
   status: string;
   service: string;
@@ -10,6 +22,21 @@ export interface HealthResponse {
   artnet_network_enabled: boolean;
   frontend_dist_present: boolean;
   ready?: boolean;
+  scene_id?: string | null;
+  scene_name?: string | null;
+}
+
+export interface SceneInfo {
+  scene_id: string;
+  name: string;
+  path?: string;
+  error?: string | null;
+  active?: boolean;
+}
+
+export interface SceneListResponse {
+  scenes: SceneInfo[];
+  active: SceneInfo;
 }
 
 export interface EngineState {
@@ -166,6 +193,8 @@ export interface BeamCalibrationBeamView {
 export interface BeamCalibrationSessionView {
   active: boolean;
   fixture_id: string | null;
+  session_id?: string | null;
+  owner?: string | null;
   semantic_pan: number;
   semantic_tilt: number;
   visible_beam_requested: boolean;
@@ -218,7 +247,81 @@ export interface PreviewClip {
   fps: number;
   seconds: number;
   transport: string;
+  playback?: "engine" | "palette";
   safe_mock_preview: boolean;
+  frames: SimulatorView[];
+}
+
+export interface AutoFamilyInfo {
+  id: string;
+  title: string;
+  motion: string;
+  envelope: string;
+}
+
+export interface AutoCompositionInfo {
+  id: string;
+  family: string;
+  family_title?: string | null;
+  title: string;
+  groups: string[];
+  palettes: string[];
+  motion?: string | null;
+  notes?: string;
+  constraints?: string;
+  needs_segments?: boolean;
+  program?: "smooth" | "beat" | string;
+}
+
+export interface AutoPreviewQuery {
+  look: string;
+  cycleBeats: number;
+  palette: string;
+  intensity: string;
+  bpm: number;
+  frames?: number;
+}
+
+export interface AutoAvailableClip {
+  look: string;
+  cycle_beats: number;
+  palette: string;
+  intensity: string;
+}
+
+export interface AutoCatalog {
+  families: AutoFamilyInfo[];
+  compositions: AutoCompositionInfo[];
+  cycles: number[];
+  palettes: string[];
+  intensities?: string[];
+  count: number;
+  default_look?: string | null;
+  note?: string;
+  available?: AutoAvailableClip[];
+}
+
+export interface AutoPreviewClip {
+  look: string;
+  title?: string;
+  cycle_beats: number;
+  palette: string;
+  intensity: string;
+  bpm: number;
+  seconds: number;
+  transport: string;
+  playback?: string;
+  safe_mock_preview: boolean;
+  isolated?: boolean;
+  source?: string;
+  note?: string;
+  compatible: boolean;
+  reason?: string | null;
+  scene_id?: string | null;
+  scene_name?: string | null;
+  scene_hash?: string | null;
+  library_version?: string | null;
+  canonical?: boolean;
   frames: SimulatorView[];
 }
 
@@ -231,6 +334,56 @@ export interface SimulatorView {
   blackout_visual: boolean;
 }
 
+export type BpmSyncMode = "smooth" | "bar" | "beat";
+export type BpmSyncScope = "preset" | "auto";
+export type BpmPaletteId =
+  | "orange"
+  | "red"
+  | "blue"
+  | "violet"
+  | "amber"
+  | "white"
+  | "ember"
+  | "sunset"
+  | "ice"
+  | "night"
+  | "contrast"
+  | "forest"
+  | "carnival"
+  | "traffic"
+  | "bars"
+  | "heads";
+export type BpmCastId = "all" | "bars" | "heads";
+export type BpmCharacterId = "smooth" | "rhythmic" | "impact";
+export type BpmIntensityId = "soft" | "normal" | "full";
+export type BpmPeriodId = "auto" | 0.5 | 1 | 2 | 4 | 8;
+
+export interface BpmSyncState {
+  enabled: boolean;
+  scope?: BpmSyncScope;
+  mode: BpmSyncMode;
+  palette?: BpmPaletteId;
+  cast?: BpmCastId;
+  character?: BpmCharacterId;
+  intensity?: BpmIntensityId;
+  period?: BpmPeriodId | number | string;
+  par_rhythm?: boolean;
+  accent?: number;
+  par_note?: string | null;
+  look?: string | null;
+  look_title?: string | null;
+  section?: string;
+  bpm: number | null;
+  beat_phase?: number;
+  locked?: boolean;
+  /** Energy is present. Absent on an older runtime, which is not a lock. */
+  signal?: boolean;
+  device: string | null;
+  capture: string;
+  /** no_input / waiting / searching / locked / hold / fallback. Not a beat claim. */
+  sync?: "no_input" | "waiting" | "searching" | "locked" | "hold" | "fallback";
+}
+
 export interface AppState {
   engine: EngineState;
   output: OutputState;
@@ -239,10 +392,15 @@ export interface AppState {
   frame: number[];
   sequence: number;
   preview_speed: number;
+  bpm?: BpmSyncState | null;
   pad_presets?: string[];
   strobe_speed?: number;
   sweep_speed?: number;
   simulator: SimulatorView;
+  scene_id?: string | null;
+  scene_name?: string | null;
+  /** Operator location. Absent on a desktop that has only the active scene. */
+  location_id?: string | null;
   raw_tester?: {
     active: boolean;
     nonzero_channels: number;
@@ -253,6 +411,10 @@ export interface AppState {
   preset_editor_preview?: PresetEditorPreviewState | null;
   live_effects?: LiveEffectsState | null;
   beam_calibration?: BeamCalibrationState | null;
+  desk_role?: "local" | "raspberry" | null;
+  executor_online?: boolean | null;
+  executor_installation_id?: string | null;
+  capabilities?: string[] | null;
 }
 
 export interface PresetEditorPreviewState {

@@ -18,12 +18,15 @@ from orng_led.engine.intents import (
 from orng_led.engine.presets import CyclePosition
 from orng_led.engine.timing import (
     accent,
+    beat_hit,
     effect_rate_hz,
     movement_rate_hz,
     saw,
     unipolar_sine,
 )
-from orng_led.presets.models import EpisodeCard, PresetDocument
+from orng_led.presets.models import EpisodeCard, LookAction, PresetDocument, episode_actions
+from orng_led.presets.musical import action_cycle, musical_turns
+from orng_led.scenes.capabilities import look_supported, matches_groups
 
 PALETTE_RGBW: dict[str, Rgbw] = {
     "warm_orange": Rgbw(r=1.0, g=0.35, b=0.05),
@@ -55,58 +58,14 @@ class EffectPhase:
     movement_turns: float = 0.0
 
 
-TYPE_TAGS = frozenset({"par", "bar", "beam", "face"})
-SIDE_TAGS = frozenset({"left", "right"})
-RING_TAGS = frozenset({"inner", "outer"})
-
-
 def _matches_groups(fixture_groups: list[str], episode_groups: list[str]) -> bool:
-    """Match episode group selectors with dimensional AND / within-dimension OR.
-
-    ``["outer", "par"]`` → only outer PARs (not all PARs, not outer Bars).
-    ``["par", "beam"]`` → PARs or Beams.
-    ``["left", "right"]`` → left or right fixtures.
-    ``all_rear`` → any non-face rear fixture.
-    """
-    if not episode_groups:
-        return False
-    fx = set(fixture_groups)
-
-    if "all_rear" in episode_groups and len(episode_groups) == 1:
-        is_rear = bool(fx & {"all_rear", "rear", "par", "bar", "beam"})
-        return is_rear and "face" not in fx
-
-    wanted_types = set(episode_groups) & TYPE_TAGS
-    wanted_sides = set(episode_groups) & SIDE_TAGS
-    wanted_rings = set(episode_groups) & RING_TAGS
-    # Ignore all_rear when combined with more specific tags.
-    if not wanted_types and not wanted_sides and not wanted_rings:
-        if "all_rear" in episode_groups:
-            is_rear = bool(fx & {"all_rear", "rear", "par", "bar", "beam"})
-            return is_rear and "face" not in fx
-        return False
-
-    if "face" in fx and "face" not in wanted_types:
-        return False
-    if wanted_types and not (fx & wanted_types):
-        return False
-    if wanted_sides and not (fx & wanted_sides):
-        return False
-    if wanted_rings and not (fx & wanted_rings):
-        return False
-    return True
+    return matches_groups(fixture_groups, episode_groups)
 
 
 def _selected_ids(episode: EpisodeCard, show: ShowConfig) -> set[str]:
-    """Fixtures lit by an episode, never an empty stage.
-
-    A selector such as ``["outer", "beam"]`` intersects to nothing because beams
-    carry no ring tag. An episode is a look, not a pause, so an impossible
-    combination falls back to every rear fixture instead of 18 dark seconds.
-    """
+    """Fixtures whose groups match. An empty match stays empty."""
     rear = [f for f in show.patch.fixtures if f.kind is not FixtureKind.FACE_PAR]
-    selected = {f.id for f in rear if _matches_groups(f.groups, episode.groups)}
-    return selected or {f.id for f in rear}
+    return {f.id for f in rear if _matches_groups(f.groups, episode.groups)}
 
 
 @dataclass
@@ -168,15 +127,21 @@ class YamlPresetProgram:
 
     def effect_turns(self, time_s: float, *, rate_scale: float = 1.0) -> float:
         scale = max(0.0, float(rate_scale))
-        return self._accumulated_turns(
-            time_s, lambda ep: effect_rate_hz(ep.speed, ep.effect) * scale
-        )
+        return self._accumulated_turns(time_s, lambda ep: _free_run_hz(ep) * scale)
 
     def movement_turns(self, time_s: float, *, rate_scale: float = 1.0) -> float:
         scale = max(0.0, float(rate_scale))
         return self._accumulated_turns(
             time_s, lambda ep: movement_rate_hz(ep.speed) * scale
         )
+
+    def primary_cycle_beats(self, time_s: float) -> int | None:
+        """Period of the first action in the episode at ``time_s``."""
+        pos = self.cycle_position(time_s)
+        actions = episode_actions(self.document.episodes[pos.episode_index])
+        if not actions:
+            return None
+        return action_cycle(actions[0])
 
     def evaluate(
         self,
@@ -186,6 +151,7 @@ class YamlPresetProgram:
         effect_rate_scale: float = 1.0,
         effect_turns: float | None = None,
         movement_turns: float | None = None,
+        musical_beats: float | None = None,
     ) -> StageIntent:
         pos = self.cycle_position(cycle_time_s)
         episode = self.document.episodes[pos.episode_index]
@@ -203,9 +169,9 @@ class YamlPresetProgram:
                 else self.movement_turns(cycle_time_s, rate_scale=effect_rate_scale)
             ),
         )
-        current = _evaluate_episode(episode, pos, clock, show)
+        current = _evaluate_episode(episode, pos, clock, show, musical_beats=musical_beats)
 
-        blend = _transition_blend(episode.transition, pos.episode_time_s)
+        blend = _transition_blend(episode.transition, pos.episode_time_s, episode.duration_s)
         if blend <= 0.0:
             return current
 
@@ -219,28 +185,34 @@ class YamlPresetProgram:
             episode_time_s=max(0.0, prev_episode.duration_s - 1e-6),
             episode_progress=1.0,
         )
-        previous = _evaluate_episode(prev_episode, prev_pos, clock, show)
+        previous = _evaluate_episode(
+            prev_episode, prev_pos, clock, show, musical_beats=musical_beats
+        )
         return _blend_stage(previous, current, 1.0 - blend)
 
 
-def _transition_blend(transition: str, episode_time_s: float) -> float:
+def _transition_window(transition: str, episode_duration_s: float) -> float:
+    """Show-time window. A shorter episode finishes the same curve inside itself."""
+    if transition == "fade":
+        canonical = FADE_DURATION_S
+    elif transition == "soft":
+        canonical = SOFT_DURATION_S
+    else:
+        return 0.0
+    return min(canonical, max(float(episode_duration_s), 1e-3))
+
+
+def _transition_blend(transition: str, episode_time_s: float, episode_duration_s: float) -> float:
     """Return blend weight of *previous* episode (1 → fully previous, 0 → current)."""
-    if transition == "cut":
+    duration = _transition_window(transition, episode_duration_s)
+    if duration <= 0.0 or episode_time_s >= duration:
         return 0.0
     if transition == "fade":
-        duration = FADE_DURATION_S
-        if episode_time_s >= duration:
-            return 0.0
         return 1.0 - (episode_time_s / duration)
-    if transition == "soft":
-        duration = SOFT_DURATION_S
-        if episode_time_s >= duration:
-            return 0.0
-        # Smoothstep ease for a softer ramp than linear fade.
-        t = episode_time_s / duration
-        eased = t * t * (3.0 - 2.0 * t)
-        return 1.0 - eased
-    return 0.0
+    # Smoothstep ease for a softer ramp than linear fade.
+    t = episode_time_s / duration
+    eased = t * t * (3.0 - 2.0 * t)
+    return 1.0 - eased
 
 
 def _lerp(a: float, b: float, t: float) -> float:
@@ -256,13 +228,51 @@ def _blend_rgbw(a: Rgbw, b: Rgbw, t: float) -> Rgbw:
     )
 
 
+def _one_sided(intent: FixtureIntent, level: float) -> FixtureIntent:
+    """A fixture that exists on only one side of the cut.
+
+    PAR and bar dimmers follow the blend. A head is on or off: it does not
+    pretend to dim, and a missing side does not pull pan or tilt toward zero.
+    """
+    level = max(0.0, min(1.0, level))
+    if isinstance(intent, ParIntent):
+        return ParIntent(
+            color=intent.color,
+            intensity=intent.intensity * level,
+            strobe=intent.strobe * level,
+        )
+    if isinstance(intent, BarIntent):
+        return BarIntent(
+            segments=intent.segments,
+            dimmer=intent.dimmer * level,
+            color=intent.color,
+            strobe=intent.strobe * level,
+            whole=intent.whole,
+        )
+    on = level >= 0.5 and intent.dimmer > 0.02
+    return BeamIntent(
+        pan=intent.pan,
+        tilt=intent.tilt,
+        dimmer=1.0 if on else 0.0,
+        color=intent.color,
+        wheel=intent.wheel,
+        shutter_open=intent.shutter_open if on else False,
+        strobe=intent.strobe if on else 0.0,
+    )
+
+
 def _blend_intent(
     a: FixtureIntent | None, b: FixtureIntent | None, t: float
 ) -> FixtureIntent | None:
-    if a is None:
-        return b
-    if b is None:
-        return a
+    # t=0 is the previous episode, t=1 is the current one.
+    if a is None and b is None:
+        return None
+    if a is None and b is not None:
+        return _one_sided(b, t)
+    if b is None and a is not None:
+        return _one_sided(a, 1.0 - t)
+    if a is None or b is None:
+        return None
     if isinstance(a, ParIntent) and isinstance(b, ParIntent):
         return ParIntent(
             color=_blend_rgbw(a.color, b.color, t),
@@ -329,7 +339,7 @@ def _blend_stage(previous: StageIntent, current: StageIntent, t: float) -> Stage
     return out
 
 
-def _effect_level(effect: str, turns: float, speed: float) -> float:
+def _effect_level(effect: str, turns: float, speed: float, *, musical: bool = False) -> float:
     """0..1 modulation of one fixture at the given accumulated phase."""
     if effect == "static":
         return 1.0
@@ -343,12 +353,14 @@ def _effect_level(effect: str, turns: float, speed: float) -> float:
         return 0.06 + 0.94 * unipolar_sine(turns)
     if effect == "pulse":
         # Sharper the faster it runs, so P08–P10 read as accents, not a hum.
-        return 0.02 + 0.98 * accent(turns, 1.6 + 2.6 * speed)
+        shape = beat_hit if musical else accent
+        return 0.02 + 0.98 * shape(turns, 1.6 + 2.6 * speed)
     # Wave / chase / mirror: full 0..1 so the dark part of the run is truly off.
     if effect == "wave":
         return unipolar_sine(turns)
     if effect == "chase":
-        return accent(turns, 1.4 + 2.0 * speed)
+        shape = beat_hit if musical else accent
+        return shape(turns, 1.4 + 2.0 * speed)
     if effect == "mirror_sweep":
         return unipolar_sine(turns)
     return 0.7
@@ -401,11 +413,96 @@ def _bar_x(fixture: FixtureInstance, show: ShowConfig) -> float:
     return max(0.0, min(1.0, (order - 1) / 7.0))
 
 
+def _action_card(episode: EpisodeCard, action: LookAction) -> EpisodeCard:
+    return episode.model_copy(
+        update={
+            "id": action.id or episode.id,
+            "groups": list(action.groups),
+            "palette": action.palette or episode.palette,
+            "effect": action.effect,
+            "speed": action.speed,
+            "intensity": action.intensity,
+            "cycle_beats": action.cycle_beats,
+            "actions": [],
+        }
+    )
+
+
+def _free_run_hz(episode: EpisodeCard) -> float:
+    """Hz represented by the integrated clock.
+
+    A card with no action list keeps its own speed. A list uses the first
+    action that actually moves, so that action's phase is the clock itself
+    and every later speed is a ratio of it. The ratio is applied once.
+    """
+    if episode.actions:
+        for action in episode.actions:
+            rate = effect_rate_hz(action.speed, action.effect)
+            if rate > 1e-9:
+                return rate
+        return 0.0
+    return effect_rate_hz(episode.speed, episode.effect)
+
+
+def _action_turns(
+    episode: EpisodeCard,
+    action: LookAction,
+    clock: EffectPhase,
+    *,
+    musical_beats: float | None,
+) -> tuple[float, bool]:
+    """Phase for one action, and whether a musical period owns it.
+
+    A locked beat clock replaces the free-running phase. It is not multiplied
+    by it. Static has no period.
+    """
+    if musical_beats is not None:
+        cycle = action_cycle(action)
+        if cycle:
+            return musical_turns(musical_beats, cycle), True
+        return 0.0, False
+    action_hz = effect_rate_hz(action.speed, action.effect)
+    if action_hz <= 1e-9:
+        return 0.0, False
+    reference = _free_run_hz(episode)
+    if reference <= 1e-9:
+        return 0.0, False
+    return clock.effect_turns * (action_hz / reference), False
+
+
 def _evaluate_episode(
     episode: EpisodeCard,
     pos: CyclePosition,
     clock: EffectPhase,
     show: ShowConfig,
+    *,
+    musical_beats: float | None = None,
+) -> StageIntent:
+    intent = StageIntent()
+    # Later actions replace the whole intent of a shared fixture. This is
+    # ordered replacement, not a mix of the two looks.
+    for action in episode_actions(episode):
+        turns, musical = _action_turns(
+            episode, action, clock, musical_beats=musical_beats
+        )
+        part = _evaluate_card(
+            _action_card(episode, action),
+            pos,
+            EffectPhase(effect_turns=turns, movement_turns=clock.movement_turns),
+            show,
+            musical=musical,
+        )
+        intent.fixtures.update(part.fixtures)
+    return intent
+
+
+def _evaluate_card(
+    episode: EpisodeCard,
+    pos: CyclePosition,
+    clock: EffectPhase,
+    show: ShowConfig,
+    *,
+    musical: bool = False,
 ) -> StageIntent:
     intent = StageIntent()
     color = PALETTE_RGBW.get(episode.palette, PALETTE_RGBW["warm_orange"])
@@ -418,6 +515,9 @@ def _evaluate_episode(
             continue
         if fixture.id not in selection:
             continue
+        profile = show.profile_for(fixture)
+        if not look_supported(profile, fixture.kind.value, episode.effect):
+            continue
 
         offset = _spatial_offset(fixture, show)
         if mirrored:
@@ -428,7 +528,12 @@ def _evaluate_episode(
             local_turns = turns
         else:
             local_turns = turns - offset
-        level = _effect_level(episode.effect, local_turns, episode.speed)
+        envelope_turns = (
+            turns if musical and episode.effect in {"pulse", "chase"} else local_turns
+        )
+        level = _effect_level(
+            episode.effect, envelope_turns, episode.speed, musical=musical
+        )
         intensity = max(0.0, min(1.0, episode.intensity * level))
 
         if fixture.kind is FixtureKind.PAR:
@@ -440,6 +545,8 @@ def _evaluate_episode(
                 level,
                 bar_x=_bar_x(fixture, show),
                 episode_progress=pos.episode_progress,
+                pinch_cycles=1.0 if musical else 5.0,
+                musical=musical,
             )
             # Chase/wave/mirror use segments; solid washes prefer whole color.
             whole = episode.effect in {"static", "breathe", "pulse", "glow"}
@@ -491,6 +598,8 @@ def _bar_segments(
     *,
     bar_x: float = 0.0,
     episode_progress: float = 0.0,
+    pinch_cycles: float = 5.0,
+    musical: bool = False,
 ) -> tuple[float, ...]:
     """Per-segment levels; segment 0 is the bottom of a vertically mounted Bar."""
     effect = episode.effect
@@ -515,9 +624,15 @@ def _bar_segments(
         # 8 segments (even): grow 1..4 from EACH end so the two fronts meet
         # as a pair (indices 3+4) — there is no single centre cell to leave dark.
         # Integer counts keep top/bottom in lockstep on on/off palette bars.
-        cycles = 5.0
-        phase = (max(0.0, min(1.0, episode_progress)) * cycles) % 1.0
-        grow = 1.0 - abs(2.0 * phase - 1.0)  # 0 → 1 → 0
+        if pinch_cycles == 1.0:
+            phase = turns % 1.0
+        else:
+            cycles = pinch_cycles
+            phase = (max(0.0, min(1.0, episode_progress)) * cycles) % 1.0
+        if musical:
+            grow = abs(2.0 * phase - 1.0)  # 1 on the grid hit, then close
+        else:
+            grow = 1.0 - abs(2.0 * phase - 1.0)  # 0 → 1 → 0
         count = min(4, max(1, 1 + int(grow * 3.999999)))
         for index in range(8):
             from_bottom = (index + 1) <= count

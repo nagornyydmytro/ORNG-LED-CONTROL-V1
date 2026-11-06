@@ -1,5 +1,6 @@
 import { onBeforeUnmount, ref } from "vue";
 import { fetchPreviewClip } from "../api/client";
+import { takeScenePort } from "../runtime/scenePort";
 import type { SimulatorView } from "../vite-env";
 
 /**
@@ -14,6 +15,7 @@ export function usePreviewClip() {
   const loading = ref(false);
   const error = ref<string | null>(null);
   const frameCount = ref(0);
+  const paletteSample = ref(false);
   /** Position inside the clip, in show seconds — drives the preview clock. */
   const timeS = ref(0);
   const startS = ref(0);
@@ -40,7 +42,11 @@ export function usePreviewClip() {
     error.value = null;
     startS.value = fromS;
     try {
-      const clip = await fetchPreviewClip(id, seconds, fps, fromS);
+      const port = takeScenePort();
+      const clip = port?.previewClip
+        ? await port.previewClip(id, seconds, fps, fromS)
+        : await fetchPreviewClip(id, seconds, fps, fromS);
+      paletteSample.value = clip.playback === "palette";
       frames = clip.frames;
       frameCount.value = frames.length;
       index = 0;
@@ -67,5 +73,5 @@ export function usePreviewClip() {
 
   onBeforeUnmount(stop);
 
-  return { presetId, loading, error, frameCount, timeS, startS, view, load, clear };
+  return { presetId, loading, error, frameCount, paletteSample, timeS, startS, view, load, clear };
 }

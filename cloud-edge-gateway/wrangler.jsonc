@@ -1,0 +1,22 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // Notifications account ONLY — DNS/Access edge. Never pin Events here.
+  "account_id": "a0ccabcaebdd05adca6a91cb7fddbfee",
+  "name": "orng-led-edge-gateway",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-03-01",
+  "workers_dev": true,
+  // Intentionally empty: no D1 / R2 / DO / KV / Queues.
+  "vars": {
+    "ENVIRONMENT": "production",
+    "ORIGIN_URL": "https://orng-led-control.orng-events-bot.workers.dev",
+    "ADMIN_HOST": "light.orng.wtf",
+    "DEVICE_HOST": "device.light.orng.wtf",
+    "GATEWAY_MAX_SKEW_S": "60"
+  },
+  // GATEWAY_HMAC_SECRET via `wrangler secret put` only — never in vars/repo.
+  "routes": [
+    { "pattern": "light.orng.wtf", "custom_domain": true },
+    { "pattern": "device.light.orng.wtf", "custom_domain": true }
+  ]
+}

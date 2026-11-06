@@ -19,7 +19,8 @@ param(
     [int]$NetworkTimeoutSec = 20,
     [int]$HealthTimeoutSec = 120,
     [switch]$SkipBuild,
-    [switch]$NoChrome
+    [switch]$NoChrome,
+    [switch]$LocalOutput
 )
 
 $ErrorActionPreference = "Stop"
@@ -158,19 +159,12 @@ function Ensure-ArtNetNetwork {
     }
 }
 
-function Stop-PortListener {
+function Assert-PortAvailable {
     param([int]$BindPort)
-    try {
-        $listeners = Get-NetTCPConnection -LocalPort $BindPort -State Listen -ErrorAction SilentlyContinue
-        foreach ($item in @($listeners)) {
-            if ($item.OwningProcess) {
-                Write-Step "Stopping old process on port $BindPort (PID $($item.OwningProcess))" "Yellow"
-                Stop-Process -Id $item.OwningProcess -Force -ErrorAction SilentlyContinue
-            }
-        }
-    }
-    catch { }
-    Start-Sleep -Seconds 1
+    $listeners = @(Get-NetTCPConnection -LocalPort $BindPort -State Listen -ErrorAction SilentlyContinue)
+    if ($listeners.Count -eq 0) { return }
+    $pids = @($listeners | ForEach-Object { $_.OwningProcess } | Select-Object -Unique)
+    throw "Port $BindPort is already in use by PID $($pids -join ','). ORNG does not stop other programs."
 }
 
 function Test-ApiReady {
@@ -196,7 +190,7 @@ function Start-OrngServer {
         throw "Missing $RunScript"
     }
 
-    Stop-PortListener -BindPort $Port
+    Assert-PortAvailable -BindPort $Port
 
     $dist = Join-Path $RepoRoot "frontend\dist\index.html"
     $useSkip = $SkipBuild -or (Test-Path $dist)
@@ -384,13 +378,27 @@ Write-Host ""
 
 try {
     Set-Location $RepoRoot
-    Ensure-ArtNetNetwork
-    Start-OrngServer
-    try {
-        Initialize-ShowSafe
+    if ($LocalOutput) {
+        $env:ORNG_DESKTOP_OUTPUT = "local"
+        Write-Step "Local Art-Net selected explicitly. Wi-Fi and the default route are not changed."
+        Ensure-ArtNetNetwork
     }
-    catch {
-        Write-Step ("Show init warning: {0}" -f $_.Exception.Message) "Yellow"
+    else {
+        $env:ORNG_DESKTOP_OUTPUT = "raspberry"
+        $env:ORNG_OUTPUT_POLICY = "manual"
+        Write-Step "Output stays on the location Raspberry. This computer will not send Art-Net." "Green"
+    }
+    Start-OrngServer
+    if ($LocalOutput) {
+        try {
+            Initialize-ShowSafe
+        }
+        catch {
+            Write-Step ("Show init warning: {0}" -f $_.Exception.Message) "Yellow"
+        }
+    }
+    else {
+        Write-Step "Blackout and arm stay with the Raspberry. This window only opens the desk." "Green"
     }
     Open-AdminUi
     Write-Host ""

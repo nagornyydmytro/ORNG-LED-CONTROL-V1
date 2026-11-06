@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 from orng_led.api.runtime import AppRuntime
-from orng_led.config import default_config_dir, load_show_config
+from orng_led.config import default_scene_dir, load_show_config
 from orng_led.engine.engine import Engine
 from orng_led.engine.layers import DROP_MAX_DURATION_S
 from orng_led.engine.show_whitelist import assert_lights_dark
@@ -16,7 +16,7 @@ from orng_led.simulator.decode import decode_simulator_view
 
 def _engine(preset_id: str = "P05") -> Engine:
     show = load_show_config()
-    programs = PresetStore.load(default_config_dir() / "presets").programs()
+    programs = PresetStore.load(default_scene_dir() / "presets").programs()
     engine = Engine(show=show, presets=programs, active_preset_id=preset_id)
     engine.set_blackout(False)
     engine.set_face(True)
@@ -120,7 +120,7 @@ def test_sweep_hit_travels_left_to_right_over_the_layout() -> None:
     assert min(centroids) < 0.45 and max(centroids) > 0.55
 
 
-def test_live_effects_work_during_blackout_then_return_to_zero() -> None:
+def test_live_effects_stay_dark_during_blackout_then_return_to_zero() -> None:
     engine = _engine("P10")
     engine.set_face(False)
     engine.set_blackout(True)
@@ -129,7 +129,7 @@ def test_live_effects_work_during_blackout_then_return_to_zero() -> None:
 
     engine.trigger_white_hit()
     lit = engine.tick(dt_s=1 / 30, wall_dt_s=1 / 30)
-    assert any(lit.frame), "Live Effects must light fixtures even under Blackout"
+    assert_lights_dark(engine.show, lit.frame)
 
     # After the hit expires, Blackout base is still zero.
     engine.overlays.white_hit_until = None

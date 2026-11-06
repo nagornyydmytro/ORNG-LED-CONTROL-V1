@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import copy
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -11,7 +13,7 @@ import yaml
 from orng_led.config import (
     SCHEMA_VERSION,
     ConfigError,
-    default_config_dir,
+    default_scene_dir,
     global_channel,
     load_show_config,
     save_model,
@@ -19,6 +21,26 @@ from orng_led.config import (
 )
 from orng_led.config.io import atomic_write_yaml, load_app_config, parse_model
 from orng_led.config.models import AppConfig, FixtureProfile, PatchDocument
+
+
+def test_load_show_config_in_clean_subprocess() -> None:
+    """Regression: config import must not require a warm import order."""
+    backend_root = Path(__file__).resolve().parents[1]
+    script = (
+        "from orng_led.config import load_show_config; "
+        "show = load_show_config(); "
+        "assert show.patch.fixtures; "
+        "print(len(show.patch.fixtures))"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=str(backend_root),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert int(result.stdout.strip()) >= 1
 
 
 def test_provisional_show_config_loads() -> None:
@@ -56,7 +78,7 @@ def test_provisional_patch_has_no_overlaps() -> None:
 
 
 def test_yaml_round_trip_app_config(tmp_path: Path) -> None:
-    source = default_config_dir() / "app.yaml"
+    source = default_scene_dir() / "app.yaml"
     app = load_app_config(source)
     target = tmp_path / "app-roundtrip.yaml"
     save_model(target, app)

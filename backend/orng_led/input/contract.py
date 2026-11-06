@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Literal
+
+# Browser tab source ids: web:<id>, length-bounded, safe charset (no path tricks).
+_WEB_SOURCE_RE = re.compile(r"^web:[A-Za-z0-9_-]{1,80}$")
+_MAX_SOURCE_ID_LEN = 96
 
 
 class InputSource(StrEnum):
@@ -57,6 +62,35 @@ class InputEvent:
     pad_slot: int | None = None
     edge: Edge | None = None
     client_command_id: str | None = None
+    source_id: str | None = None
+    # Cloud hold id. A late release whose token does not match is ignored.
+    hold_token: str | None = None
+
+
+def legacy_source_id(source: InputSource) -> str:
+    """Synthetic source id when callers omit ``source_id`` (back-compat)."""
+    return f"legacy:{source.value}"
+
+
+def resolve_source_id(event: InputEvent) -> str:
+    if event.source_id:
+        return str(event.source_id)
+    return legacy_source_id(event.source)
+
+
+def normalize_web_source_id(value: str | None) -> str | None:
+    """Return a validated ``web:<id>`` or ``None`` if missing/invalid.
+
+    Invalid values must not be trusted — callers fall back to a server UUID.
+    """
+    if value is None:
+        return None
+    cleaned = str(value).strip()
+    if not cleaned or len(cleaned) > _MAX_SOURCE_ID_LEN:
+        return None
+    if not _WEB_SOURCE_RE.fullmatch(cleaned):
+        return None
+    return cleaned
 
 
 BRIGHTNESS_STEP = 0.05

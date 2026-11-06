@@ -1,55 +1,58 @@
 <script setup lang="ts">
-import { computed, inject, onMounted, ref, watch } from "vue";
+import { computed, inject, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import {
-  DEFAULT_CHANNEL_PALETTE,
   FALLBACK_CHANNEL_ROLES,
   PALETTE_KEYS,
   fetchChannelRoles,
   fetchPatch,
   fetchProfiles,
   saveProfile,
-  setupPost,
   type ChannelRoleOption,
 } from "../api/setup";
 import { APP_STATE_KEY } from "../composables/appStateKey";
-
-const appState = inject(APP_STATE_KEY, null);
+import { publishLocationDraft, savedLocationMessage, sceneSyncDetail, sceneSyncPhase } from "../runtime/scenePort";
+import {
+  channelDraftFrom,
+  commitProfile,
+  type ChannelDraft,
+  type ChannelIssue,
+} from "./channelCommit";
 
 const FIXTURE_TYPES = [
-  { id: "par", label: "PAR", kinds: ["par", "face_par"] as const, footprint: 7 },
-  { id: "bar", label: "LED Bar", kinds: ["bar"] as const, footprint: 15 },
-  { id: "beam", label: "Beam Head", kinds: ["beam"] as const, footprint: 13 },
+  { id: "par", label: "PAR", kinds: ["par", "face_par"] as const },
+  { id: "bar", label: "LED Bar", kinds: ["bar"] as const },
+  { id: "beam", label: "Beam Head", kinds: ["beam"] as const },
 ] as const;
 
 type FixtureTypeId = (typeof FIXTURE_TYPES)[number]["id"];
 
-interface ChannelEdit {
-  local: number;
-  role: string;
-  label: string;
-  fixed_value: number | null;
-  segment_index: number | null;
-  palette: Record<string, number> | null;
-  control_values: Record<string, number> | null;
+interface ChannelEdit extends ChannelDraft {
   controlOpen: boolean;
-  testValue: number;
   paletteOpen: boolean;
+  fieldError: Record<string, string>;
 }
+
+const CHANNEL_STASH = "orng-unsaved-channels:";
+const appState = inject(APP_STATE_KEY, null);
 
 const loading = ref(true);
 const saving = ref(false);
-const testing = ref(false);
 const message = ref<string | null>(null);
 const error = ref<string | null>(null);
+const dirty = ref(false);
 
 const selectedType = ref<FixtureTypeId | "">("");
 const selectedFixtureId = ref("");
 const selectedProfileId = ref("");
+const formProfileId = ref("");
+const baselineJson = ref("");
 
 const patch = ref<Record<string, unknown> | null>(null);
 const profiles = ref<Record<string, Record<string, unknown>>>({});
 const roleOptions = ref<ChannelRoleOption[]>([...FALLBACK_CHANNEL_ROLES]);
 const channels = ref<ChannelEdit[]>([]);
+
+const sceneKey = computed(() => String(appState?.state?.value?.scene_id || "local"));
 
 const fixtures = computed(() => {
   const list = patch.value?.fixtures;
@@ -65,90 +68,19 @@ const fixturesOfType = computed(() => {
   return fixtures.value.filter((fx) => kinds.has(String(fx.kind ?? "")));
 });
 
-const selectedFixture = computed(
-  () => fixturesOfType.value.find((fx) => String(fx.id) === selectedFixtureId.value) ?? null,
-);
-
 const selectedProfile = computed(() => {
   if (!selectedProfileId.value) return null;
   return profiles.value[selectedProfileId.value] ?? null;
 });
 
-const roleLabelMap = computed(() => {
-  const map = new Map<string, string>();
-  for (const opt of roleOptions.value) {
-    map.set(opt.role, opt.label);
-  }
-  return map;
+const sharedFixtures = computed(() => {
+  if (!selectedProfileId.value) return [] as Record<string, unknown>[];
+  return fixtures.value.filter((fx) => String(fx.profile_id ?? "") === selectedProfileId.value);
 });
 
-function clampByte(value: number): number {
-  if (!Number.isFinite(value)) return 0;
-  return Math.max(0, Math.min(255, Math.round(value)));
-}
-
-function emptyChannel(local: number): ChannelEdit {
-  return {
-    local,
-    role: "unused",
-    label: "Не призначено",
-    fixed_value: null,
-    segment_index: null,
-    palette: null,
-    control_values: null,
-    controlOpen: false,
-    testValue: 0,
-    paletteOpen: false,
-  };
-}
-
-function channelFromProfile(raw: Record<string, unknown>, local: number): ChannelEdit {
-  const paletteRaw = raw.palette;
-  let palette: Record<string, number> | null = null;
-  if (paletteRaw && typeof paletteRaw === "object") {
-    palette = { ...DEFAULT_CHANNEL_PALETTE };
-    for (const key of PALETTE_KEYS) {
-      const v = (paletteRaw as Record<string, unknown>)[key];
-      if (typeof v === "number") palette[key] = clampByte(v);
-    }
-  }
-  const controlRaw = raw.control_values;
-  let control_values: Record<string, number> | null = null;
-  if (controlRaw && typeof controlRaw === "object") {
-    control_values = {};
-    for (const [key, value] of Object.entries(controlRaw as Record<string, unknown>)) {
-      if (typeof value === "number") control_values[key] = clampByte(value);
-    }
-  }
-  return {
-    local,
-    role: String(raw.role ?? "unused"),
-    label: raw.label != null ? String(raw.label) : "",
-    fixed_value: raw.fixed_value == null ? null : clampByte(Number(raw.fixed_value)),
-    segment_index: raw.segment_index == null ? null : Number(raw.segment_index),
-    palette,
-    control_values,
-    controlOpen: false,
-    testValue: 0,
-    paletteOpen: false,
-  };
-}
-
-function ensurePalette(ch: ChannelEdit): Record<string, number> {
-  if (!ch.palette) {
-    ch.palette = { ...DEFAULT_CHANNEL_PALETTE };
-  }
-  return ch.palette;
-}
-
-function needsPalette(role: string, hasPalette: boolean): boolean {
-  return (
-    role === "whole_color" ||
-    role === "color" ||
-    role === "segment_color" ||
-    hasPalette
-  );
-}
+const sharedFixtureNames = computed(() =>
+  sharedFixtures.value.map((fx) => String(fx.label ?? fx.id)).join(", "),
+);
 
 const CONTROL_KEYS_BY_ROLE: Record<string, string[]> = {
   shutter: ["closed", "open"],
@@ -161,54 +93,81 @@ const CONTROL_KEYS_BY_ROLE: Record<string, string[]> = {
   whole_color: ["off"],
 };
 
+function needsPalette(role: string): boolean {
+  return role === "whole_color" || role === "color" || role === "segment_color";
+}
+
 function needsControlValues(role: string): boolean {
   return role in CONTROL_KEYS_BY_ROLE;
 }
 
-function ensureControlValues(ch: ChannelEdit): Record<string, number> {
-  const keys = CONTROL_KEYS_BY_ROLE[ch.role] ?? [];
-  if (!ch.control_values) ch.control_values = {};
-  for (const key of keys) {
-    if (ch.control_values[key] == null) {
-      ch.control_values[key] =
-        key === "open" || key === "max" ? 255 : key === "neutral" ? 128 : key === "min" ? 32 : 0;
-    }
-  }
-  return ch.control_values;
+function paletteKeys(ch: ChannelEdit): string[] {
+  const extra = Object.keys(ch.paletteRaw).filter(
+    (key) => !(PALETTE_KEYS as readonly string[]).includes(key),
+  );
+  return [...PALETTE_KEYS, ...extra];
 }
 
-function loadChannelsFromProfile(profileId: string, footprint: number) {
+function controlKeys(ch: ChannelEdit): string[] {
+  const known = CONTROL_KEYS_BY_ROLE[ch.role] ?? [];
+  const extra = Object.keys(ch.controlRaw).filter((key) => !known.includes(key));
+  return [...known, ...extra];
+}
+
+function showPalette(ch: ChannelEdit): boolean {
+  return needsPalette(ch.role) || Object.keys(ch.paletteRaw).length > 0;
+}
+
+function showControl(ch: ChannelEdit): boolean {
+  return needsControlValues(ch.role) || Object.keys(ch.controlRaw).length > 0;
+}
+
+function profileChannelCount(profile: Record<string, unknown> | null): number {
+  const rawList = Array.isArray(profile?.channels)
+    ? (profile.channels as Record<string, unknown>[])
+    : [];
+  const locals = rawList
+    .map((raw) => Number(raw.local))
+    .filter((local) => Number.isFinite(local) && local >= 1);
+  if (locals.length === 0) return rawList.length;
+  return Math.max(rawList.length, ...locals);
+}
+
+function asEdit(draft: ChannelDraft): ChannelEdit {
+  return { ...draft, controlOpen: false, paletteOpen: false, fieldError: {} };
+}
+
+function loadChannelsFromProfile(profileId: string) {
   const profile = profiles.value[profileId];
   const rawList = Array.isArray(profile?.channels)
-    ? (profile!.channels as Record<string, unknown>[])
+    ? (profile.channels as Record<string, unknown>[])
     : [];
   const byLocal = new Map<number, Record<string, unknown>>();
   for (const raw of rawList) {
     const local = Number(raw.local);
     if (Number.isFinite(local) && local >= 1) byLocal.set(local, raw);
   }
+  const count = profileChannelCount(profile ?? null);
   const next: ChannelEdit[] = [];
-  for (let local = 1; local <= footprint; local += 1) {
-    const raw = byLocal.get(local);
-    next.push(raw ? channelFromProfile(raw, local) : emptyChannel(local));
+  for (let local = 1; local <= count; local += 1) {
+    next.push(asEdit(channelDraftFrom(byLocal.get(local), local)));
   }
   channels.value = next;
+}
+
+function showProfile(profileId: string) {
+  selectedProfileId.value = profileId;
+  formProfileId.value = profileId;
+  loadChannelsFromProfile(profileId);
+  baselineJson.value = JSON.stringify(profiles.value[profileId] ?? null);
+  dirty.value = false;
 }
 
 function pickProfileForType(typeId: FixtureTypeId): string {
   const meta = FIXTURE_TYPES.find((t) => t.id === typeId);
   if (!meta) return "";
   const kinds = new Set<string>(meta.kinds);
-  const matches = Object.values(profiles.value).filter((p) => {
-    const kind = String(p.kind ?? "");
-    const footprint = Number(p.footprint ?? 0);
-    return kinds.has(kind) && footprint === meta.footprint;
-  });
-  if (matches.length === 0) {
-    const loose = Object.values(profiles.value).filter((p) => kinds.has(String(p.kind ?? "")));
-    return loose[0] ? String(loose[0].id) : "";
-  }
-  // Prefer rear PAR over face_par when type is PAR.
+  const matches = Object.values(profiles.value).filter((p) => kinds.has(String(p.kind ?? "")));
   const preferred = matches.find((p) => String(p.kind) === typeId) ?? matches[0];
   return preferred ? String(preferred.id) : "";
 }
@@ -218,205 +177,215 @@ function setStatus(ok: string | null, err: string | null = null) {
   error.value = err;
 }
 
-function globalDmx(local: number): number | null {
-  const fx = selectedFixture.value;
-  if (!fx) return null;
-  const start = Number(fx.start_address);
-  if (!Number.isFinite(start) || start < 1) return null;
-  return start + local - 1;
-}
-
-function assignmentLabel(ch: ChannelEdit): string {
-  const roleLabel = roleLabelMap.value.get(ch.role) ?? ch.role;
-  if (ch.label && ch.label.trim()) return `${roleLabel} · ${ch.label}`;
-  return roleLabel;
-}
-
-async function refreshAfterTest() {
-  await appState?.refreshRest?.();
-}
-
-async function beginTesting() {
-  if (!selectedFixtureId.value) {
-    setStatus(null, "Спочатку виберіть фізичний прилад");
-    return;
-  }
-  try {
-    await setupPost("fixture-channel-test/begin", { fixture_id: selectedFixtureId.value });
-    testing.value = true;
-    for (const ch of channels.value) ch.testValue = 0;
-    await refreshAfterTest();
-    setStatus("Тестування каналів розпочато");
-  } catch (err) {
-    setStatus(null, err instanceof Error ? err.message : "Не вдалося почати тестування");
-  }
-}
-
-async function endTesting() {
-  try {
-    await setupPost("fixture-channel-test/end", {});
-    testing.value = false;
-    for (const ch of channels.value) ch.testValue = 0;
-    await refreshAfterTest();
-    setStatus("Тестування завершено");
-  } catch (err) {
-    setStatus(null, err instanceof Error ? err.message : "Не вдалося завершити тестування");
-  }
-}
-
-async function resetAllTestValues() {
-  if (!selectedFixtureId.value) return;
-  try {
-    if (testing.value) {
-      await setupPost("fixture-channel-test/reset", { fixture_id: selectedFixtureId.value });
-      await refreshAfterTest();
-    }
-    for (const ch of channels.value) ch.testValue = 0;
-    setStatus("Усі тестові значення скинуто в 0");
-  } catch (err) {
-    setStatus(null, err instanceof Error ? err.message : "Не вдалося скинути значення");
-  }
-}
-
-async function resetOneChannel(ch: ChannelEdit) {
-  ch.testValue = 0;
-  if (!testing.value || !selectedFixtureId.value) return;
-  try {
-    await setupPost("fixture-channel-test/set", {
-      fixture_id: selectedFixtureId.value,
-      local: ch.local,
-      value: 0,
-    });
-    await refreshAfterTest();
-  } catch (err) {
-    setStatus(null, err instanceof Error ? err.message : "Не вдалося скинути канал");
-  }
-}
-
-async function onTestValueChange(ch: ChannelEdit, raw: number) {
-  ch.testValue = clampByte(raw);
-  if (!testing.value || !selectedFixtureId.value) return;
-  try {
-    await setupPost("fixture-channel-test/set", {
-      fixture_id: selectedFixtureId.value,
-      local: ch.local,
-      value: ch.testValue,
-    });
-    await refreshAfterTest();
-  } catch (err) {
-    setStatus(null, err instanceof Error ? err.message : "Не вдалося встановити канал");
-  }
+function markDirty() {
+  dirty.value = true;
+  message.value = null;
 }
 
 function onRoleChange(ch: ChannelEdit, role: string) {
   ch.role = role;
-  if (role === "fixed" && ch.fixed_value == null) {
-    ch.fixed_value = 0;
+  ch.fieldError = {};
+  markDirty();
+}
+
+function setRaw(ch: ChannelEdit, key: "fixedRaw" | "segmentRaw", value: string) {
+  ch[key] = value;
+  ch.fieldError = {};
+  markDirty();
+}
+
+function setBag(ch: ChannelEdit, bag: "paletteRaw" | "controlRaw", key: string, value: string) {
+  ch[bag] = { ...ch[bag], [key]: value };
+  ch.fieldError = {};
+  markDirty();
+}
+
+function applyIssues(issues: ChannelIssue[]) {
+  const byLocal = new Map(issues.map((issue) => [issue.local, issue]));
+  for (const ch of channels.value) {
+    const issue = byLocal.get(ch.local);
+    ch.fieldError = issue ? { [issue.field]: issue.message } : {};
   }
-  if (role !== "fixed") {
-    ch.fixed_value = null;
+}
+
+function selectType(typeId: FixtureTypeId) {
+  if (typeId === selectedType.value) return;
+  if (dirty.value) {
+    setStatus(null, "Є незбережені зміни профілю. Спершу збережіть їх або поверніть збережене.");
+    return;
   }
-  if (needsPalette(role, Boolean(ch.palette))) {
-    ensurePalette(ch);
-  } else if (role !== "whole_color" && role !== "color" && role !== "segment_color") {
-    ch.palette = null;
-    ch.paletteOpen = false;
+  selectedType.value = typeId;
+  selectedFixtureId.value = "";
+  const profileId = pickProfileForType(typeId);
+  if (profileId) showProfile(profileId);
+  else {
+    selectedProfileId.value = "";
+    formProfileId.value = "";
+    channels.value = [];
   }
-  if (needsControlValues(role)) {
-    ensureControlValues(ch);
-  } else {
-    ch.control_values = null;
-    ch.controlOpen = false;
+}
+
+function selectFixture(id: string) {
+  if (id === selectedFixtureId.value) return;
+  const fx = fixturesOfType.value.find((item) => String(item.id) === id);
+  const profileId = String(fx?.profile_id ?? "");
+  if (dirty.value && profileId !== formProfileId.value) {
+    setStatus(null, "Є незбережені зміни профілю. Спершу збережіть їх або поверніть збережене.");
+    return;
   }
-  if (role === "segment" || role === "segment_color") {
-    if (ch.segment_index == null) ch.segment_index = 1;
+  selectedFixtureId.value = id;
+  if (profileId && profileId !== formProfileId.value && profiles.value[profileId]) {
+    showProfile(profileId);
   }
+}
+
+function formStamp(): string {
+  return JSON.stringify(channels.value.map((ch) => ({
+    local: ch.local,
+    role: ch.role,
+    label: ch.label,
+    fixedRaw: ch.fixedRaw,
+    segmentRaw: ch.segmentRaw,
+    paletteRaw: ch.paletteRaw,
+    controlRaw: ch.controlRaw,
+  })));
+}
+
+function writeStash(key: string) {
+  if (!dirty.value || !formProfileId.value) return;
+  sessionStorage.setItem(CHANNEL_STASH + key, JSON.stringify({
+    type: selectedType.value,
+    fixtureId: selectedFixtureId.value,
+    profileId: formProfileId.value,
+    channels: channels.value,
+  }));
+}
+
+function readStash(key: string): {
+  type: FixtureTypeId | "";
+  fixtureId: string;
+  profileId: string;
+  channels: ChannelEdit[];
+} | null {
+  const raw = sessionStorage.getItem(CHANNEL_STASH + key);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as {
+      type?: FixtureTypeId | "";
+      fixtureId?: string;
+      profileId?: string;
+      channels?: ChannelEdit[];
+    };
+    if (!parsed.profileId || !Array.isArray(parsed.channels)) return null;
+    return {
+      type: parsed.type ?? "",
+      fixtureId: parsed.fixtureId ?? "",
+      profileId: parsed.profileId,
+      channels: parsed.channels,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function clearStash(key: string) {
+  sessionStorage.removeItem(CHANNEL_STASH + key);
 }
 
 async function saveMapping() {
   const profile = selectedProfile.value;
   const profileId = selectedProfileId.value;
-  if (!profile || !profileId) {
-    setStatus(null, "Немає профілю для збереження");
+  if (!profile || !profileId || saving.value) {
+    if (!profile || !profileId) setStatus(null, "Немає профілю для збереження");
     return;
   }
   saving.value = true;
   try {
-    const nextChannels = channels.value.map((ch) => {
-      const entry: Record<string, unknown> = {
-        local: ch.local,
-        role: ch.role,
-        label: ch.label || null,
-      };
-      if (ch.role === "fixed") {
-        entry.fixed_value = clampByte(ch.fixed_value ?? 0);
+    const prepared = commitProfile(profile, channels.value);
+    if (!prepared.ok) {
+      applyIssues(prepared.issues);
+      setStatus(null, prepared.issues[0]?.message ?? "Виправте помилки до збереження");
+      return;
+    }
+    const remoteProfiles = await fetchProfiles();
+    const remote = remoteProfiles[profileId];
+    if (JSON.stringify(remote ?? null) !== baselineJson.value) {
+      setStatus(null, "З’явилась новіша сцена. Правки на сторінці не замінені.");
+      return;
+    }
+    const writing = commitProfile(profile, channels.value);
+    if (!writing.ok) {
+      applyIssues(writing.issues);
+      setStatus(null, writing.issues[0]?.message ?? "Виправте помилки до збереження");
+      return;
+    }
+    const stamp = formStamp();
+    await saveProfile(profileId, writing.profile);
+    profiles.value = { ...profiles.value, [profileId]: writing.profile };
+    baselineJson.value = JSON.stringify(writing.profile);
+    await publishLocationDraft();
+    if (formStamp() !== stamp) {
+      const newer = commitProfile(profiles.value[profileId] ?? writing.profile, channels.value);
+      if (!newer.ok) {
+        applyIssues(newer.issues);
+        dirty.value = true;
+        setStatus(null, "Опубліковано попередні правки. Новіші ще мають помилку.");
+        return;
       }
-      if (ch.segment_index != null && (ch.role === "segment" || ch.role === "segment_color")) {
-        entry.segment_index = ch.segment_index;
-      }
-      if (needsPalette(ch.role, Boolean(ch.palette)) && ch.palette) {
-        const palette: Record<string, number> = {};
-        for (const key of PALETTE_KEYS) {
-          palette[key] = clampByte(ch.palette[key] ?? DEFAULT_CHANNEL_PALETTE[key]);
-        }
-        entry.palette = palette;
-      }
-      if (needsControlValues(ch.role) && ch.control_values) {
-        const control: Record<string, number> = {};
-        for (const key of CONTROL_KEYS_BY_ROLE[ch.role] ?? []) {
-          if (ch.control_values[key] != null) control[key] = clampByte(ch.control_values[key]);
-        }
-        entry.control_values = control;
-      }
-      return entry;
-    });
-    const nextProfile = {
-      ...profile,
-      channels: nextChannels,
-      hardware_verified: false,
-    };
-    await saveProfile(profileId, nextProfile);
-    profiles.value = { ...profiles.value, [profileId]: nextProfile };
-    setStatus(`Мапінг профілю ${profileId} збережено`);
+      await saveProfile(profileId, newer.profile);
+      profiles.value = { ...profiles.value, [profileId]: newer.profile };
+      dirty.value = true;
+      writeStash(sceneKey.value);
+      setStatus("Опубліковано попередні правки. Новіші лишились у чернетці.");
+      return;
+    }
+    if (sceneSyncPhase.value === "conflict" || sceneSyncPhase.value === "failed") {
+      dirty.value = true;
+      setStatus(null, sceneSyncDetail.value || "Публікація не вдалася");
+      return;
+    }
+    dirty.value = false;
+    clearStash(sceneKey.value);
+    applyIssues([]);
+    loadChannelsFromProfile(profileId);
+    setStatus(savedLocationMessage());
   } catch (err) {
-    setStatus(null, err instanceof Error ? err.message : "Не вдалося зберегти мапінг");
+    dirty.value = true;
+    const failed = sceneSyncPhase.value === "conflict" || sceneSyncPhase.value === "failed";
+    setStatus(null, failed
+      ? (sceneSyncDetail.value || "Публікація не вдалася")
+      : (err instanceof Error ? err.message : "Не вдалося зберегти мапінг"));
   } finally {
     saving.value = false;
   }
 }
 
-watch(selectedType, (typeId) => {
-  selectedFixtureId.value = "";
-  if (!typeId) {
-    selectedProfileId.value = "";
-    channels.value = [];
+function restoreSaved() {
+  clearStash(sceneKey.value);
+  error.value = null;
+  message.value = null;
+  if (formProfileId.value && profiles.value[formProfileId.value]) {
+    showProfile(formProfileId.value);
+  } else {
+    dirty.value = false;
+  }
+}
+
+async function reload(options?: { keepForm?: boolean }) {
+  if (options?.keepForm && dirty.value) {
+    try {
+      const remoteProfiles = await fetchProfiles();
+      const remote = formProfileId.value ? remoteProfiles[formProfileId.value] : null;
+      if (formProfileId.value && JSON.stringify(remote ?? null) !== baselineJson.value) {
+        error.value = "З’явилась новіша сцена. Несохранені правки лишились на сторінці.";
+      }
+    } catch (err) {
+      error.value = err instanceof Error ? err.message : "Не вдалося завантажити конфіг";
+    }
     return;
   }
-  const meta = FIXTURE_TYPES.find((t) => t.id === typeId);
-  if (!meta) return;
-  const profileId = pickProfileForType(typeId);
-  selectedProfileId.value = profileId;
-  if (profileId) {
-    loadChannelsFromProfile(profileId, meta.footprint);
-  } else {
-    channels.value = Array.from({ length: meta.footprint }, (_, i) => emptyChannel(i + 1));
-  }
-});
-
-watch(selectedFixtureId, (fixtureId) => {
-  const meta = typeMeta.value;
-  if (!meta || !fixtureId) return;
-  const fx = fixturesOfType.value.find((f) => String(f.id) === fixtureId);
-  if (!fx) return;
-  const profileId = String(fx.profile_id ?? "");
-  if (profileId && profiles.value[profileId]) {
-    selectedProfileId.value = profileId;
-    loadChannelsFromProfile(profileId, meta.footprint);
-  }
-});
-
-onMounted(async () => {
   loading.value = true;
+  error.value = null;
   try {
     const [patchCfg, profileMap, roles] = await Promise.all([
       fetchPatch(),
@@ -426,22 +395,48 @@ onMounted(async () => {
     patch.value = patchCfg;
     profiles.value = profileMap;
     roleOptions.value = roles;
+    const stashed = readStash(sceneKey.value);
+    if (stashed && profileMap[stashed.profileId]) {
+      selectedType.value = stashed.type;
+      selectedFixtureId.value = stashed.fixtureId;
+      selectedProfileId.value = stashed.profileId;
+      formProfileId.value = stashed.profileId;
+      channels.value = stashed.channels;
+      baselineJson.value = JSON.stringify(profileMap[stashed.profileId] ?? null);
+      dirty.value = true;
+    }
   } catch (err) {
     setStatus(null, err instanceof Error ? err.message : "Не вдалося завантажити конфіг");
   } finally {
     loading.value = false;
   }
+}
+
+watch(sceneKey, async (next, prev) => {
+  if (!prev || next === prev) return;
+  if (dirty.value) writeStash(prev);
+  dirty.value = false;
+  channels.value = [];
+  selectedType.value = "";
+  selectedFixtureId.value = "";
+  selectedProfileId.value = "";
+  formProfileId.value = "";
+  await reload();
+});
+
+onMounted(() => {
+  void reload();
+});
+
+onBeforeUnmount(() => {
+  if (dirty.value) writeStash(sceneKey.value);
 });
 </script>
 
 <template>
   <div class="channels-view setup-view">
-    <header class="card__head">
-      <h1>Налаштування каналів</h1>
-      <p class="card__sub">
-        Призначення локальних DMX-каналів за типом приладу та живе тестування на
-        фізичному фікстурі.
-      </p>
+    <header class="page-title">
+      <h1>Канали</h1>
     </header>
 
     <p
@@ -464,55 +459,61 @@ onMounted(async () => {
       role="alert"
     >
       {{ error }}
+      <button
+        type="button"
+        class="btn btn--sm"
+        style="margin-left: 12px"
+        @click="reload({ keepForm: true })"
+      >
+        Спробувати знову
+      </button>
     </p>
 
     <section
       class="card"
       aria-label="Тип приладу"
     >
-      <label class="field">
-        <span>Тип приладу</span>
-        <select v-model="selectedType">
-          <option value="">
-            — оберіть —
-          </option>
-          <option
-            v-for="t in FIXTURE_TYPES"
-            :key="t.id"
-            :value="t.id"
-          >
-            {{ t.label }} ({{ t.footprint }} ch)
-          </option>
-        </select>
-      </label>
-
-      <label
-        v-if="selectedType"
-        class="field"
+      <div
+        class="pick-row"
+        role="group"
+        aria-label="Тип приладу"
       >
-        <span>Фізичний прилад</span>
-        <select v-model="selectedFixtureId">
-          <option value="">
-            — оберіть —
-          </option>
-          <option
-            v-for="fx in fixturesOfType"
-            :key="String(fx.id)"
-            :value="String(fx.id)"
-          >
-            {{ fx.label ?? fx.id }} · {{ fx.id }} · addr {{ fx.start_address }}
-          </option>
-        </select>
-      </label>
+        <button
+          v-for="t in FIXTURE_TYPES"
+          :key="t.id"
+          type="button"
+          class="action-btn"
+          :class="{ active: selectedType === t.id }"
+          :aria-pressed="selectedType === t.id"
+          @click="selectType(t.id)"
+        >
+          {{ t.label }}
+        </button>
+      </div>
 
+      <div
+        v-if="selectedType && fixturesOfType.length"
+        class="pick-row"
+        role="group"
+        aria-label="Прилад"
+      >
+        <button
+          v-for="fx in fixturesOfType"
+          :key="String(fx.id)"
+          type="button"
+          class="action-btn"
+          :class="{ active: selectedFixtureId === String(fx.id) }"
+          :aria-pressed="selectedFixtureId === String(fx.id)"
+          @click="selectFixture(String(fx.id))"
+        >
+          {{ fx.label ?? fx.id }}
+        </button>
+      </div>
       <p
-        v-if="selectedProfileId"
+        v-if="selectedProfileId && sharedFixtures.length"
         class="hint"
       >
-        Профіль: <strong>{{ selectedProfileId }}</strong>
-        <template v-if="selectedFixture">
-          · start {{ selectedFixture.start_address }}
-        </template>
+        Профіль {{ selectedProfileId }} змінить: {{ sharedFixtureNames }}
       </p>
     </section>
 
@@ -525,54 +526,21 @@ onMounted(async () => {
         <button
           type="button"
           class="action-btn"
-          :disabled="!selectedFixtureId || testing"
-          @click="beginTesting"
-        >
-          Почати тестування
-        </button>
-        <button
-          type="button"
-          class="action-btn"
-          :disabled="!selectedFixtureId"
-          @click="resetAllTestValues"
-        >
-          Скинути всі значення в 0
-        </button>
-        <button
-          type="button"
-          class="action-btn"
-          :disabled="!testing"
-          @click="endTesting"
-        >
-          Завершити тестування
-        </button>
-        <button
-          type="button"
-          class="action-btn"
           :disabled="saving || !selectedProfileId"
           @click="saveMapping"
         >
           Зберегти мапінг
         </button>
+        <button
+          v-if="dirty"
+          type="button"
+          class="action-btn"
+          :disabled="saving"
+          @click="restoreSaved"
+        >
+          Повернути збережене
+        </button>
       </div>
-
-      <p
-        v-if="selectedType === 'beam'"
-        class="banner banner--warn"
-        role="status"
-      >
-        Beam Head: невідомий канал може керувати рухом, програмою або reset. Після старту
-        тестування рухайте кожен ползунок лише вручну.
-      </p>
-
-      <p
-        v-if="testing"
-        class="hint"
-      >
-        Тестування активне — можна одночасно тримати кілька ненульових ползунків (наприклад
-        спочатку dimmer, потім колір). Значення <strong>не</strong> зберігаються в мапінг
-        до «Зберегти мапінг».
-      </p>
 
       <div
         class="channel-list"
@@ -585,14 +553,7 @@ onMounted(async () => {
           :data-local="ch.local"
         >
           <div class="channel-row__head">
-            <strong class="channel-row__ch">CH {{ ch.local }}</strong>
-            <span
-              v-if="globalDmx(ch.local) != null"
-              class="channel-row__map"
-            >
-              → DMX {{ globalDmx(ch.local) }}
-            </span>
-            <span class="channel-row__assign">{{ assignmentLabel(ch) }}</span>
+            <strong class="channel-row__ch">{{ ch.local }}</strong>
           </div>
 
           <div class="channel-row__controls">
@@ -611,37 +572,6 @@ onMounted(async () => {
                 </option>
               </select>
             </label>
-
-            <label class="field">
-              <span>Тест 0–255</span>
-              <input
-                type="range"
-                min="0"
-                max="255"
-                :value="ch.testValue"
-                @input="onTestValueChange(ch, Number(($event.target as HTMLInputElement).value))"
-              >
-            </label>
-
-            <label class="field field--inline">
-              <span>Значення</span>
-              <input
-                type="number"
-                min="0"
-                max="255"
-                :value="ch.testValue"
-                @change="onTestValueChange(ch, Number(($event.target as HTMLInputElement).value))"
-              >
-            </label>
-
-            <button
-              type="button"
-              class="action-btn"
-              title="Скинути тестове значення в 0"
-              @click="resetOneChannel(ch)"
-            >
-              0
-            </button>
           </div>
 
           <div
@@ -651,12 +581,19 @@ onMounted(async () => {
             <label class="field field--inline">
               <span>Фіксоване значення</span>
               <input
-                v-model.number="ch.fixed_value"
-                type="number"
-                min="0"
-                max="255"
+                type="text"
+                inputmode="numeric"
+                :value="ch.fixedRaw"
+                @input="setRaw(ch, 'fixedRaw', ($event.target as HTMLInputElement).value)"
               >
             </label>
+            <p
+              v-if="ch.fieldError.fixed"
+              class="hint"
+              role="alert"
+            >
+              {{ ch.fieldError.fixed }}
+            </p>
           </div>
 
           <div
@@ -666,72 +603,93 @@ onMounted(async () => {
             <label class="field field--inline">
               <span>Індекс сегмента</span>
               <input
-                v-model.number="ch.segment_index"
-                type="number"
-                min="1"
-                max="8"
+                type="text"
+                inputmode="numeric"
+                :value="ch.segmentRaw"
+                @input="setRaw(ch, 'segmentRaw', ($event.target as HTMLInputElement).value)"
               >
             </label>
+            <p
+              v-if="ch.fieldError.segment_index"
+              class="hint"
+              role="alert"
+            >
+              {{ ch.fieldError.segment_index }}
+            </p>
           </div>
 
           <div
-            v-if="needsControlValues(ch.role)"
+            v-if="showControl(ch)"
             class="channel-row__palette"
           >
             <button
               type="button"
               class="action-btn"
-              @click="ch.controlOpen = !ch.controlOpen; ensureControlValues(ch)"
+              @click="ch.controlOpen = !ch.controlOpen"
             >
               {{ ch.controlOpen ? "Сховати робочі значення" : "Робочі значення функції" }}
             </button>
             <div
-              v-if="ch.controlOpen && ch.control_values"
+              v-if="ch.controlOpen"
               class="palette-grid"
             >
               <label
-                v-for="key in CONTROL_KEYS_BY_ROLE[ch.role] ?? []"
+                v-for="key in controlKeys(ch)"
                 :key="key"
                 class="field field--inline"
               >
                 <span>{{ key }}</span>
                 <input
-                  v-model.number="ch.control_values[key]"
-                  type="number"
-                  min="0"
-                  max="255"
+                  type="text"
+                  inputmode="numeric"
+                  :value="ch.controlRaw[key] ?? ''"
+                  @input="setBag(ch, 'controlRaw', key, ($event.target as HTMLInputElement).value)"
                 >
+                <p
+                  v-if="ch.fieldError[`control_values:${key}`]"
+                  class="hint"
+                  role="alert"
+                >
+                  {{ ch.fieldError[`control_values:${key}`] }}
+                </p>
               </label>
             </div>
           </div>
 
           <div
-            v-if="needsPalette(ch.role, Boolean(ch.palette))"
+            v-if="showPalette(ch)"
             class="channel-row__palette"
           >
             <button
               type="button"
               class="action-btn"
-              @click="ch.paletteOpen = !ch.paletteOpen; ensurePalette(ch)"
+              @click="ch.paletteOpen = !ch.paletteOpen"
             >
               {{ ch.paletteOpen ? "Сховати палітру" : "Палітра кольорів" }}
             </button>
             <div
-              v-if="ch.paletteOpen && ch.palette"
+              v-if="ch.paletteOpen"
               class="palette-grid"
             >
               <label
-                v-for="key in PALETTE_KEYS"
+                v-for="key in paletteKeys(ch)"
                 :key="key"
                 class="field field--inline"
               >
                 <span>{{ key }}</span>
                 <input
-                  v-model.number="ch.palette[key]"
-                  type="number"
-                  min="0"
-                  max="255"
+                  type="text"
+                  inputmode="numeric"
+                  :value="ch.paletteRaw[key] ?? ''"
+                  @input="setBag(ch, 'paletteRaw', key, ($event.target as HTMLInputElement).value)"
                 >
+                <p
+                  v-if="ch.fieldError[`palette:${key}`]"
+                  class="hint"
+                  role="alert"
+                >
+                  {{ ch.fieldError[`palette:${key}`] }}
+                </p>
               </label>
             </div>
           </div>

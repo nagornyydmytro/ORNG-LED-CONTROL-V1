@@ -26,6 +26,7 @@ class PresetProgram(Protocol):
         effect_rate_scale: float = 1.0,
         effect_turns: float | None = None,
         movement_turns: float | None = None,
+        musical_beats: float | None = None,
     ) -> StageIntent: ...
 
 
@@ -62,8 +63,16 @@ class NonePresetProgram:
         effect_rate_scale: float = 1.0,
         effect_turns: float | None = None,
         movement_turns: float | None = None,
+        musical_beats: float | None = None,
     ) -> StageIntent:
-        del cycle_time_s, show, effect_rate_scale, effect_turns, movement_turns
+        del (
+            cycle_time_s,
+            show,
+            effect_rate_scale,
+            effect_turns,
+            movement_turns,
+            musical_beats,
+        )
         return StageIntent()
 
     def cycle_position(self, time_s: float) -> CyclePosition:
@@ -86,8 +95,9 @@ class BasePulsePreset:
         effect_rate_scale: float = 1.0,
         effect_turns: float | None = None,
         movement_turns: float | None = None,
+        musical_beats: float | None = None,
     ) -> StageIntent:
-        del effect_rate_scale, effect_turns, movement_turns
+        del effect_rate_scale, effect_turns, movement_turns, musical_beats
         pos = cycle_position(cycle_time_s)
         pulse = 0.5 + 0.5 * math.sin(2 * math.pi * pos.episode_progress)
         wave = pos.episode_progress

@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Managed install: use current release embedded Python (no git / PYTHONPATH / PyPI).
+# Developer checkout: fall back to repo backend on PYTHONPATH.
+set -euo pipefail
+APP_ROOT="${ORNG_APP_ROOT:-/opt/orng-led-control}"
+CURRENT="${APP_ROOT}/current.json"
+
+if [[ -f "${CURRENT}" ]]; then
+  REL_PATH="$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['path'])" "${CURRENT}")"
+  PY="${REL_PATH}/runtime/bin/python3"
+  if [[ ! -x "${PY}" ]]; then
+    PY="${REL_PATH}/runtime/bin/python"
+  fi
+  if [[ -x "${PY}" ]]; then
+    export PYTHONPATH="${REL_PATH}${PYTHONPATH:+:$PYTHONPATH}"
+    exec "${PY}" -m orng_led.raspberry.orngctl "$@"
+  fi
+fi
+
+# Developer checkout fallback
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+export PYTHONPATH="${ROOT}/backend${PYTHONPATH:+:$PYTHONPATH}"
+exec python3 -m orng_led.raspberry.orngctl "$@"

@@ -51,6 +51,44 @@ def catalog_payload() -> dict[str, object]:
     return payload
 
 
+def _follow_preview_axes(
+    show: ShowConfig,
+    stage: object,
+    motion: dict[str, BeamMotionState],
+    dt_s: float,
+) -> None:
+    """Same speed limit the engine uses. Preview does not emit DMX."""
+    from orng_led.engine.beam import BeamMotionLimits, step_beam
+    from orng_led.engine.intents import BeamIntent
+
+    fixtures = getattr(stage, "fixtures", {})
+    for fixture in show.patch.fixtures:
+        if fixture.kind is not FixtureKind.BEAM:
+            continue
+        state = motion.get(fixture.id)
+        if state is None:
+            state = BeamMotionState.from_home(
+                float(fixture.spatial.home_pan),
+                float(fixture.spatial.home_tilt),
+            )
+            motion[fixture.id] = state
+        intent = fixtures.get(fixture.id)
+        if not isinstance(intent, BeamIntent) or intent.pan is None or intent.tilt is None:
+            continue
+        if dt_s <= 0.0:
+            continue
+        step_beam(
+            state,
+            float(intent.pan),
+            float(intent.tilt),
+            float(dt_s),
+            BeamMotionLimits(
+                max_pan_speed=float(fixture.spatial.max_pan_speed),
+                max_tilt_speed=float(fixture.spatial.max_tilt_speed),
+            ),
+        )
+
+
 def _pose(show: ShowConfig) -> dict[str, BeamMotionState]:
     pose: dict[str, BeamMotionState] = {}
     for fixture in show.patch.fixtures:
@@ -213,8 +251,10 @@ def render_preview_view(
     palette: str,
     intensity: str = "full",
     rig: object | None = None,
+    motion: dict[str, BeamMotionState] | None = None,
+    dt_s: float = 0.0,
 ) -> dict[str, object]:
-    """One SimulatorView from build_auto_stage → render_stage → decode. No engine."""
+    """One SimulatorView. Axes advance through the engine integrator, then decode."""
     composition = BY_ID[look]
     _level_name, level = _intensity_of(intensity)
     colour = _palette_of(look, palette)
@@ -241,7 +281,9 @@ def render_preview_view(
         beat_period_s=60.0 / 96.0,
         rig=rig if rig is not None else HeadRig(),
     )
-    frame = render_stage(show, stage, _pose(show))
+    pose = motion if motion is not None else {}
+    _follow_preview_axes(show, stage, pose, dt_s)
+    frame = render_stage(show, stage, pose)
     view = decode_simulator_view(show, frame)
     dumped = view.model_dump(mode="json")
     dumped["blackout_visual"] = False
@@ -316,8 +358,12 @@ def preview_clip(
 
     steps: list[dict[str, object]] = []
     clip_rig = HeadRig()
+    clip_motion: dict[str, BeamMotionState] = {}
+    previous_beat: float | None = None
     for index in range(count):
         beats = (index / count) * cycle
+        dt_s = 0.0 if previous_beat is None else max(0.0, beats - previous_beat) * 60.0 / tempo
+        previous_beat = beats
         steps.append(
             render_preview_view(
                 show,
@@ -327,6 +373,8 @@ def preview_clip(
                 palette=str(payload["palette"]),
                 intensity=str(payload["intensity"]),
                 rig=clip_rig,
+                motion=clip_motion,
+                dt_s=dt_s,
             )
         )
     if not steps:

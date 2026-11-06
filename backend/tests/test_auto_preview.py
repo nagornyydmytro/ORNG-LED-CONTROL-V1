@@ -162,6 +162,55 @@ def test_palette_and_intensity_change_the_frame() -> None:
     assert any(bar["dimmer"] != soft["bars"][i]["dimmer"] for i, bar in enumerate(orange["bars"])) or orange_sum != soft_sum
 
 
+def test_oval_preview_decodes_moving_axes_and_joins_the_cycle() -> None:
+    from orng_led.audio.head_motion import HeadRig, target
+    from orng_led.engine.beam import BeamMotionState
+
+    show = load_show_config()
+    clip = preview_clip(show, "heads_only_oval", cycle_beats=8, bpm=120, frames=72)
+    assert len(clip["frames"]) == 72
+
+    def axes(frame: dict, ident: str) -> tuple[float, float]:
+        row = next(item for item in frame["beams"] if item["id"] == ident)
+        return float(row["pan"]), float(row["tilt"])
+
+    left = [axes(frame, "beam_left") for frame in clip["frames"]]
+    right = [axes(frame, "beam_right") for frame in clip["frames"]]
+    for series in (left, right):
+        assert max(item[0] for item in series) - min(item[0] for item in series) > 0.01
+        assert max(item[1] for item in series) - min(item[1] for item in series) > 0.01
+    dt_s = (8.0 / 72.0) * 0.5
+    for series in (left, right):
+        for current, nxt in zip(series, series[1:]):
+            assert abs(nxt[0] - current[0]) <= 0.35 * dt_s + 0.02
+            assert abs(nxt[1] - current[1]) <= 0.25 * dt_s + 0.02
+    span = (0.08, 0.92)
+    tilt_span = (0.24, 0.64)
+    assert target(0.0, 1.0, "groove", look="heads_only_oval", pan_span=span, tilt_span=tilt_span) == target(
+        32.0, 1.0, "groove", look="heads_only_oval", pan_span=span, tilt_span=tilt_span
+    )
+    rig = HeadRig()
+    motion: dict[str, BeamMotionState] = {}
+    previous = None
+    decoded = []
+    for beat in (31.5, 32.0, 32.5):
+        step = 0.0 if previous is None else (beat - previous) * 0.5
+        previous = beat
+        view = render_preview_view(
+            show,
+            "heads_only_oval",
+            beats=beat,
+            cycle_beats=8,
+            palette="orange",
+            rig=rig,
+            motion=motion,
+            dt_s=step,
+        )
+        decoded.append(axes(view, "beam_left"))
+    crossed = abs(decoded[2][0] - decoded[1][0])
+    assert crossed <= 0.35 * 0.25 + 0.02
+
+
 def test_incompatible_look_is_explained_not_replaced() -> None:
     show = load_show_config().model_copy(deep=True)
     keep = {fixture.id for fixture in show.patch.fixtures if fixture.kind is FixtureKind.PAR}

@@ -205,7 +205,7 @@ describe("useAutoPreview", () => {
     expect(api.canonical.value).toBe(false);
     expect(api.view()).toBeNull();
     expect(api.playing.value).toBe(false);
-    expect(api.reason.value ?? "").toContain("renderer-preview");
+    expect(api.reason.value ?? "").toContain("Кадрів немає.");
     wrapper.unmount();
   });
 });

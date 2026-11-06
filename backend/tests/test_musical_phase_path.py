@@ -307,19 +307,26 @@ def test_look_uses_action_beats_not_plan_beats(tmp_path: Path) -> None:
 
 
 def test_auto_pulse_phrase_uses_a_half_beat() -> None:
+    from orng_led.audio.library import BY_ID
+    from orng_led.audio.planner import _picture_cycle
+
+    cycles = BY_ID["pulse"].cycles
+    assert 0.5 in cycles
+    assert all(cycle in AUTO_CYCLE_BEATS for cycle in cycles)
+    assert _picture_cycle("phrase", 8, "pulse", "rhythmic", None) == 0.5
+    assert 0.5 * 60.0 / 180.0 > 2 * FRAME_DT
+
+
+def test_planner_phrases_are_not_a_single_look() -> None:
     planner = EpisodePlanner(seed=3)
-    pulse = None
+    looks: set[str] = set()
     beat = 0.0
     for _ in range(32):
         episode = planner.advance(beat, section="groove", level=0.7, theme="orange")
-        if episode.look == "pulse":
-            pulse = episode
-            break
+        looks.add(episode.look)
+        assert episode.picture_cycle > 0.0
         beat = episode.start_beat + episode.duration_beats
-    assert pulse is not None
-    assert pulse.picture_cycle == 0.5
-    assert pulse.picture_cycle in AUTO_CYCLE_BEATS
-    assert 0.5 * 60.0 / 180.0 > 2 * FRAME_DT
+    assert len(looks) > 1
 
 
 def test_half_beat_stage_peaks_twice_per_beat() -> None:

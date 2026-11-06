@@ -17,7 +17,8 @@ def _press(runtime: AppRuntime, action: InputAction, source_id: str, edge: str =
     )
 
 
-def test_preset_keeps_manual_fx_and_auto_rejects_them(tmp_path) -> None:
+def test_preset_keeps_manual_fx_and_auto_keeps_holds(tmp_path) -> None:
+    """Strobe, sweep and Face stay available in Auto. A preset pick does not."""
     runtime = AppRuntime.create(autostart_loop=False)
     runtime.engine.set_blackout(False)
     runtime.apply_bpm_sync(enabled=True, scope="preset", palette="orange")
@@ -28,24 +29,47 @@ def test_preset_keeps_manual_fx_and_auto_rejects_them(tmp_path) -> None:
     )
     assert replay is False
     assert runtime.engine.overlays.strobe_speed != before
-    accepted = _press(runtime, InputAction.STROBE_PRESS, "web:a")
-    assert accepted.accepted is True
+    assert _press(runtime, InputAction.STROBE_PRESS, "web:a").accepted is True
+    assert _press(runtime, InputAction.SWEEP_PRESS, "web:a").accepted is True
+    runtime.apply_face(True, 1.0)
     assert runtime.engine.overlays.strobe_held is True
+    assert runtime.engine.overlays.sweep_held is True
+    assert runtime.engine.overlays.face_on is True
 
     runtime.apply_bpm_sync(enabled=True, scope="auto", palette="orange")
+    assert runtime.engine.overlays.strobe_held is True
+    assert runtime.engine.overlays.sweep_held is True
+    assert runtime.engine.overlays.face_on is True
+    assert _press(runtime, InputAction.STROBE_PRESS, "web:b").accepted is True
+    assert _press(runtime, InputAction.SWEEP_PRESS, "web:b").accepted is True
+    _press(runtime, InputAction.STROBE_RELEASE, "web:a", edge="release")
+    _press(runtime, InputAction.SWEEP_RELEASE, "web:a", edge="release")
+    assert runtime.engine.overlays.strobe_held is True
+    assert runtime.engine.overlays.sweep_held is True
+    _press(runtime, InputAction.STROBE_RELEASE, "web:b", edge="release")
+    _press(runtime, InputAction.SWEEP_RELEASE, "web:b", edge="release")
     assert runtime.engine.overlays.strobe_held is False
-    blocked = _press(runtime, InputAction.STROBE_PRESS, "web:a")
-    assert blocked.accepted is False
+    assert runtime.engine.overlays.sweep_held is False
+
+    runtime.apply_bpm_sync(scope="preset")
+    assert _press(runtime, InputAction.STROBE_PRESS, "web:a").accepted is True
+    runtime.apply_bpm_sync(enabled=True, scope="auto", palette="orange")
+    assert runtime.engine.overlays.strobe_held is True
     held_preset = runtime.engine.active_preset_id
     with pytest.raises(ManualShowLockedError):
         runtime.apply_select_preset("P01")
-    with pytest.raises(ManualShowLockedError):
-        runtime.apply_face(True, 1.0)
-    with pytest.raises(ManualShowLockedError):
-        runtime.apply_live_fx_speeds(strobe_speed=0.9)
     assert runtime.engine.active_preset_id == held_preset
+    runtime.apply_face(False, 0.0)
+    runtime.apply_live_fx_speeds(strobe_speed=0.4, persist=False)
     runtime.apply_blackout(True)
     assert runtime.engine.overlays.blackout is True
+    assert runtime.engine.overlays.strobe_held is True
+    snap = runtime.engine.render_at(1.0, dt_s=1.0 / 30.0)
+    assert snap.blackout is True
+    assert snap.frame
+    runtime.apply_blackout(False)
+    _press(runtime, InputAction.STROBE_RELEASE, "web:a", edge="release")
+    assert runtime.engine.overlays.strobe_held is False
     runtime.apply_bpm_sync(scope="preset")
     assert runtime.bpm.scope == "preset"
     assert runtime.engine.auto_base is None

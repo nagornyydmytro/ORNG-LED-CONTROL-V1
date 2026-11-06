@@ -1,69 +1,14 @@
-# ORNG LED CONTROL V1
+# ORNG LED CONTROL
 
-Локальный световой пульт для DJ-сетапа ORNG. Источник истины по продукту:
-`.context/PROJECT_CANON.md`. План реализации: `docs/IMPLEMENTATION_PLAN.md`.
-HOME acceptance: `docs/HOME_ACCEPTANCE_REPORT.md`.
+Локальный световой пульт ORNG. Один движок считает кадр. Windows-пульт, упакованный релиз и Raspberry отличаются способом запуска и тем, кто держит Art-Net.
 
-## Требования
+Актуальная карта документов: `docs/README.md`. Границы для агента: `AGENTS.md`. Исторический замысел июля 2026 лежит в `.context/PROJECT_CANON.md` и не перекрывает код.
 
-- Python **3.12**
-- Node.js **18+** и npm
-- Windows: PowerShell 5.1+ · macOS: bash + Homebrew
+Версия приложения: файл `VERSION` (сейчас смотри сам файл). Каталог Auto: `len(COMPOSITIONS)` в `backend/orng_led/audio/library.py`.
 
-Docker и Cloudflare **не** требуются.
+## Безопасный запуск дома
 
-## Быстрый старт (Windows)
-
-```powershell
-cd C:\path\to\ORNG-LED-CONTROL-V1
-.\scripts\bootstrap.ps1
-.\scripts\run.ps1
-# venue one-click (Art-Net + Arm + Chrome):
-.\ORNG-LED-CONTROL.cmd
-```
-
-## Быстрый старт (macOS — с GitHub одной командой)
-
-На Mac (нужны Homebrew, git, node, python3.12):
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/nagornyydmytro/ORNG-LED-CONTROL-V1/main/scripts/macos-install.sh | bash
-```
-
-Скрипт клонирует репо в `~/ORNG-LED-CONTROL-V1`, ставит зависимости,
-кладёт ярлык на Desktop и запускает venue-start (Blackout + Art-Net + Arm + браузер).
-Дальше только сними Blackout в UI.
-
-Если репо уже склонировано:
-
-```bash
-cd ~/ORNG-LED-CONTROL-V1
-./scripts/bootstrap.sh
-./scripts/venue-start.sh
-```
-
-Откройте `http://127.0.0.1:8000/` — production-сборка frontend раздаётся FastAPI.
-Health: `http://127.0.0.1:8000/api/health`.
-
-Маршруты UI:
-
-- `/` — Пульт
-- `/presets` — Пресети
-- `/setup` — Налаштування (`/settings` перенаправляет сюда)
-
-Если порт `8000` уже занят, `run.ps1` завершится с ошибкой и подсказкой —
-второй конфликтующий экземпляр не запускается. Остановите старый процесс и
-повторите запуск.
-
-Резервная копия config (локально, не коммитить):
-
-```powershell
-.\scripts\backup-config.ps1
-```
-
-Пример полей app-конфига: `config/examples/app.yaml.example`.
-
-## Режим разработки
+Нужны Python 3.12, Node.js 18+ и npm. Docker не нужен.
 
 ```powershell
 .\scripts\bootstrap.ps1
@@ -71,9 +16,19 @@ Health: `http://127.0.0.1:8000/api/health`.
 ```
 
 - API: `http://127.0.0.1:8000/api/health`
-- Vite UI: `http://127.0.0.1:5173/` (проксирует `/api` на backend)
+- Интерфейс Vite: `http://127.0.0.1:5173/` (прокси `/api` на backend)
 
-На HOME-этапе для полного UI через backend используйте `.\scripts\run.ps1`.
+`.\scripts\run.ps1` собирает frontend и открывает тот же API вместе со production-сборкой на порту 8000.
+
+На старте транспорт — **Mock**, выход **disarmed**, кадр тёмный. Это не включает свет и не открывает Art-Net.
+
+Не использовать дома `ORNG-LED-CONTROL.cmd` и `scripts/venue-start.ps1`. Они ждут USB-Ethernet контроллера, активируют Art-Net и вооружают выход при включённом blackout.
+
+Не задавать `ORNG_OUTPUT_POLICY=venue_ready` (также `venue`, `always_arm`), `ORNG_KEEP_OUTPUT_ARMED=1` и `ORNG_CLOUD_DEVICE_MODE=raspberry`, если цель — локальная проверка без площадки. `ORNG_CLOUD_DEVICE_URL` подключает процесс к облаку.
+
+Маршруты: `/` пульт, `/presets` пресеты, `/setup` настройки, `/channels` каналы, `/advanced` сервис облачной сборки. `/cloud` и `/settings` только перенаправляют.
+
+Превью композиции (`/presets`, клип `GET /api/auto/preview-clip`) рисуется отдельно и не является кадром, который уходит в выход.
 
 ## Проверки
 
@@ -81,71 +36,52 @@ Health: `http://127.0.0.1:8000/api/health`.
 .\scripts\check.ps1
 ```
 
-Отдельные команды:
-
 | Область | Команда |
 |---|---|
-| Backend tests | `.\.venv\Scripts\python.exe -m pytest -q` из `backend\` |
-| Backend lint | `.\.venv\Scripts\python.exe -m ruff check backend` |
-| Backend format check | `.\.venv\Scripts\python.exe -m ruff format --check backend` |
-| Frontend typecheck | `npm run typecheck` из `frontend\` |
-| Frontend lint | `npm run lint` из `frontend\` |
-| Frontend build | `npm run build` из `frontend\` |
+| Backend | `.\.venv\Scripts\python.exe -m pytest -q` из `backend\` |
+| Backend lint | `.\.venv\Scripts\python.exe -m ruff check backend` из корня |
+| Frontend | `npm run typecheck`, `npm run test`, `npm run build` из `frontend\` |
+| Cloud unit | `npm run test:unit` из `cloud\` |
+| Cloud workers | `npm run test:workers` из `cloud\` |
 
-## Структура
+Pytest копирует `config/` во временный корень и не пишет в рабочую сцену ORNG BAR. Облачные тесты локальные: не `wrangler deploy` и не удалённая миграция D1.
 
-```text
-backend/          FastAPI (Python 3.12)
-frontend/         Vue 3 + Vite + TypeScript
-cloud/            Cloudflare Worker control plane (Phase 2; no Art-Net)
-config/
-  runtime.example.yaml   template for device-local active_scene_id
-  runtime.yaml           gitignored local active scene (defaults to orng-bar)
-  scenes/
-    orng-bar/            canonical writable ORNG BAR (app/patch/layout/controls/profiles/presets)
-scripts/          bootstrap / run / run-dev / check / backup-config
-.context/         PROJECT_CANON.md
-docs/             IMPLEMENTATION_PLAN, cloud-architecture, scene-releases, device-pairing, …
-```
+Сборки, которые пишут в один и тот же каталог (`frontend/dist`, `cloud/admin-dist`), не запускать параллельно.
 
-Cloud (optional): `cloud/README.md`. UI panel at `/cloud`. Agent env:
-`ORNG_CLOUD_DEVICE_URL` + device token file.
+## Кто чем владеет
 
-Конфигурация versioned (`schema_version: 1`). Живые show-данные лежат только в
-`config/scenes/<scene_id>/`. Локальный `config/runtime.yaml` (gitignored) хранит
-активную сцену на устройстве; без него дефолт — `orng-bar`. Подробности:
-`config/README.md`.
+| Вопрос | Владелец |
+|---|---|
+| Запуск checkout | `scripts/run.ps1`, `scripts/run-dev.ps1` |
+| Запуск заведения с ноутбука | `scripts/venue-start.ps1` — вооружает выход |
+| Упакованный пульт | `scripts/orng-product-launch.ps1` → helper → uvicorn релиза |
+| Raspberry | systemd запускает `bootstrap/updater_helper.py`, не uvicorn напрямую |
+| Захват и темп | `BpmService` → процесс `audio/tempo_worker.py` |
+| Принятый BPM и секция | `TempoFollower`, `SectionTracker` внутри `BpmService` |
+| Пресет-BPM | тот же темп масштабирует эпизод пресета |
+| Auto | `EpisodePlanner` подменяет базу композицией; каталог `library.COMPOSITIONS` |
+| Выходной кадр | `Engine.render_at`, затем `OutputController` |
+| Активная сцена | `config/runtime.yaml` → `active_scene_id` |
+| Локация и исполнитель | облако (D1), не файл на диске пульта |
+| Черновик сцены | `drafts/<scene_id>/`, не живой движок |
+| Обновление приложения | приложение пишет запрос, helper вне релиза меняет `current.json` |
 
-Все provisional-профили помечены `hardware_verified: false`.
+Пресет-BPM и Auto делят захват и анализатор. В пресете темп ведёт уже выбранный пресет. В Auto планировщик ставит композицию; скорость ползунка программы не разгоняет рисунок до строба. Потеря lock переходит в freewheel без подставной сетки. Редкое затемнение — событие паузы с кулдауном, не каждый тихий такт. Поле статуса ритма для интерфейса — `sync`, не внутреннее `hearing`.
 
-`scenes/*/layout.yaml` задаёт расстановку (нормализованные координаты,
-ориентация, монтаж) и порядок кабельной цепочки DMX. Симулятор строится только
-из layout активной сцены.
+Сцена — каталог `config/scenes/<scene_id>/` (patch, layout, пресеты, профили, `controls.yaml`). Установка — один paired instance. Исполнитель — та установка локации, которая держит Art-Net. Пульт с ролью raspberry показывает состояние исполнителя и пересылает команды; сам Art-Net не включает.
 
-### Сцены и клавиатура
+Клавиатура и макропад читают `controls.yaml` активной сцены. Удержания strobe / sweep живут, пока клавиша или lease не отпущены. Blackout перекрывает кадр последним.
 
-- Список / активация: `GET /api/scenes`, `GET /api/scenes/active`,
-  `POST /api/scenes/activate` с `{ "scene_id": "..." }`.
-- Раскладка клавиатуры — `controls.yaml` активной сцены.
-- Linux USB keyboard (опционально): `ORNG_LINUX_KEYBOARD=1` и
-  `pip install -e "backend[linux]"`; права на `/dev/input` через группу `input`,
-  не root. Raspberry acceptance для адаптера ещё не сделан.
+## Сборка и откат
 
-## Живые эффекты
+Подпись релиза: `scripts/build-app-release.py`. Секрет подписи только в окружении `ORNG_APP_SIGNING_KEY`, не в дереве. Публичная карта: `config/app-trusted-keys.production.json` и встроенные ключи кода.
 
-Кроме `Blackout`, `White Hit` и `Strobe`, в UI доступны `Drop` (momentary),
-`Color Hit` (контрастный RGB-акцент) и `Sweep Hit` (одиночный проход по сцене).
-Все они возвращают сцену автоматически, используют monotonic-таймеры защиты и
-полностью перекрываются Blackout. Физическая раскладка 16 кнопок не изменена.
+Stage кладёт релиз рядом с установкой и не переключает его. Apply и rollback делает helper после blackout и disarm, затем проверяет `/api/health`. Откат возвращает `previous.json`. Это не откат сцены и не перезагрузка ОС.
 
-## Безопасность output
+`cloud/admin-dist` — результат `npm run build:cloud` из `frontend/`. В git его нет.
 
-На старте активен только **Mock** transport и безопасный нулевой кадр (Blackout).
-Art-Net output по умолчанию выключен (`output_armed: false`). Реальная сетевая
-отправка не выполняется на HOME-этапе.
+## Что не подтверждено железом
 
-## Аппаратная граница
+Профили сцены помечены `hardware_verified: false`. Адреса, карты каналов и калибровка голов остаются предварительными, пока их не проверили на приборах. Движение голов в Auto — программный путь; отдельная аппаратная приёмка траекторий не зафиксирована. Приёмка Raspberry по `docs/raspberry-acceptance-checklist.md` не закрыта этим репозиторием. Установленная на площадке сборка может отличаться от текущего коммита: её версия видна в health исполнителя, не в имени папки.
 
-Точные DMX-профили, адреса, калибровка и сценическая доводка — только после
-физической проверки (`docs/HARDWARE_DAY_CHECKLIST.md`). Следующий этап после
-HOME — `H001` в заведении с оборудованием.
+Локальный `config/runtime.yaml`, `config/instance.json` и `config/desk-role.json` принадлежат этому компьютеру и в git не входят.

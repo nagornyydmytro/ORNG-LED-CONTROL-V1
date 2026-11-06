@@ -305,6 +305,7 @@ export interface AutoPreviewClip {
   look: string;
   title?: string;
   cycle_beats: number;
+  loop_beats?: number;
   palette: string;
   intensity: string;
   bpm: number;

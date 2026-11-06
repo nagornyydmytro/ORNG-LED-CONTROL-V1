@@ -179,7 +179,7 @@ def test_oval_preview_decodes_moving_axes_and_joins_the_cycle() -> None:
     for series in (left, right):
         assert max(item[0] for item in series) - min(item[0] for item in series) > 0.01
         assert max(item[1] for item in series) - min(item[1] for item in series) > 0.01
-    dt_s = (8.0 / 72.0) * 0.5
+    dt_s = (float(clip["loop_beats"]) / len(clip["frames"])) * (60.0 / 120.0)
     for series in (left, right):
         for current, nxt in zip(series, series[1:]):
             assert abs(nxt[0] - current[0]) <= 0.35 * dt_s + 0.02
@@ -209,6 +209,33 @@ def test_oval_preview_decodes_moving_axes_and_joins_the_cycle() -> None:
         decoded.append(axes(view, "beam_left"))
     crossed = abs(decoded[2][0] - decoded[1][0])
     assert crossed <= 0.35 * 0.25 + 0.02
+
+
+def test_oval_loop_seam_uses_the_settled_period() -> None:
+    show = load_show_config()
+
+    def right_pan(bpm: float) -> list[float]:
+        clip = preview_clip(show, "heads_only_oval", cycle_beats=8, bpm=bpm, frames=72)
+        assert clip["canonical"] is True
+        return [
+            float(next(item for item in frame["beams"] if item["id"] == "beam_right")["pan"])
+            for frame in clip["frames"]
+        ]
+
+    for bpm in (120.0, 90.0, 160.0):
+        pans = right_pan(bpm)
+        steps = [abs(nxt - current) for current, nxt in zip(pans, pans[1:])]
+        moving = [step for step in steps if step > 1e-4] or steps
+        typical = sorted(moving)[len(moving) // 2]
+        seam = abs(pans[0] - pans[-1])
+        assert seam <= typical * 4.0
+        dt_s = (float(clip_loop_beats(show)) / len(pans)) * (60.0 / bpm)
+        assert seam <= 0.35 * dt_s + 0.02
+
+
+def clip_loop_beats(show) -> float:
+    clip = preview_clip(show, "heads_only_oval", cycle_beats=8, bpm=120, frames=72)
+    return float(clip["loop_beats"])
 
 
 def test_incompatible_look_is_explained_not_replaced() -> None:

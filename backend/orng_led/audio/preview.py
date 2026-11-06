@@ -35,6 +35,7 @@ PREVIEW_SAMPLES_PER_BEAT = 12.0
 PREVIEW_MIN_FRAMES = 16
 PREVIEW_MAX_FRAMES = 72
 PREVIEW_CLIP_CACHE_LIMIT = 4
+_TRAVEL_CACHE: dict[str, object] = {}
 MISMATCH_REASON = "Ця картина не збігається з поточною сценою."
 EMPTY_FRAMES_REASON = "Кадрів немає."
 CLIP_MISSING_REASON = "Цього варіанту немає серед зібраних кадрів."
@@ -253,6 +254,8 @@ def render_preview_view(
     rig: object | None = None,
     motion: dict[str, BeamMotionState] | None = None,
     dt_s: float = 0.0,
+    beat_period_s: float | None = None,
+    travel: object | None = None,
 ) -> dict[str, object]:
     """One SimulatorView. Axes advance through the engine integrator, then decode."""
     composition = BY_ID[look]
@@ -278,8 +281,9 @@ def render_preview_view(
         beats=float(beats),
         section="groove",
         look=look,
-        beat_period_s=60.0 / 96.0,
+        beat_period_s=60.0 / 96.0 if beat_period_s is None else float(beat_period_s),
         rig=rig if rig is not None else HeadRig(),
+        travel=travel,  # type: ignore[arg-type]
     )
     pose = motion if motion is not None else {}
     _follow_preview_axes(show, stage, pose, dt_s)
@@ -310,7 +314,10 @@ def preview_clip(
     auto = int(frames) <= 0
     count = phase_frame_count(cycle) if auto else max(8, min(PREVIEW_MAX_FRAMES, int(frames)))
     check = compatibility(show, look)
-    duration_s = cycle * 60.0 / tempo
+    from orng_led.audio.head_motion import HeadRig, motion_loop_beats, prepare_head_travel
+
+    loop = motion_loop_beats(look, cycle)
+    duration_s = loop * 60.0 / tempo
     payload = {
         "look": look,
         "title": BY_ID[look].title,
@@ -320,6 +327,7 @@ def preview_clip(
         "bpm": tempo,
         "frames_requested": count,
         "seconds": duration_s,
+        "loop_beats": loop,
         "transport": "none",
         "playback": "renderer",
         "safe_mock_preview": True,
@@ -346,6 +354,8 @@ def preview_clip(
             str(payload["palette"]),
             str(payload["intensity"]),
             str(count),
+            f"{tempo:.3f}",
+            f"{loop:.3f}",
         ]
     )
     cached = _CLIP_CACHE.get(cache_key)
@@ -354,18 +364,29 @@ def preview_clip(
         payload["frames"] = cached
         payload["canonical"] = True
         return payload
-    from orng_led.audio.head_motion import HeadRig
+    from orng_led.presets.io import default_presets_dir, load_presets_dir
 
+    directory = Path(scene_dir) / "presets" if scene_dir is not None else default_presets_dir()
+    travel_key = f"{scene_id or 'preview'}|{payload['scene_hash']}|{directory}"
+    travel = _TRAVEL_CACHE.get(travel_key)
+    if travel is None:
+        documents = load_presets_dir(directory) if directory.is_dir() else {}
+        travel = prepare_head_travel(
+            show,
+            documents,
+            scene_id=scene_id or "preview",
+            revision=str(payload["scene_hash"]),
+        )
+        _TRAVEL_CACHE[travel_key] = travel
     steps: list[dict[str, object]] = []
     clip_rig = HeadRig()
     clip_motion: dict[str, BeamMotionState] = {}
-    previous_beat: float | None = None
-    for index in range(count):
-        beats = (index / count) * cycle
-        dt_s = 0.0 if previous_beat is None else max(0.0, beats - previous_beat) * 60.0 / tempo
-        previous_beat = beats
-        steps.append(
-            render_preview_view(
+    period_s = 60.0 / tempo
+    if "beam" in BY_ID[look].groups:
+        step = loop / count
+        for index in range(count * 2 - 1):
+            beats = (index + 1) * step
+            view = render_preview_view(
                 show,
                 look,
                 beats=beats,
@@ -374,9 +395,33 @@ def preview_clip(
                 intensity=str(payload["intensity"]),
                 rig=clip_rig,
                 motion=clip_motion,
-                dt_s=dt_s,
+                dt_s=step * period_s,
+                beat_period_s=period_s,
+                travel=travel,
             )
-        )
+            if index >= count - 1:
+                steps.append(view)
+    else:
+        previous_beat: float | None = None
+        for index in range(count):
+            beats = (index / count) * cycle
+            dt_s = 0.0 if previous_beat is None else max(0.0, beats - previous_beat) * period_s
+            previous_beat = beats
+            steps.append(
+                render_preview_view(
+                    show,
+                    look,
+                    beats=beats,
+                    cycle_beats=cycle,
+                    palette=str(payload["palette"]),
+                    intensity=str(payload["intensity"]),
+                    rig=clip_rig,
+                    motion=clip_motion,
+                    dt_s=dt_s,
+                    beat_period_s=period_s,
+                    travel=travel,
+                )
+            )
     if not steps:
         payload["reason"] = payload["reason"] or EMPTY_FRAMES_REASON
         return payload

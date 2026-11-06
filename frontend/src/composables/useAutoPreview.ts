@@ -32,11 +32,12 @@ export function useAutoPreview() {
   let startedAt = 0;
   let elapsedS = 0;
   let bpm = 120;
+  let loopBeats = 4;
   const cache = new Map<string, AutoPreviewClip>();
 
   function view(): SimulatorView | null {
     if (!frames.length) return null;
-    const span = Math.max(0.25, cycleBeats.value);
+    const span = Math.max(0.25, loopBeats || cycleBeats.value);
     const phase = ((beat.value / span) % 1 + 1) % 1;
     const index = Math.min(frames.length - 1, Math.floor(phase * frames.length + 1e-9) % frames.length);
     return frames[index] ?? null;
@@ -55,7 +56,7 @@ export function useAutoPreview() {
     const now = performance.now();
     const passed = elapsedS + (now - startedAt) / 1000;
     const wrapped = ((passed % duration) + duration) % duration;
-    beat.value = (wrapped / duration) * cycleBeats.value;
+    beat.value = (wrapped / duration) * Math.max(0.25, loopBeats || cycleBeats.value);
     raf = window.requestAnimationFrame(tick);
   }
 
@@ -87,8 +88,9 @@ export function useAutoPreview() {
   }
 
   function syncDuration() {
-    const duration = previewDurationS(cycleBeats.value, bpm);
-    const phase = cycleBeats.value > 0 ? beat.value / cycleBeats.value : 0;
+    const span = Math.max(0.25, loopBeats || cycleBeats.value);
+    const duration = previewDurationS(span, bpm);
+    const phase = beat.value / span;
     seconds.value = duration;
     elapsedS = phase * duration;
     startedAt = performance.now();
@@ -111,7 +113,8 @@ export function useAutoPreview() {
     reason.value = clip.reason ?? null;
     note.value = clip.note ?? null;
     cycleBeats.value = Number(clip.cycle_beats) || query.cycleBeats;
-    seconds.value = previewDurationS(cycleBeats.value, bpm);
+    loopBeats = Number(clip.loop_beats) || cycleBeats.value;
+    seconds.value = previewDurationS(loopBeats, bpm);
     const hasFrames = Array.isArray(clip.frames) && clip.frames.length > 0;
     canonical.value = clip.canonical === true && hasFrames;
     frames = canonical.value ? clip.frames : [];
@@ -135,6 +138,7 @@ export function useAutoPreview() {
     error.value = null;
     look.value = query.look;
     cycleBeats.value = query.cycleBeats;
+    loopBeats = query.cycleBeats;
     sceneId.value = nextSceneId;
     bpm = clampPreviewBpm(query.bpm);
     seconds.value = previewDurationS(query.cycleBeats, bpm);

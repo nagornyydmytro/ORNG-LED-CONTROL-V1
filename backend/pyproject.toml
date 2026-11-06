@@ -1,6 +1,6 @@
 [project]
 name = "orng-led-control"
-version = "0.1.0"
+version = "0.2.0"
 description = "ORNG LED CONTROL — local DJ lighting console"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -9,6 +9,8 @@ dependencies = [
     "uvicorn[standard]>=0.32.0",
     "pydantic>=2.9.0",
     "PyYAML>=6.0.0",
+    "sounddevice>=0.5.1",
+    "numpy>=1.26",
 ]
 
 [project.optional-dependencies]
@@ -16,6 +18,15 @@ dev = [
     "httpx>=0.27.0",
     "pytest>=8.3.0",
     "ruff>=0.8.0",
+]
+cloud = [
+    "httpx>=0.27.0",
+    "websockets>=14.0",
+    "cryptography>=43.0.0",
+    "keyring>=25.0.0",
+]
+linux = [
+    "evdev>=1.7.0; sys_platform == 'linux'",
 ]
 
 [build-system]

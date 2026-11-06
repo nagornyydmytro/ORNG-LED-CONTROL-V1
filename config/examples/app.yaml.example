@@ -1,13 +1,27 @@
-# Example / reference copy of config/app.yaml for clean HOME installs.
-# Active runtime config lives in config/app.yaml (versioned fixtures).
+# Example / reference copy of scenes/<scene_id>/app.yaml for clean installs.
+# Active show config lives in config/scenes/<scene_id>/app.yaml.
 # Copy fields carefully; never set output_armed: true or hardware_verified: true at HOME.
+# Device-local active scene is config/runtime.yaml (gitignored), not this file.
 schema_version: 1
 transport: mock
 output_armed: false
 master_brightness: 1.0
+pad_presets:
+- A01
+- A02
+- A03
+- P01
+- P02
+- P03
+- P04
+- P05
+- P06
+strobe_speed: 0.1
+sweep_speed: 0.1
 artnet:
   target_ip: null
   universe: 0
   fps: 30
   udp_port: 6454
   hardware_verified: false
+config_dir: null

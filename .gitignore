@@ -34,11 +34,17 @@ playwright-report/
 .env
 .env.*
 !.env.example
+.dev.vars
+**/.dev.vars
+cloud/.dev.vars
 .local/
 .venue-logs/
 secrets/
 *.pem
 *.key
+# Wrangler local state
+cloud/.wrangler/
+**/.wrangler/
 
 # Local config backups (scripts/backup-config.ps1)
 backups/
@@ -47,6 +53,10 @@ backups/
 config/local.yaml
 config/*.local.yaml
 *.local.yaml
+# Device-local active scene — never ship or overwrite with scene releases
+config/runtime.yaml
+# Legacy/mistaken path — cloud metadata must never live under config/
+config/cloud-metadata.json
 
 # Local acceptance screenshots (kept out of the repository on purpose)
 .tmp-shots/
@@ -78,3 +88,6 @@ yarn-error.log*
 .DS_Store
 Thumbs.db
 Desktop.ini
+
+# Uncompressed Auto preview dump; the gzipped pack is the tracked artifact.
+cloud/src/scenes/autoPreviewPack.json

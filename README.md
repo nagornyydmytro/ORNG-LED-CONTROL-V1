@@ -97,18 +97,39 @@ Health: `http://127.0.0.1:8000/api/health`.
 ```text
 backend/          FastAPI (Python 3.12)
 frontend/         Vue 3 + Vite + TypeScript
-config/           provisional YAML (profiles, patch, layout, app, presets)
+cloud/            Cloudflare Worker control plane (Phase 2; no Art-Net)
+config/
+  runtime.example.yaml   template for device-local active_scene_id
+  runtime.yaml           gitignored local active scene (defaults to orng-bar)
+  scenes/
+    orng-bar/            canonical writable ORNG BAR (app/patch/layout/controls/profiles/presets)
 scripts/          bootstrap / run / run-dev / check / backup-config
 .context/         PROJECT_CANON.md
-docs/             IMPLEMENTATION_PLAN.md, HARDWARE_DAY_CHECKLIST.md, HOME_ACCEPTANCE_REPORT.md
+docs/             IMPLEMENTATION_PLAN, cloud-architecture, scene-releases, device-pairing, …
 ```
 
-Конфигурация `config/` versioned (`schema_version: 1`). Все provisional-профили
-помечены `hardware_verified: false`.
+Cloud (optional): `cloud/README.md`. UI panel at `/cloud`. Agent env:
+`ORNG_CLOUD_DEVICE_URL` + device token file.
 
-`config/layout.yaml` задаёт расстановку сцены (нормализованные координаты,
+Конфигурация versioned (`schema_version: 1`). Живые show-данные лежат только в
+`config/scenes/<scene_id>/`. Локальный `config/runtime.yaml` (gitignored) хранит
+активную сцену на устройстве; без него дефолт — `orng-bar`. Подробности:
+`config/README.md`.
+
+Все provisional-профили помечены `hardware_verified: false`.
+
+`scenes/*/layout.yaml` задаёт расстановку (нормализованные координаты,
 ориентация, монтаж) и порядок кабельной цепочки DMX. Симулятор строится только
-из этого файла, поэтому изменение расстановки не требует правок Vue-кода.
+из layout активной сцены.
+
+### Сцены и клавиатура
+
+- Список / активация: `GET /api/scenes`, `GET /api/scenes/active`,
+  `POST /api/scenes/activate` с `{ "scene_id": "..." }`.
+- Раскладка клавиатуры — `controls.yaml` активной сцены.
+- Linux USB keyboard (опционально): `ORNG_LINUX_KEYBOARD=1` и
+  `pip install -e "backend[linux]"`; права на `/dev/input` через группу `input`,
+  не root. Raspberry acceptance для адаптера ещё не сделан.
 
 ## Живые эффекты
 

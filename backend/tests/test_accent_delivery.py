@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from orng_led.audio.auto_show import SliceHearing, consume_accent
 from orng_led.audio.service import BpmService
 from orng_led.config.io import load_show_config
@@ -45,6 +47,200 @@ def test_carried_attack_keeps_its_time_and_does_not_repeat(tmp_path) -> None:
     service._apply_pending_hearings((_hearing(origin_s=5.0),), dt_s=0.2)
     assert service.section.accent_ready is None
     service._apply_pending_hearings((_hearing(),), dt_s=0.2)
+    assert service.section.accent_ready is None
+
+
+def _worker_result(
+    service: BpmService,
+    *,
+    captured_at: float,
+    novel_s: float,
+    attack: float | None,
+    generation: int,
+    hearing_generation: int | None = None,
+    onset: float = 0.9,
+    computed_at: float | None = None,
+    enqueue_mono: float | None = None,
+) -> tuple[object, ...]:
+    hearing = _hearing(
+        attacks=() if attack is None else (attack,),
+        generation=hearing_generation,
+        onset=onset,
+        rms=0.2,
+    )
+    stamp = captured_at if computed_at is None else computed_at
+    queued = captured_at if enqueue_mono is None else enqueue_mono
+    return (
+        "ok",
+        None,
+        "few_onsets",
+        {},
+        captured_at,
+        captured_at,
+        generation,
+        queued,
+        hearing,
+        novel_s,
+        0.2,
+        0.2,
+        0.0,
+        (),
+        stamp,
+        1,
+        captured_at,
+    )
+
+
+def _lock_at(service: BpmService, moment: float, phase: float) -> None:
+    service.follower.locked = True
+    service.follower.bpm = 120.0
+    service.follower._started = True
+    service.follower._at = float(moment)
+    service.follower._beats = 0.0
+    service.follower._phase = float(phase)
+    service._now = float(moment)
+
+
+def test_late_worker_attack_uses_the_capture_and_is_dropped(tmp_path, monkeypatch) -> None:
+    """captured_at=100, window=0.5, attack=0.49, drain=100.8 → attack 99.99, not 100.79."""
+    service = _service(tmp_path)
+    _lock_at(service, 100.8, 0.4)
+    monkeypatch.setattr("orng_led.audio.service.time.monotonic", lambda: 100.8)
+    from queue import Queue
+
+    service._results = Queue()
+    service._results.put(
+        _worker_result(
+            service,
+            captured_at=100.0,
+            novel_s=0.5,
+            attack=0.49,
+            generation=service._generation,
+            computed_at=100.75,
+            enqueue_mono=100.8,
+        )
+    )
+    service._drain_results()
+    assert service.section.accent_ready is None
+
+
+def test_phase_is_taken_at_the_attack_not_at_the_drain(tmp_path, monkeypatch) -> None:
+    service = _service(tmp_path)
+    _lock_at(service, 20.0, 0.0)
+    monkeypatch.setattr("orng_led.audio.service.time.monotonic", lambda: 20.0)
+    from queue import Queue
+
+    service._results = Queue()
+    service._results.put(
+        _worker_result(
+            service,
+            captured_at=20.0,
+            novel_s=0.5,
+            attack=0.40,
+            generation=service._generation,
+        )
+    )
+    service._drain_results()
+    assert service.section.accent_ready == pytest.approx(19.90)
+
+
+def test_overflow_keeps_the_original_attack_and_generation(tmp_path, monkeypatch) -> None:
+    from queue import Queue
+
+    from orng_led.audio.tempo_worker import put_latest
+
+    service = _service(tmp_path)
+    _lock_at(service, 30.05, 0.4)
+    monkeypatch.setattr("orng_led.audio.service.time.monotonic", lambda: 30.05)
+    monkeypatch.setattr("orng_led.audio.tempo_worker.time.monotonic", lambda: 30.05)
+    results: Queue = Queue(maxsize=1)
+    previous = service._generation
+    put_latest(
+        results,
+        _worker_result(
+            service,
+            captured_at=30.0,
+            novel_s=0.5,
+            attack=0.49,
+            generation=previous,
+            hearing_generation=previous,
+        ),
+    )
+    service._retire_session("device")
+    assert service._generation != previous
+    put_latest(
+        results,
+        _worker_result(
+            service,
+            captured_at=30.05,
+            novel_s=0.5,
+            attack=None,
+            generation=service._generation,
+            onset=0.1,
+        ),
+    )
+    service._results = results
+    service._drain_results()
+    assert service.section.accent_ready is None
+
+
+def test_overflow_converts_the_carried_attack(tmp_path, monkeypatch) -> None:
+    from queue import Queue
+
+    from orng_led.audio.tempo_worker import put_latest
+
+    service = _service(tmp_path)
+    _lock_at(service, 10.0, 0.4)
+    monkeypatch.setattr("orng_led.audio.service.time.monotonic", lambda: 30.05)
+    monkeypatch.setattr("orng_led.audio.tempo_worker.time.monotonic", lambda: 30.05)
+    results: Queue = Queue(maxsize=1)
+    generation = service._generation
+    put_latest(
+        results,
+        _worker_result(
+            service,
+            captured_at=30.0,
+            novel_s=0.5,
+            attack=0.49,
+            generation=generation,
+            hearing_generation=generation,
+        ),
+    )
+    put_latest(
+        results,
+        _worker_result(
+            service,
+            captured_at=30.05,
+            novel_s=0.5,
+            attack=None,
+            generation=generation,
+            onset=0.1,
+            enqueue_mono=30.05,
+        ),
+    )
+    service._results = results
+    service._drain_results()
+    assert service.section.accent_ready == pytest.approx(9.94)
+
+
+def test_show_clock_converts_a_monotonic_attack(tmp_path, monkeypatch) -> None:
+    service = _service(tmp_path)
+    _lock_at(service, 50.0, 0.4)
+    monkeypatch.setattr("orng_led.audio.service.time.monotonic", lambda: 100.8)
+    from queue import Queue
+
+    service._results = Queue()
+    service._results.put(
+        _worker_result(
+            service,
+            captured_at=100.0,
+            novel_s=0.5,
+            attack=0.49,
+            generation=service._generation,
+            computed_at=100.7,
+        )
+    )
+    service._drain_results()
     assert service.section.accent_ready is None
 
 

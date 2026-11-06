@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from orng_led.audio.auto_show import build_auto_stage
-from orng_led.audio.head_motion import HeadRig, preview_heads, target
+from orng_led.audio.head_motion import HeadRig, prepare_head_travel, preview_heads, target
+from orng_led.presets.io import default_presets_dir, load_presets_dir
 from orng_led.audio.preview import preview_clip
 from orng_led.audio.service import BpmService
 from orng_led.config.io import load_show_config
@@ -27,6 +28,21 @@ def _stage(show, look: str, beats: float):
     )
 
 
+_TRAVEL = None
+
+
+def _travel(show):
+    global _TRAVEL
+    if _TRAVEL is None:
+        _TRAVEL = prepare_head_travel(
+            show,
+            load_presets_dir(default_presets_dir()),
+            scene_id="orng-bar",
+            revision="isolation",
+        )
+    return _TRAVEL
+
+
 def _paint(show, rig: HeadRig, beats: float, look: str = "heads_only_fan"):
     return preview_heads(
         show,
@@ -35,6 +51,7 @@ def _paint(show, rig: HeadRig, beats: float, look: str = "heads_only_fan"):
         section="groove",
         look=look,
         rig=rig,
+        travel=_travel(show),
     )
 
 

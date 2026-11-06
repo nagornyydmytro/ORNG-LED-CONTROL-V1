@@ -145,6 +145,7 @@ class SliceHearing:
     low_density: float = 0.0
     high_density: float = 0.0
     origin_s: float | None = None
+    origin_clock: str | None = None
     generation: int | None = None
 
     def __iter__(self):

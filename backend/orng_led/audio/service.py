@@ -87,6 +87,7 @@ class BpmService:
         self.follower = TempoFollower()
         self.planner = EpisodePlanner()
         self.heads = HeadRig()
+        self.head_travel = None
         self.device_name: str | None = None
         self.device_id: str | None = None
         self.capture = "idle"
@@ -419,6 +420,9 @@ class BpmService:
         if not isinstance(hearing, SliceHearing):
             _trace("no_hearing")
             return
+        from orng_led.audio.tempo_worker import _stamp_hearing
+
+        hearing = _stamp_hearing(hearing, latest)
         novel_s = float(latest[9] or 0.0) if len(latest) > 9 else 0.0
         energy = latest[10] if len(latest) > 10 else float(hearing.rms)
         peak = latest[11] if len(latest) > 11 else None
@@ -448,6 +452,13 @@ class BpmService:
         else:
             _trace("refused")
 
+    def install_head_travel(self, travel: object) -> None:
+        """Replace the prepared ranges for this scene. A frame never builds them."""
+        scene_id = str(getattr(travel, "scene_id", ""))
+        if scene_id != str(self.scene_id):
+            return
+        self.head_travel = travel
+
     def set_scene(self, scene_id: str) -> None:
         next_id = scene_id or "default"
         if next_id != self.scene_id:
@@ -457,6 +468,7 @@ class BpmService:
         self.section = SectionTracker()
         self.planner = EpisodePlanner()
         self.heads.reset()
+        self.head_travel = None
         self._heard_at = None
         self._signal = False
         self._bar_plan = None
@@ -595,12 +607,16 @@ class BpmService:
         if carried and hearing.origin_s is None:
             return
         when = float(hearing.origin_s) if hearing.origin_s is not None else None
-        if when is None and hearing.attacks and window_s > 0.0:
+        if when is not None and hearing.origin_clock == "monotonic":
+            when = float(moment) - (time.monotonic() - when)
+        elif when is None and hearing.attacks and window_s > 0.0:
             last = float(hearing.attacks[-1])
             if 0.0 <= last <= float(window_s) + 1e-6:
                 when = float(moment) - (float(window_s) - last)
         if when is None:
             when = float(moment)
+        if self.follower.locked and self.follower.bpm is not None:
+            phase = self._phase_at(when)
         ident = (round(when, 4), round(float(hearing.onset), 4))
         self.section.consider_accent(
             now=float(moment),
@@ -610,6 +626,15 @@ class BpmService:
             attack_at=when,
             attack_id=ident,
         )
+
+    def _phase_at(self, when: float) -> float:
+        """Beat phase at a show-clock instant, including an attack before the last commit."""
+        follower = self.follower
+        if not follower._started or follower.bpm is None:
+            return float(follower._phase) % 1.0
+        elapsed = float(when) - float(follower._at)
+        beats = float(follower._beats) + elapsed * (float(follower.bpm) / 60.0)
+        return (beats + float(follower._phase)) % 1.0
 
     def _apply_pending_hearings(self, extras: object, *, dt_s: float) -> None:
         """Section events from replaced snapshots. Not a second tempo vote."""
@@ -1147,6 +1172,7 @@ class BpmService:
                 look=str(chosen),
                 beat_period_s=float(beat_period or 0.5),
                 rig=self.heads,
+                travel=self.head_travel,
             )
         if self.par_rhythm and not blackout:
             stage = lay_par_bed(stage, self._now, amount)

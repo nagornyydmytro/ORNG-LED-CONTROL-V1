@@ -12,6 +12,7 @@ transform. This module writes semantic pan/tilt once. It does not invert.
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 
 from orng_led.config.models import FixtureKind
 from orng_led.engine.intents import BeamIntent, StageIntent
@@ -23,7 +24,15 @@ HEAD_PATHS_LIVE = True
 # applied afterwards, in physical units, and converted back. It is not a second
 # semantic clamp.
 BOUNDS_ORIGIN = "scene_preset_extrema"
-_extrema_cache: tuple[object, dict[str, tuple[float, float, float, float]]] | None = None
+
+
+@dataclass(frozen=True)
+class HeadTravel:
+    """Pan/tilt extrema for one scene revision. The frame only reads this."""
+
+    scene_id: str
+    revision: str
+    spans: dict[str, tuple[float, float, float, float]]
 _MAX_PAN_PER_BEAT = 0.04
 _MAX_TILT_PER_BEAT = 0.025
 _MAX_PAN_ACCEL = 0.02
@@ -50,8 +59,8 @@ class HeadRig:
         return (row[0], row[1])
 
 
-def bounds_for(fixture: object) -> dict[str, object]:
-    """Preset extrema of this scene, intersected with calibration in physical units."""
+def bounds_for(fixture: object, travel: HeadTravel | None = None) -> dict[str, object]:
+    """Read a prepared snapshot. Never loads YAML or samples presets."""
     spatial = getattr(fixture, "spatial", None)
     if spatial is None:
         return {
@@ -59,11 +68,19 @@ def bounds_for(fixture: object) -> dict[str, object]:
             "tilt": _still("tilt:no_spatial"),
             "origin": BOUNDS_ORIGIN,
         }
-    span = _span_for(str(getattr(fixture, "id", "")))
+    if travel is None:
+        return {
+            "pan": _still("pan:bounds_not_ready"),
+            "tilt": _still("tilt:bounds_not_ready"),
+            "origin": BOUNDS_ORIGIN,
+            "max_pan_speed": float(getattr(spatial, "max_pan_speed", 0.35)),
+            "max_tilt_speed": float(getattr(spatial, "max_tilt_speed", 0.25)),
+        }
+    span = travel.spans.get(str(getattr(fixture, "id", "")))
     if span is None:
         return {
-            "pan": _still("pan:no_preset_motion"),
-            "tilt": _still("tilt:no_preset_motion"),
+            "pan": _still("pan:unknown_fixture"),
+            "tilt": _still("tilt:unknown_fixture"),
             "origin": BOUNDS_ORIGIN,
             "max_pan_speed": float(getattr(spatial, "max_pan_speed", 0.35)),
             "max_tilt_speed": float(getattr(spatial, "max_tilt_speed", 0.25)),
@@ -135,6 +152,7 @@ def preview_heads(
     look: str = "",
     beat_period_s: float = 0.5,
     rig: HeadRig | None = None,
+    travel: HeadTravel | None = None,
 ) -> StageIntent:
     """Paint a continuous path. A missing rig is a one-frame path, not shared memory."""
     motion = rig if rig is not None else HeadRig()
@@ -146,7 +164,7 @@ def preview_heads(
         intent = painted.get(fixture.id)
         if not isinstance(intent, BeamIntent):
             continue
-        bounds = bounds_for(fixture)
+        bounds = bounds_for(fixture, travel)
         pan_box = bounds["pan"]
         tilt_box = bounds["tilt"]
         assert isinstance(pan_box, dict) and isinstance(tilt_box, dict)
@@ -265,28 +283,39 @@ def _sample_turns() -> list[float]:
     return sorted(turns)
 
 
-def _scene_extrema() -> dict[str, tuple[float, float, float, float]]:
-    """Semantic pan/tilt extrema of the beam intents this scene's presets emit."""
-    global _extrema_cache
-    from orng_led.config.io import load_show_config
+def motion_loop_beats(look: str, cycle_beats: float) -> float:
+    """Picture cycles that cover one full head trajectory. Bars stay on their cycle."""
+    from orng_led.audio.library import BY_ID
+
+    cycle = float(cycle_beats)
+    item = BY_ID.get(look)
+    if item is None or "beam" not in item.groups or cycle <= 0.0:
+        return cycle
+    period = _period(look, "groove")
+    spans = max(1, int(math.ceil((period / cycle) - 1e-9)))
+    return cycle * spans
+
+
+def prepare_head_travel(
+    show: object,
+    documents: object,
+    *,
+    scene_id: str,
+    revision: str,
+) -> HeadTravel:
+    """Sample one scene's presets. Call this at load or update, never from a frame."""
     from orng_led.engine.intents import BeamIntent
-    from orng_led.presets.io import default_presets_dir, load_presets_dir
     from orng_led.presets.program import YamlPresetProgram
 
-    directory = default_presets_dir()
-    if not directory.is_dir():
-        return {}
-    stamp = tuple(
-        (path.name, path.stat().st_mtime_ns) for path in sorted(directory.glob("*.yaml"))
-    )
-    if _extrema_cache is not None and _extrema_cache[0] == stamp:
-        return _extrema_cache[1]
-    show = load_show_config()
     found: dict[str, list[float]] = {}
-    for document in load_presets_dir(directory).values():
-        program = YamlPresetProgram(document)
+    items = documents.values() if isinstance(documents, dict) else documents
+    for document in items:
+        program = document if hasattr(document, "evaluate") else YamlPresetProgram(document)
+        episodes = getattr(document, "episodes", None)
+        if episodes is None:
+            episodes = getattr(getattr(document, "document", None), "episodes", ())
         elapsed = 0.0
-        for episode in document.episodes:
+        for episode in episodes:
             moment = elapsed + float(episode.duration_s) * 0.5
             for turn in _sample_turns():
                 stage = program.evaluate(
@@ -311,23 +340,8 @@ def _scene_extrema() -> dict[str, tuple[float, float, float, float]]:
                     row[2] = min(row[2], float(intent.tilt))
                     row[3] = max(row[3], float(intent.tilt))
             elapsed += float(episode.duration_s)
-    result = {key: (row[0], row[1], row[2], row[3]) for key, row in found.items()}
-    _extrema_cache = (stamp, result)
-    return result
-
-
-def _span_for(fixture_id: str) -> tuple[float, float, float, float] | None:
-    table = _scene_extrema()
-    if fixture_id in table:
-        return table[fixture_id]
-    if not table:
-        return None
-    return (
-        min(item[0] for item in table.values()),
-        max(item[1] for item in table.values()),
-        min(item[2] for item in table.values()),
-        max(item[3] for item in table.values()),
-    )
+    spans = {key: (row[0], row[1], row[2], row[3]) for key, row in found.items()}
+    return HeadTravel(scene_id=str(scene_id), revision=str(revision), spans=spans)
 
 
 def _axis(

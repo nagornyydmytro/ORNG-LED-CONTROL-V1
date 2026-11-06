@@ -13,12 +13,36 @@ from orng_led.audio.auto_show import (
     consume_accent,
     lay_par_bed,
 )
-from orng_led.audio.head_motion import HEAD_PATHS_LIVE, HeadRig, bounds_for, limited, target
+from orng_led.audio.head_motion import (
+    HEAD_PATHS_LIVE,
+    HeadRig,
+    bounds_for,
+    limited,
+    prepare_head_travel,
+    target,
+)
+from orng_led.presets.io import default_presets_dir, load_presets_dir
 from orng_led.audio.library import BY_ID
 from orng_led.audio.planner import EpisodePlanner
 from orng_led.audio.preview import render_preview_view
 from orng_led.config.io import load_show_config
 from orng_led.engine.intents import BarIntent, BeamIntent, ParIntent
+
+
+_CACHED_TRAVEL = None
+
+
+def _travel():
+    global _CACHED_TRAVEL
+    if _CACHED_TRAVEL is None:
+        show = load_show_config()
+        _CACHED_TRAVEL = prepare_head_travel(
+            show,
+            load_presets_dir(default_presets_dir()),
+            scene_id="orng-bar",
+            revision="desk",
+        )
+    return _CACHED_TRAVEL
 
 
 def _planner(character: str = "rhythmic") -> EpisodePlanner:
@@ -271,7 +295,7 @@ def test_head_bounds_come_from_preset_span_not_full_throw() -> None:
         tilt_min=0.0, tilt_max=1.0, home_tilt=0.44,
         max_pan_speed=0.35, max_tilt_speed=0.25, side="left",
     )
-    wide = bounds_for(SimpleNamespace(id="beam_left", spatial=spatial))
+    wide = bounds_for(SimpleNamespace(id="beam_left", spatial=spatial), travel=_travel())
     assert abs(float(wide["pan"]["lo"]) - 0.08) < 1e-9
     assert abs(float(wide["pan"]["hi"]) - 0.92) < 1e-9
     assert wide["pan"]["crosses_home"] is True
@@ -282,7 +306,7 @@ def test_head_bounds_come_from_preset_span_not_full_throw() -> None:
         max_pan_speed=0.35, max_tilt_speed=0.25, side="right",
         pan_offset=0.0, tilt_offset=0.0, pan_invert=False, tilt_invert=False,
     )
-    kept = bounds_for(SimpleNamespace(id="beam_right", spatial=narrowed))
+    kept = bounds_for(SimpleNamespace(id="beam_right", spatial=narrowed), travel=_travel())
     assert kept["pan"]["still"] is False
     assert abs(float(kept["pan"]["lo"]) - 0.08) < 1e-3
     tight = SimpleNamespace(
@@ -291,7 +315,7 @@ def test_head_bounds_come_from_preset_span_not_full_throw() -> None:
         max_pan_speed=0.35, max_tilt_speed=0.25, side="right",
         pan_offset=0.0, tilt_offset=0.0, pan_invert=False, tilt_invert=False,
     )
-    stuck = bounds_for(SimpleNamespace(id="beam_right", spatial=tight))
+    stuck = bounds_for(SimpleNamespace(id="beam_right", spatial=tight), travel=_travel())
     assert stuck["pan"]["still"] is True
     assert "calibration_excludes_preset" in str(stuck["pan"]["reason"])
 
@@ -313,17 +337,19 @@ def test_rise_pan_rests_on_the_calibrated_home() -> None:
 def test_head_bounds_survive_invert_and_match_across_the_pair() -> None:
     show = load_show_config()
     by_id = {fixture.id: fixture for fixture in show.patch.fixtures}
-    left = bounds_for(by_id["beam_left"])
-    right = bounds_for(by_id["beam_right"])
+    left = bounds_for(by_id["beam_left"], travel=_travel())
+    right = bounds_for(by_id["beam_right"], travel=_travel())
     assert left["pan"]["still"] is False and right["pan"]["still"] is False
     assert abs(float(left["pan"]["lo"]) - float(right["pan"]["lo"])) < 1e-6
     assert abs(float(left["pan"]["hi"]) - float(right["pan"]["hi"])) < 1e-6
     flipped_spatial = by_id["beam_right"].spatial.model_copy(update={"pan_invert": True, "pan_offset": 0.0})
-    flipped = bounds_for(SimpleNamespace(id="beam_right", spatial=flipped_spatial))
+    flipped = bounds_for(SimpleNamespace(id="beam_right", spatial=flipped_spatial), travel=_travel())
     assert abs(float(flipped["pan"]["lo"]) - float(right["pan"]["lo"])) < 1e-6
     assert abs(float(flipped["pan"]["hi"]) - float(right["pan"]["hi"])) < 1e-6
     shifted_spatial = by_id["beam_right"].spatial.model_copy(update={"pan_offset": 0.1})
-    shifted = bounds_for(SimpleNamespace(id="beam_right", spatial=shifted_spatial))
+    shifted = bounds_for(
+        SimpleNamespace(id="beam_right", spatial=shifted_spatial), travel=_travel()
+    )
     assert float(shifted["pan"]["lo"]) >= float(right["pan"]["lo"]) - 1e-6
     assert float(shifted["pan"]["hi"]) <= float(right["pan"]["hi"]) + 1e-6
     assert float(shifted["pan"]["hi"]) - float(shifted["pan"]["lo"]) <= (

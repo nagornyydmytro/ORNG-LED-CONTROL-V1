@@ -270,9 +270,33 @@ class AppRuntime:
         programs[NONE_PRESET_ID] = NonePresetProgram()
         previous = self.engine.active_preset_id
         self.engine.presets = programs
+        self._install_head_travel()
         if previous not in self.engine.presets:
             # Prefer explicit «Без пресету» over an arbitrary fallback.
             self.engine.select_preset(NONE_PRESET_ID, reset_clock=True)
+
+    def _install_head_travel(self) -> None:
+        """Ranges for the loaded scene. Not called from the frame."""
+        import hashlib
+        import json
+
+        from orng_led.audio.head_motion import prepare_head_travel
+
+        documents = dict(self.preset_store.documents)
+        parts = []
+        for key in sorted(documents, key=str):
+            document = documents[key]
+            raw = document.model_dump(mode="json") if hasattr(document, "model_dump") else str(key)
+            parts.append(json.dumps(raw, sort_keys=True, default=str))
+        revision = hashlib.sha256("\n".join(parts).encode("utf-8")).hexdigest()[:20]
+        self.bpm.install_head_travel(
+            prepare_head_travel(
+                self.show,
+                documents,
+                scene_id=self.scene_id,
+                revision=revision,
+            )
+        )
 
     async def start(self) -> None:
         if self._running:

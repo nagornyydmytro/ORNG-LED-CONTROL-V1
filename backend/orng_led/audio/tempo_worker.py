@@ -70,6 +70,7 @@ def analysis_worker(jobs: Queue, results: Queue, stop_token: Any) -> None:
                 window_id,
                 compute_start,
             )
+            _stamp_hearing(hearing, payload)
         except Exception as exc:  # noqa: BLE001
             computed_at = time.monotonic()
             payload = (
@@ -143,6 +144,7 @@ def _stamp_hearing(hearing: object, payload: object) -> object:
         origin = _attack_instant(hearing, captured, novel)
         if origin is not None:
             object.__setattr__(hearing, "origin_s", origin)
+            object.__setattr__(hearing, "origin_clock", "monotonic")
     if hearing.generation is None and generation is not None:
         object.__setattr__(hearing, "generation", generation)
     return hearing

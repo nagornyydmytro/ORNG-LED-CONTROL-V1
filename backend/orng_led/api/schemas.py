@@ -148,6 +148,8 @@ class BpmSyncCommand(ApiModel):
     scope: str | None = None
     palette: str | None = None
     cast: str | None = None
+    groups: list[str] | None = None
+    excluded: list[str] | None = None
     character: str | None = None
     intensity: str | None = None
     period: float | str | None = None

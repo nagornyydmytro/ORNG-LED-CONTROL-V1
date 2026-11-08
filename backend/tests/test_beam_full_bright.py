@@ -51,9 +51,19 @@ def test_render_beam_ignores_master_and_intent_dimmer_curve() -> None:
         if ch.role is ChannelRole.FIXED:
             assert frame[idx] == 255
         if ch.role is ChannelRole.RED:
-            assert frame[idx] == 255  # full, not scaled by 0.2 * 0.1
-        if ch.role is ChannelRole.GREEN:
-            assert frame[idx] == 0
+            assert frame[idx] == int(round(0.2 * 255))
+    full_master = render_stage(
+        show,
+        stage,
+        {beam.id: BeamMotionState(pan=0.5, tilt=0.5)},
+        master=1.0,
+    )
+    red = next(
+        global_channel(beam.start_address, ch.local) - 1
+        for ch in profile.channels
+        if ch.role is ChannelRole.RED
+    )
+    assert full_master[red] == frame[red]
 
 
 def test_staff_presets_set_beam_dimmer_full_when_present() -> None:

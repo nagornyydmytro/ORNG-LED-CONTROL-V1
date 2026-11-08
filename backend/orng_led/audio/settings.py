@@ -6,6 +6,7 @@ from orng_led.audio.palettes import COLOR_IDS, known_palette, migrate_palette
 from orng_led.engine.clock import FRAME_DT, FPS
 
 CAST_IDS = ("all", "bars", "heads")
+GROUP_IDS = ("par", "bar", "beam")
 CHARACTER_IDS = ("smooth", "rhythmic", "impact")
 PERIOD_IDS = (0.5, 1.0, 2.0, 4.0, 8.0)
 INTENSITY_IDS = ("soft", "normal", "full")
@@ -94,12 +95,48 @@ _HEADS_HOME: dict[str, str] = {
 }
 
 
-def director_home(character: str, theme: str | None = None, cast: str | None = None) -> str:
-    """Home look for this character that the cast can actually paint."""
-    chosen = cast_of(theme, cast)
-    if chosen == "heads":
-        return _HEADS_HOME.get(character, "pulse")
-    return DIRECTOR_HOME.get(character, "vertical_wave")
+def groups_cover(item_groups: tuple[str, ...] | list[str], enabled: set[str]) -> bool:
+    """A look is paintable only by classes the operator left on."""
+    owned = set(item_groups)
+    return bool(owned) and owned <= enabled
+
+
+def director_home(
+    character: str,
+    theme: str | None = None,
+    cast: str | None = None,
+    groups: tuple[str, ...] | list[str] | None = None,
+) -> str:
+    """Home look for this character that the enabled classes can paint."""
+    from orng_led.audio.library import BY_ID, COMPOSITIONS
+
+    enabled = set(groups) if groups is not None else set(groups_from_cast(cast_of(theme, cast)))
+    if not enabled:
+        return ""
+    if groups is None:
+        if "bar" not in enabled and "beam" in enabled:
+            return _HEADS_HOME.get(character, "pulse")
+        return DIRECTOR_HOME.get(character, "vertical_wave")
+    if enabled == {"beam"}:
+        preferred = _HEADS_HOME.get(character, "pulse")
+    elif "bar" not in enabled:
+        preferred = ""
+    else:
+        preferred = DIRECTOR_HOME.get(character, "vertical_wave")
+    item = BY_ID.get(preferred)
+    if item is not None and groups_cover(item.groups, enabled) and not (
+        item.needs_segments and "bar" not in enabled
+    ):
+        return preferred
+    for pool in ("phrase", "calm", "accent", "rise"):
+        for candidate in COMPOSITIONS:
+            if candidate.pool != pool:
+                continue
+            if candidate.needs_segments and "bar" not in enabled:
+                continue
+            if groups_cover(candidate.groups, enabled):
+                return candidate.id
+    return ""
 
 CHARACTER_CYCLE: dict[str, dict[str, float]] = {
     "smooth": {"phrase": 8.0, "calm": 8.0, "rise": 4.0, "accent": 2.0},
@@ -146,6 +183,34 @@ def groups_of(cast: str) -> tuple[str, ...]:
     return CAST_GROUPS.get(cast, CAST_GROUPS["all"])
 
 
+def groups_from_cast(cast: str | None) -> tuple[str, ...]:
+    """Old exclusive cast. ``heads`` kept PAR, because that is what it painted."""
+    return CAST_GROUPS.get(str(cast or "all"), CAST_GROUPS["all"])
+
+
+def normalize_groups(value: object) -> tuple[str, ...]:
+    """Independent classes. An empty list stays empty and is not 'all'."""
+    if not isinstance(value, (list, tuple)):
+        return groups_from_cast("all")
+    found: list[str] = []
+    for item in value:
+        name = str(item)
+        if name in GROUP_IDS and name not in found:
+            found.append(name)
+    return tuple(found)
+
+
+def legacy_cast(groups: tuple[str, ...] | list[str]) -> str:
+    chosen = set(groups)
+    if chosen == {"par", "bar", "beam"}:
+        return "all"
+    if chosen == {"bar"}:
+        return "bars"
+    if chosen == {"par", "beam"}:
+        return "heads"
+    return "all"
+
+
 def intensity_of(name: str | float | None) -> float:
     if isinstance(name, (int, float)):
         return max(0.0, min(1.0, float(name)))
@@ -155,13 +220,16 @@ def intensity_of(name: str | float | None) -> float:
 def known_period(
     value: float | int | str | None, character: str | None = None
 ) -> float | None:
+    """An explicit 1/2, 1, 2, 4 or 8. Character lists are desk suggestions, not a silent drop.
+
+    ``character`` stays in the signature so callers can pass it. It does not
+    discard a period the operator already set.
+    """
+    del character
     if value is None or value == "auto" or value == "":
         return None
     number = float(value)
-    allowed = PERIODS_FOR_CHARACTER.get(str(character or ""), PERIOD_IDS)
-    for choice in allowed:
-        if choice is None:
-            continue
+    for choice in PERIOD_IDS:
         if abs(number - choice) <= 1e-9:
             return choice
     return None
@@ -179,11 +247,15 @@ def achievable_period_frames(density: float) -> int:
 
 
 def series_period_frames(density: float, beat_period_s: float, character: str = "rhythmic") -> int:
-    """On/off period from a beat subdivision, then clamped to a displayable frame pair."""
+    """On/off length of one musical subdivision, in output frames.
+
+    The floor of two frames is how fast this desk can show on then off.
+    It is not a claim about strobe safety for people. Character does not
+    shorten the subdivision.
+    """
+    del character
     beat = max(0.25, min(1.0, float(beat_period_s)))
     amount = max(0.0, min(1.0, float(density)))
-    if character == "impact":
-        amount = min(1.0, amount + 0.25)
     steps = (1.0, 0.5, 0.25, 0.125)
     index = min(len(steps) - 1, int(amount * len(steps)))
     span_s = beat * steps[index]

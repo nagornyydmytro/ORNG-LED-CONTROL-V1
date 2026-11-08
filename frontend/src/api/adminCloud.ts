@@ -604,6 +604,8 @@ export type LocationShowPrefs = {
   scope: "preset" | "auto";
   palette: string;
   cast?: "all" | "bars" | "heads";
+  groups?: Array<"par" | "bar" | "beam">;
+  excluded?: string[];
   character?: "smooth" | "rhythmic" | "impact";
   intensity?: "soft" | "normal" | "full";
   period?: string | number;
@@ -630,6 +632,8 @@ export function adminPutLocationShowPrefs(
     scope?: string;
     palette?: string;
     cast?: string;
+    groups?: Array<"par" | "bar" | "beam">;
+    excluded?: string[];
     character?: string;
     intensity?: string;
     period?: string | number;
@@ -640,9 +644,13 @@ export function adminPutLocationShowPrefs(
       scope?: string;
       palette?: string;
       cast?: string;
+      groups?: Array<"par" | "bar" | "beam">;
+      excluded?: string[];
       character?: string;
       intensity?: string;
       period?: string | number;
+      par_rhythm?: boolean;
+      accent?: number;
     };
   },
   opts?: AdminClientOptions,

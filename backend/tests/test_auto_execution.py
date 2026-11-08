@@ -270,7 +270,7 @@ def test_the_show_can_be_played_back_from_the_real_layout(tmp_path: Path) -> Non
     motif_look = str(rows[0]["look"])
     rise_look = str(rise_plan[0]["look"])
     assert rise_look in BY_ID
-    assert rise_look == motif_look or BY_ID[rise_look].family == BY_ID[motif_look].family
+    assert rise_look == motif_look or rise_plan[0]["reason"] == "flow"
     break_levels = {
         item["level"]
         for row in rows
@@ -289,7 +289,7 @@ def test_the_show_can_be_played_back_from_the_real_layout(tmp_path: Path) -> Non
         if row["reason"] == "drop_next" and float(row["beat"]) <= drop_beat + 2.0
     ]
     assert accent_rows
-    assert accent_rows[0]["look"] == "accent"
+    assert BY_ID[accent_rows[0]["look"]].pool == "accent"
     assert accent_rows[0]["strobe"] == 1.0
     assert drop_beat <= float(accent_rows[0]["beat"]) <= drop_beat + 2.0
     lost_rows = [row for row in rows if row["label"] == "signal_loss"]

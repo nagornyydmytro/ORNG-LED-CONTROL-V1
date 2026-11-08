@@ -493,7 +493,7 @@ def test_auto_palettes_stay_on_mapped_kinds_and_park_heads(tmp_path: Path) -> No
     riser = build_auto_stage(fixtures, "orange", "riser", 0.4, 0.7, flash_hold=1.0)
     assert isinstance(riser.fixtures["par-1"], ParIntent)
     assert riser.fixtures["par-1"].strobe == 0.0
-    assert riser.fixtures["par-1"].intensity == 1.0
+    assert riser.fixtures["par-1"].intensity == pytest.approx(0.7)
     assert isinstance(riser.fixtures["beam-1"], BeamIntent)
     assert riser.fixtures["beam-1"].strobe == 0.0
     drop = build_auto_stage(fixtures, "orange", "drop", 0.0, 1.0, 0.4)
@@ -649,10 +649,25 @@ def _reach_riser() -> SectionTracker:
 
 
 def test_riser_ends_on_silence_and_on_its_own_limit() -> None:
+    from orng_led.audio.auto_show import NEAR_SILENCE_S
+
+    # A gap shorter than the pause is still the rise. The same length ends it.
+    gap = _reach_riser()
+    for _ in range(int((NEAR_SILENCE_S - 0.5) / 0.25)):
+        gap.push(0.0, 0.25)
+    assert gap.section == "riser"
+    assert gap.input_lost is False
     quiet = _reach_riser()
-    for _ in range(4):
+    for _ in range(int(round(NEAR_SILENCE_S / 0.25))):
         quiet.push(0.0, 0.25)
     assert quiet.section != "riser"
+    assert quiet.input_lost is False
+    assert quiet.hearing == "silence"
+    assert any(detail == "silence" for _when, _kind, detail in quiet.journal)
+    assert quiet.reasons
+    sound_s, decision_s, _kind, detail = quiet.reasons[-1]
+    assert detail == "silence"
+    assert decision_s - sound_s == pytest.approx(NEAR_SILENCE_S, abs=0.05)
     stalled = _reach_riser()
     stalled.push(0.3, 6.5, onset=0.001)
     assert stalled.section != "riser"

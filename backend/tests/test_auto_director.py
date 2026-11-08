@@ -70,7 +70,7 @@ def test_cycles_follow_beats_and_themes_limit_the_look(tmp_path: Path) -> None:
     assert "face" not in quiet.fixtures
     beam = quiet.fixtures["beam"]
     assert isinstance(beam, BeamIntent)
-    assert beam.dimmer in {0.0, 1.0}
+    assert beam.dimmer == pytest.approx(0.8)
     assert beam.pan is None and beam.strobe == 0.0
     bars = build_auto_stage(lamps, "bars", "groove", 0.2, 0.9, beats=1.0, cycle_beats=2)
     assert set(bars.fixtures) == {"bar"}

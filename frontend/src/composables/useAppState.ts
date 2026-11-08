@@ -359,6 +359,8 @@ export function useAppState(toasts: ToastApi) {
     scope?: "preset" | "auto";
     palette?: import("../vite-env").BpmPaletteId;
     cast?: "all" | "bars" | "heads";
+    groups?: Array<"par" | "bar" | "beam">;
+    excluded?: string[];
     character?: "smooth" | "rhythmic" | "impact";
     intensity?: "soft" | "normal" | "full";
     period?: "auto" | 0.5 | 1 | 2 | 4 | 8;
@@ -376,6 +378,8 @@ export function useAppState(toasts: ToastApi) {
         scope: patch.scope ?? current?.scope ?? saved.scope,
         palette: patch.palette ?? current?.palette ?? saved.palette,
         cast: patch.cast ?? current?.cast ?? saved.cast,
+        ...(patch.groups != null ? { groups: patch.groups } : {}),
+        ...(patch.excluded != null ? { excluded: patch.excluded } : {}),
         character: patch.character ?? current?.character ?? saved.character,
         intensity: patch.intensity ?? current?.intensity ?? saved.intensity,
         period: patch.period ?? current?.period ?? saved.period,

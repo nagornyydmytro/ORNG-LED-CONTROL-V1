@@ -44,6 +44,7 @@ EXCLUDE_DIR_NAMES = {
     "coverage",
     ".cache",
     "agent-transcripts",
+    "show-bench",
     ".cursor",
     ".venue-logs",
     ".tmp-shots",
@@ -67,6 +68,12 @@ EXCLUDE_GLOBS = [
     "dist-app-repair*/**",
     "**/*.pyc",
     "**/*.zip",
+    "**/*.wav",
+    "**/*.mp3",
+    "**/*.flac",
+    "**/*.mp4",
+    "**/*.webm",
+    "**/*.mov",
     "**/*.tar.gz",
     "**/*.tgz",
     "**/*.7z",
@@ -129,7 +136,9 @@ def _excluded(rel: str) -> bool:
         return True
     if len(parts) >= 2 and parts[0] == "docs" and parts[1] in {"captures", "review-screenshots"}:
         return True
-    return lower.endswith((".zip", ".tar.gz", ".tgz"))
+    if "show-bench" in parts:
+        return True
+    return lower.endswith((".zip", ".tar.gz", ".tgz", ".wav", ".mp3", ".flac", ".mp4", ".webm", ".mov"))
 
 
 def _secret_file_name(normalized: str) -> bool:

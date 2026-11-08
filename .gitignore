@@ -66,6 +66,9 @@ config/desk-role.json
 # Legacy/mistaken path — cloud metadata must never live under config/
 config/cloud-metadata.json
 
+# Home show bench: audio, video, traces. Regenerated locally. Not a source archive.
+show-bench/
+
 # Local acceptance screenshots (kept out of the repository on purpose)
 .tmp-shots/
 .tmp-splash-frames/

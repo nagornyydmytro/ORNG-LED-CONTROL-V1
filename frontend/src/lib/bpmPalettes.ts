@@ -37,6 +37,29 @@ export const BPM_CASTS = [
   { id: "heads", label: "Голови" },
 ] as const;
 
+export const BPM_GROUPS = [
+  { id: "beam", label: "Голови" },
+  { id: "par", label: "PAR" },
+  { id: "bar", label: "Бари" },
+] as const;
+
+export type BpmGroupId = (typeof BPM_GROUPS)[number]["id"];
+
+export function groupsFromCast(cast: BpmCastId | string | null | undefined): BpmGroupId[] {
+  if (cast === "bars") return ["bar"];
+  if (cast === "heads") return ["par", "beam"];
+  return ["par", "bar", "beam"];
+}
+
+export function normalizeGroups(value: unknown, cast?: BpmCastId | string | null): BpmGroupId[] {
+  if (!Array.isArray(value)) return groupsFromCast(cast);
+  const found: BpmGroupId[] = [];
+  for (const item of BPM_GROUPS) {
+    if (value.includes(item.id)) found.push(item.id);
+  }
+  return found;
+}
+
 export const BPM_CHARACTERS = [
   { id: "smooth", label: "Плавний" },
   { id: "rhythmic", label: "Ритмічний" },
@@ -100,6 +123,8 @@ export type BpmChoice = {
   mode: "smooth" | "bar" | "beat";
   palette: BpmPaletteId;
   cast: BpmCastId;
+  groups: BpmGroupId[];
+  excluded: string[];
   character: BpmCharacterId;
   intensity: BpmIntensityId;
   period: BpmPeriodId;
@@ -114,6 +139,18 @@ export function asPeriod(value: unknown, character?: BpmCharacterId): BpmPeriodI
   const period = match ? match.id : "auto";
   if (!character) return period;
   return PERIODS_FOR_CHARACTER[character].includes(period) ? period : "auto";
+}
+
+function isBpmPalette(value: unknown): value is BpmPaletteId {
+  return BPM_PALETTES.some((item) => item.id === value);
+}
+
+/** A palette from the location API. Legacy cast names are not colours. */
+export function paletteFromApi(value: unknown, fallback: unknown = "orange"): BpmPaletteId {
+  if (isBpmPalette(value)) return value;
+  if (value === "heads") return "white";
+  if (isBpmPalette(fallback)) return fallback;
+  return "orange";
 }
 
 function splitLegacyPalette(raw: unknown): { palette: BpmPaletteId; cast: BpmCastId } {
@@ -158,6 +195,8 @@ export function readBpmChoice(choiceKey?: string | null): BpmChoice {
     mode: "smooth",
     palette: "orange",
     cast: "all",
+    groups: ["par", "bar", "beam"],
+    excluded: [],
     character: "rhythmic",
     intensity: "full",
     period: "auto",
@@ -182,6 +221,10 @@ export function readBpmChoice(choiceKey?: string | null): BpmChoice {
       mode: mode ?? fallback.mode,
       palette: split.palette,
       cast: cast ?? fallback.cast,
+      groups: normalizeGroups(raw.groups, cast ?? fallback.cast),
+      excluded: Array.isArray(raw.excluded)
+        ? raw.excluded.filter((item): item is string => typeof item === "string")
+        : [],
       character: character ?? fallback.character,
       intensity: intensity ?? fallback.intensity,
       period: asPeriod(raw.period, character ?? fallback.character),

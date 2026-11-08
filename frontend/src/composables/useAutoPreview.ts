@@ -6,10 +6,11 @@ import type { AutoPreviewClip, SimulatorView } from "../vite-env";
 const CACHE_LIMIT = 4;
 
 export function previewCacheKey(
-  query: Pick<AutoPreviewQuery, "look" | "cycleBeats" | "palette" | "intensity">,
+  query: Pick<AutoPreviewQuery, "look" | "cycleBeats" | "palette" | "intensity" | "bpm" | "tempoBound">,
   sceneKey: string,
 ): string {
-  return [sceneKey, query.look, query.cycleBeats, query.palette, query.intensity].join("|");
+  const tempo = query.tempoBound ? clampPreviewBpm(query.bpm) : "";
+  return [sceneKey, query.look, query.cycleBeats, query.palette, query.intensity, tempo].join("|");
 }
 
 export function useAutoPreview() {
@@ -27,6 +28,7 @@ export function useAutoPreview() {
   const canonical = ref(false);
 
   let frames: SimulatorView[] = [];
+  let shownIdentity = "";
   let token = 0;
   let raf = 0;
   let startedAt = 0;
@@ -112,17 +114,24 @@ export function useAutoPreview() {
     compatible.value = clip.compatible !== false;
     reason.value = clip.reason ?? null;
     note.value = clip.note ?? null;
-    cycleBeats.value = Number(clip.cycle_beats) || query.cycleBeats;
-    loopBeats = Number(clip.loop_beats) || cycleBeats.value;
+    const nextCycle = Number(clip.cycle_beats) || query.cycleBeats;
+    const nextLoop = Number(clip.loop_beats) || nextCycle;
+    const nextIdentity = [query.look, nextCycle, nextLoop, query.palette, query.intensity].join("|");
+    const sameClip = nextIdentity === shownIdentity && frames.length > 0;
+    cycleBeats.value = nextCycle;
+    loopBeats = nextLoop;
     seconds.value = previewDurationS(loopBeats, bpm);
     const hasFrames = Array.isArray(clip.frames) && clip.frames.length > 0;
     canonical.value = clip.canonical === true && hasFrames;
     frames = canonical.value ? clip.frames : [];
+    shownIdentity = canonical.value ? nextIdentity : "";
     if (!canonical.value && hasFrames === false && compatible.value && !reason.value) {
       reason.value = "Кадрів немає.";
     }
-    elapsedS = 0;
-    beat.value = 0;
+    if (!sameClip) {
+      elapsedS = 0;
+      beat.value = 0;
+    }
     startedAt = performance.now();
     if (frames.length && canonical.value) play();
     else {
@@ -175,6 +184,7 @@ export function useAutoPreview() {
     stopClock();
     playing.value = false;
     frames = [];
+    shownIdentity = "";
     canonical.value = false;
     beat.value = 0;
     elapsedS = 0;

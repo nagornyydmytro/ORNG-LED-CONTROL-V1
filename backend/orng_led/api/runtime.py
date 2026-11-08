@@ -105,6 +105,10 @@ class AppRuntime:
     autostart_loop: bool = True
     # UI/WebSocket refresh; Art-Net keeps full engine FPS via tick().
     _ws_broadcast_dt: float = 1.0 / 15.0
+    _desk_frame: list[int] | None = None
+    _desk_at: float | None = None
+    _desk_program: str = "smooth"
+    _desk_look: str | None = None
     max_idempotency_keys: int = 256
     preview_speed: float = 1.0
     _manual_speed: float | None = None
@@ -134,6 +138,10 @@ class AppRuntime:
     _musical_seen: set[int] = field(default_factory=set)
     _musical_seen_order: list[int] = field(default_factory=list)
     _musical_manual_at: float = -1.0
+    _travel_generation: int = 0
+    _travel_revision: str = ""
+    _travel_worker: object | None = None
+    _travel_lock: threading.Lock = field(default_factory=threading.Lock)
 
     @property
     def bpm(self):  # type: ignore[no-untyped-def]
@@ -270,33 +278,68 @@ class AppRuntime:
         programs[NONE_PRESET_ID] = NonePresetProgram()
         previous = self.engine.active_preset_id
         self.engine.presets = programs
-        self._install_head_travel()
+        self._request_head_travel()
         if previous not in self.engine.presets:
             # Prefer explicit «Без пресету» over an arbitrary fallback.
             self.engine.select_preset(NONE_PRESET_ID, reset_clock=True)
 
-    def _install_head_travel(self) -> None:
-        """Ranges for the loaded scene. Not called from the frame."""
-        import hashlib
-        import json
+    def _tick_loop_live(self) -> bool:
+        task = self._loop_task
+        return bool(self._running) and not self._shutting_down and task is not None and not task.done()
 
-        from orng_led.audio.head_motion import prepare_head_travel
+    def _request_head_travel(self) -> None:
+        """Install ranges for the current inputs. A live frame loop does not wait."""
+        from orng_led.audio.head_motion import HeadTravelWorker, prepare_head_travel, travel_fingerprint
 
         documents = dict(self.preset_store.documents)
-        parts = []
-        for key in sorted(documents, key=str):
-            document = documents[key]
-            raw = document.model_dump(mode="json") if hasattr(document, "model_dump") else str(key)
-            parts.append(json.dumps(raw, sort_keys=True, default=str))
-        revision = hashlib.sha256("\n".join(parts).encode("utf-8")).hexdigest()[:20]
-        self.bpm.install_head_travel(
-            prepare_head_travel(
-                self.show,
-                documents,
-                scene_id=self.scene_id,
-                revision=revision,
+        revision = travel_fingerprint(self.show, documents, scene_id=self.scene_id)
+        with self._travel_lock:
+            current = self.bpm.head_travel
+            if (
+                current is not None
+                and str(getattr(current, "scene_id", "")) == str(self.scene_id)
+                and str(getattr(current, "revision", "")) == revision
+            ):
+                return
+            self._travel_generation += 1
+            generation = self._travel_generation
+            self._travel_revision = revision
+            self.bpm.head_travel = None
+            live = self._tick_loop_live()
+            if live and self._travel_worker is None:
+                self._travel_worker = HeadTravelWorker()
+            worker = self._travel_worker
+        show = self.show
+        if live and worker is not None:
+            show = self.show.model_copy(deep=True)
+            documents = {
+                key: document.model_copy(deep=True) if hasattr(document, "model_copy") else document
+                for key, document in documents.items()
+            }
+            worker.submit(
+                (show, documents, str(self.scene_id), revision, generation, self._apply_head_travel)
             )
+            return
+        travel = prepare_head_travel(
+            show,
+            documents,
+            scene_id=str(self.scene_id),
+            revision=revision,
+            generation=generation,
         )
+        self._apply_head_travel(travel)
+
+    def _apply_head_travel(self, travel: object) -> None:
+        if travel is None:
+            return
+        with self._travel_lock:
+            if int(getattr(travel, "generation", -1)) != self._travel_generation:
+                return
+            if str(getattr(travel, "scene_id", "")) != str(self.scene_id):
+                return
+            if str(getattr(travel, "revision", "")) != self._travel_revision:
+                return
+            self.bpm.install_head_travel(travel)
 
     async def start(self) -> None:
         if self._running:
@@ -646,6 +689,7 @@ class AppRuntime:
         self.engine.bpm_bar_phase = float(grid)
         self.engine.bpm_timeline = False
         if self.bpm.enabled and self.bpm.scope == "auto":
+            self.engine.auto_groups = tuple(self.bpm.groups)
             self.engine.auto_base = self.bpm.look(
                 list(self.engine.show.patch.fixtures),
                 self.engine.show.layout.placements,
@@ -661,6 +705,7 @@ class AppRuntime:
             show_dt = wall
             effect_rate_scale = 1.0
         else:
+            self.engine.auto_groups = None
             self.engine.auto_base = None
             manual = max(0.0, float(self.preview_speed))
             bar_dt = self._bar_step(wall)
@@ -701,6 +746,7 @@ class AppRuntime:
         self._publish_frame(self._published_frame(snapshot))
         self._send_samples.append(time.perf_counter() - send_started)
         self.sequence += 1
+        self._remember_desk(snapshot.frame)
         return snapshot
 
     def _source_frame(self, snap: EngineSnapshot | None = None) -> list[int]:
@@ -1628,6 +1674,8 @@ class AppRuntime:
         scope: str | None = None,
         palette: str | None = None,
         cast: str | None = None,
+        groups: list[str] | None = None,
+        excluded: list[str] | None = None,
         character: str | None = None,
         intensity: str | None = None,
         period: float | str | None = None,
@@ -1642,6 +1690,8 @@ class AppRuntime:
             scope=scope,
             palette=palette,
             cast=cast,
+            groups=groups,
+            excluded=excluded,
             character=character,
             intensity=intensity,
             period=period,
@@ -1658,6 +1708,8 @@ class AppRuntime:
             scope=scope,
             palette=palette,
             cast=cast,
+            groups=groups,
+            excluded=excluded,
             character=character,
             intensity=intensity,
             period=period,
@@ -1668,7 +1720,10 @@ class AppRuntime:
         if now_auto and not was_auto:
             self._release_manual_for_auto()
         if not now_auto:
+            self.engine.auto_groups = None
             self.engine.auto_base = None
+        elif self.bpm.groups is not None:
+            self.engine.auto_groups = tuple(self.bpm.groups)
         self._track_manual_speed()
         state = self.build_state()
         self._remember(client_command_id, fingerprint)
@@ -1676,6 +1731,40 @@ class AppRuntime:
 
     def _manual_show_locked(self) -> bool:
         return bool(self.bpm.enabled and self.bpm.scope == "auto")
+
+    def _remember_desk(self, frame: list[int]) -> None:
+        """Keep the newest picture. The copy is the universe, not a state dump."""
+        self._desk_frame = list(frame)
+        self._desk_at = time.monotonic()
+        current = self.bpm.planner.current
+        clock = None if current is None else current.clock
+        self._desk_program = "beat" if clock == "musical" else "smooth"
+        self._desk_look = None if current is None else str(current.look)
+
+    def desk_preview(self) -> dict[str, object] | None:
+        """Decode off the frame loop. Returns None until a frame has been published."""
+        frame = self._desk_frame
+        captured = self._desk_at
+        if frame is None or captured is None:
+            return None
+        if self.engine.auto_base is not None:
+            from orng_led.engine.renderer import render_stage
+
+            painted = render_stage(
+                self.show, self.engine.auto_base, self.engine.beam_motion, master=1.0
+            )
+            view = decode_simulator_view(self.show, painted)
+            view = view.model_copy(
+                update={"blackout_visual": bool(self.engine.overlays.blackout)}
+            )
+        else:
+            view = decode_simulator_view(self.show, list(frame))
+        return {
+            "captured_at": float(captured),
+            "program": self._desk_program,
+            "look": self._desk_look,
+            "stage": view.model_dump(mode="json"),
+        }
 
     def _control_preview_view(self, wire: list[int]):
         """Auto desk shows the playing look, not the gated Art-Net wire."""
@@ -1688,7 +1777,9 @@ class AppRuntime:
 
         frame = render_stage(self.show, base, self.engine.beam_motion, master=1.0)
         view = decode_simulator_view(self.show, frame)
-        return view.model_copy(update={"blackout_visual": False})
+        return view.model_copy(
+            update={"blackout_visual": bool(self.engine.overlays.blackout)}
+        )
 
     def _release_manual_for_auto(self) -> None:
         """Drop the manual drop overlay. Strobe, sweeps and Face stay on top."""
@@ -2208,6 +2299,7 @@ class AppRuntime:
         self.engine.show = self.show
         if reset_beam_motion_id:
             self.engine.reset_beam_motion_to_home(reset_beam_motion_id)
+        self._request_head_travel()
         self._publish_frame(self._published_frame())
         self.sequence += 1
         return self.build_state()
@@ -2221,6 +2313,7 @@ class AppRuntime:
         profiles[profile.id] = profile
         self.show = self.show.model_copy(update={"profiles": profiles})
         self.engine.show = self.show
+        self._request_head_travel()
         # Drop any stale DMX on old locals, then re-render active intents.
         self._publish_frame(self._published_frame())
         self.sequence += 1
@@ -2248,6 +2341,7 @@ class AppRuntime:
         loaded = load_show_config(self.config_dir)
         self.show = loaded
         self.engine.show = loaded
+        self._request_head_travel()
         self.engine.overlays.master_brightness = loaded.app.master_brightness
         self.output.use_mock()
         if loaded.app.artnet.target_ip:
@@ -3313,6 +3407,12 @@ class AppRuntime:
         self._shutting_down = True
         self._running = False
         self._broadcast_event.set()
+        worker = self._travel_worker
+        self._travel_worker = None
+        if worker is not None:
+            close = getattr(worker, "close", None)
+            if callable(close):
+                close()
         try:
             from orng_led.input.windows_media_keys import stop_volume_hook_for_runtime
 

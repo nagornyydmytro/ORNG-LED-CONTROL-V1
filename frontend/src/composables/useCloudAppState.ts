@@ -7,6 +7,7 @@ import {
   asPeriod,
   bpmChoiceKey,
   bpmControlsLocked,
+  paletteFromApi,
   readBpmChoice,
   writeBpmChoice,
 } from "../lib/bpmPalettes";
@@ -14,6 +15,84 @@ import type { AppState, EngineState, OutputState, PresetInfo, SceneInfo, Simulat
 import { useKeyboardPad } from "./useKeyboardPad";
 import type { ConnectionStatus } from "./useAppState";
 import type { ToastApi } from "./useToasts";
+
+export type BpmSyncPatch = {
+  enabled?: boolean;
+  mode?: "smooth" | "bar" | "beat";
+  scope?: "preset" | "auto";
+  palette?: import("../vite-env").BpmPaletteId;
+  cast?: "all" | "bars" | "heads";
+  groups?: Array<"par" | "bar" | "beam">;
+  excluded?: string[];
+  character?: "smooth" | "rhythmic" | "impact";
+  intensity?: "soft" | "normal" | "full";
+  period?: "auto" | 0.5 | 1 | 2 | 4 | 8;
+  parRhythm?: boolean;
+  accent?: number;
+};
+
+type BpmSyncNext = {
+  enabled: boolean;
+  mode: "smooth" | "bar" | "beat";
+  scope: "preset" | "auto";
+  palette: string;
+  cast: "all" | "bars" | "heads";
+  groups?: Array<"par" | "bar" | "beam">;
+  excluded?: string[];
+  character: "smooth" | "rhythmic" | "impact";
+  intensity: "soft" | "normal" | "full";
+  period: "auto" | 0.5 | 1 | 2 | 4 | 8 | string | number;
+  parRhythm: boolean;
+  accent: number;
+};
+
+/** Only the fields this desk changed, plus the snapshot it read for those fields. */
+export function buildShowPrefsWrite(
+  patch: BpmSyncPatch,
+  next: BpmSyncNext,
+  base: {
+    mode?: string;
+    scope?: string;
+    palette?: string;
+    cast?: string;
+    groups?: Array<"par" | "bar" | "beam">;
+    excluded?: string[];
+    character?: string;
+    intensity?: string;
+    period?: string | number;
+    par_rhythm?: boolean;
+    accent?: number;
+  } | null,
+): Record<string, unknown> {
+  const body: Record<string, unknown> = {};
+  const seen: Record<string, unknown> = {};
+  const put = (key: string, value: unknown, seenValue?: unknown) => {
+    body[key] = value;
+    if (base && seenValue !== undefined) seen[key] = seenValue;
+  };
+  if (patch.mode != null) put("mode", next.mode, base?.mode);
+  if (patch.scope != null) put("scope", next.scope, base?.scope);
+  if (patch.palette != null) put("palette", next.palette, base?.palette);
+  if (patch.cast != null) put("cast", next.cast, base?.cast);
+  if (patch.groups != null) put("groups", next.groups, base?.groups);
+  if (patch.excluded != null) put("excluded", next.excluded, base?.excluded);
+  if (patch.character != null) put("character", next.character, base?.character);
+  if (patch.intensity != null) put("intensity", next.intensity, base?.intensity);
+  if (patch.period != null) put("period", next.period, base?.period);
+  if (patch.parRhythm != null) put("par_rhythm", next.parRhythm, base?.par_rhythm);
+  if (patch.accent != null) put("accent", next.accent, base?.accent);
+  if (base && Object.keys(seen).length > 0) body.base = seen;
+  return body;
+}
+
+export function shouldApplyLocationPrefs(
+  requestedLocationId: string,
+  currentLocationId: string | null,
+  requestedEpoch: number,
+  currentEpoch: number,
+): boolean {
+  return requestedLocationId === currentLocationId && requestedEpoch === currentEpoch;
+}
 
 function engineFromLive(live: CloudDeviceLiveState | null): EngineState | null {
   if (!live) return null;
@@ -100,12 +179,14 @@ export function useCloudAppState(
       strobe_speed: live.value?.strobe_speed ?? undefined,
       sweep_speed: live.value?.sweep_speed ?? undefined,
       simulator: simulatorFromLive(live.value),
+      preview_at: live.value?.preview_at ?? null,
       scene_id: live.value?.current_scene_id ?? location.value?.sceneId ?? null,
       scene_name: live.value?.scene_name ?? location.value?.sceneName ?? null,
       location_id: location.value?.id ?? null,
       beam_calibration: live.value?.beam_calibration ?? null,
       bpm: live.value?.bpm ?? null,
       capabilities: live.value?.capabilities ?? null,
+      executor_online: live.value?.online === true && live.value?.state_stale !== true,
     };
   });
   const engine = computed(() => state.value?.engine ?? null);
@@ -141,11 +222,14 @@ export function useCloudAppState(
   let unsubLive: (() => void) | null = null;
   let unsubAck: (() => void) | null = null;
   let generation = 0;
+  let prefsEpoch = 0;
   let prefsBase: {
     mode: "smooth" | "bar" | "beat";
     scope: "preset" | "auto";
     palette: string;
     cast?: "all" | "bars" | "heads";
+    groups?: Array<"par" | "bar" | "beam">;
+    excluded?: string[];
     character?: "smooth" | "rhythmic" | "impact";
     intensity?: "soft" | "normal" | "full";
     period?: string | number;
@@ -417,6 +501,8 @@ export function useCloudAppState(
     scope?: "preset" | "auto";
     palette?: import("../vite-env").BpmPaletteId;
     cast?: "all" | "bars" | "heads";
+    groups?: Array<"par" | "bar" | "beam">;
+    excluded?: string[];
     character?: "smooth" | "rhythmic" | "impact";
     intensity?: "soft" | "normal" | "full";
     period?: "auto" | 0.5 | 1 | 2 | 4 | 8;
@@ -434,6 +520,8 @@ export function useCloudAppState(
       scope: patch.scope ?? current?.scope ?? saved.scope,
       palette: patch.palette ?? current?.palette ?? saved.palette,
       cast: patch.cast ?? current?.cast ?? saved.cast,
+      groups: patch.groups ?? current?.groups ?? saved.groups,
+      excluded: patch.excluded ?? current?.excluded ?? saved.excluded,
       character: patch.character ?? current?.character ?? saved.character,
       intensity: patch.intensity ?? current?.intensity ?? saved.intensity,
       period: patch.period ?? current?.period ?? saved.period,
@@ -445,69 +533,40 @@ export function useCloudAppState(
       patch.scope != null ||
       patch.palette != null ||
       patch.cast != null ||
+      patch.groups != null ||
+      patch.excluded != null ||
       patch.character != null ||
       patch.intensity != null ||
       patch.period != null ||
       patch.parRhythm != null ||
       patch.accent != null;
     const locationId = location.value?.id;
+    let applied = next;
     if (musical && locationId) {
-      const base = prefsBase;
-      const body: {
-        mode?: typeof next.mode;
-        scope?: typeof next.scope;
-        palette?: typeof next.palette;
-        cast?: typeof next.cast;
-        character?: typeof next.character;
-        intensity?: typeof next.intensity;
-        period?: typeof next.period;
-        par_rhythm?: boolean;
-        accent?: number;
-        base?: {
-          mode: string;
-          scope: string;
-          palette: string;
-          cast?: string;
-          character?: string;
-          intensity?: string;
-          period?: string | number;
-        };
-      } = base
-        ? {
-            mode: next.mode,
-            scope: next.scope,
-            palette: next.palette,
-            cast: next.cast,
-            character: next.character,
-            intensity: next.intensity,
-            period: next.period,
-            par_rhythm: next.parRhythm,
-            accent: next.accent,
-            base: {
-              mode: base.mode,
-              scope: base.scope,
-              palette: base.palette,
-              cast: base.cast,
-              character: base.character,
-              intensity: base.intensity,
-              period: base.period,
-            },
-          }
-        : {
-            ...(patch.mode != null ? { mode: next.mode } : {}),
-            ...(patch.scope != null ? { scope: next.scope } : {}),
-            ...(patch.palette != null ? { palette: next.palette } : {}),
-            ...(patch.cast != null ? { cast: next.cast } : {}),
-            ...(patch.character != null ? { character: next.character } : {}),
-            ...(patch.intensity != null ? { intensity: next.intensity } : {}),
-            ...(patch.period != null ? { period: next.period } : {}),
-            ...(patch.parRhythm != null ? { par_rhythm: next.parRhythm } : {}),
-            ...(patch.accent != null ? { accent: next.accent } : {}),
-          };
+      const body = buildShowPrefsWrite(patch, next, prefsBase) as Parameters<
+        typeof adminPutLocationShowPrefs
+      >[1];
       try {
         const savedPrefs = await adminPutLocationShowPrefs(locationId, body);
         if (!still(token)) return false;
-        if (savedPrefs.prefs) prefsBase = savedPrefs.prefs;
+        if (savedPrefs.prefs) {
+          prefsEpoch += 1;
+          prefsBase = savedPrefs.prefs;
+          applied = {
+            ...next,
+            mode: savedPrefs.prefs.mode,
+            scope: savedPrefs.prefs.scope,
+            palette: paletteFromApi(savedPrefs.prefs.palette, next.palette),
+            cast: savedPrefs.prefs.cast ?? next.cast,
+            groups: savedPrefs.prefs.groups ?? next.groups,
+            excluded: savedPrefs.prefs.excluded ?? next.excluded,
+            character: savedPrefs.prefs.character ?? next.character,
+            intensity: savedPrefs.prefs.intensity ?? next.intensity,
+            period: savedPrefs.prefs.period ?? next.period,
+            parRhythm: savedPrefs.prefs.par_rhythm === true,
+            accent: typeof savedPrefs.prefs.accent === "number" ? savedPrefs.prefs.accent : next.accent,
+          };
+        }
       } catch (err) {
         if (!still(token)) return false;
         noteBpmError(err);
@@ -522,16 +581,18 @@ export function useCloudAppState(
       return false;
     }
     try {
-      await currentTransport.setBpmSync(next.enabled, {
-        mode: next.mode,
-        scope: next.scope,
-        palette: next.palette,
-        cast: next.cast,
-        character: next.character,
-        intensity: next.intensity,
-        period: asPeriod(next.period, next.character),
-        parRhythm: next.parRhythm,
-        accent: next.accent,
+      await currentTransport.setBpmSync(applied.enabled, {
+        mode: applied.mode,
+        scope: applied.scope,
+        palette: applied.palette,
+        cast: applied.cast,
+        groups: applied.groups,
+        excluded: applied.excluded,
+        character: applied.character,
+        intensity: applied.intensity,
+        period: asPeriod(applied.period, applied.character),
+        parRhythm: applied.parRhythm,
+        accent: applied.accent,
       });
       return still(token);
     } catch (err) {
@@ -647,13 +708,20 @@ export function useCloudAppState(
   }
 
   watch(
-    () => location.value?.id,
-    (id) => {
+    () => [location.value?.id ?? null, location.value?.sceneId ?? null] as const,
+    ([id, scene], previous) => {
+      if (previous && (previous[0] !== id || previous[1] !== scene)) {
+        live.value = null;
+        bind(transport.value);
+      }
       prefsBase = null;
+      prefsEpoch += 1;
+      const requestedEpoch = prefsEpoch;
       if (!id) return;
       void adminGetLocationShowPrefs(id)
         .then((body) => {
-          if (location.value?.id !== id || !body.prefs) return;
+          if (!shouldApplyLocationPrefs(id, location.value?.id ?? null, requestedEpoch, prefsEpoch)) return;
+          if (!body.prefs) return;
           prefsBase = body.prefs;
           writeBpmChoice(
             {
@@ -679,7 +747,7 @@ export function useCloudAppState(
           );
         })
         .catch((err) => {
-          if (location.value?.id !== id) return;
+          if (!shouldApplyLocationPrefs(id, location.value?.id ?? null, requestedEpoch, prefsEpoch)) return;
           lastError.value =
             err instanceof Error ? err.message : "Налаштування локації не прочитано";
         });

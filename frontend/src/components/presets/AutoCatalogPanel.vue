@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from "vue";
+import { computed, inject, nextTick, onMounted, ref, watch } from "vue";
 import { AUTO_GROUP_LABEL, fetchAutoCatalog } from "../../api/auto";
+import { APP_STATE_KEY } from "../../composables/appStateKey";
 import { useAutoPreview } from "../../composables/useAutoPreview";
 import { BPM_INTENSITIES, BPM_PALETTES, BPM_PERIODS } from "../../lib/bpmPalettes";
+import IconButton from "../IconButton.vue";
 import StageSimulator from "../simulator/StageSimulator.vue";
 import type { AutoCatalog, StageLayout } from "../../vite-env";
 
@@ -15,6 +17,11 @@ const props = defineProps<{
   sceneError?: string | null;
 }>();
 
+const api = inject(APP_STATE_KEY, null);
+const localExcluded = ref<string[] | null>(null);
+const excluded = computed(
+  () => localExcluded.value ?? api?.state.value?.bpm?.excluded ?? [],
+);
 const catalog = ref<AutoCatalog | null>(null);
 const catalogError = ref<string | null>(null);
 const catalogLoading = ref(true);
@@ -101,6 +108,10 @@ const beatMarks = computed(() => {
   return marks;
 });
 
+const allowedCount = computed(
+  () => compositions.value.filter((item) => allowedInAuto(item.id)).length,
+);
+
 const summary = computed(() => {
   if (!selected.value) return "Оберіть композицію";
   return `${selected.value.title} · ${beat.value.toFixed(2)} / ${cycleBeats.value} долі · ${seconds.value.toFixed(2)} с`;
@@ -109,6 +120,28 @@ const summary = computed(() => {
 function groupLabel(id: string): string {
   return AUTO_GROUP_LABEL[id] ?? id;
 }
+
+function allowedInAuto(id: string): boolean {
+  return !excluded.value.includes(id);
+}
+
+async function toggleAllowed(id: string) {
+  const current = [...excluded.value];
+  const next = current.includes(id) ? current.filter((item) => item !== id) : [...current, id];
+  localExcluded.value = next;
+  const ok = await api?.setBpmSync({ excluded: next });
+  if (ok === false) localExcluded.value = current;
+}
+
+watch(
+  () => api?.state.value?.bpm?.excluded,
+  (value) => {
+    if (!localExcluded.value || !value) return;
+    if (localExcluded.value.join() === [...value].sort().join() || value.join() === localExcluded.value.join()) {
+      localExcluded.value = null;
+    }
+  },
+);
 
 async function reloadCatalog() {
   catalogLoading.value = true;
@@ -198,6 +231,7 @@ async function refreshPreview() {
       palette: palette.value,
       intensity: intensity.value,
       bpm: bpm.value,
+      tempoBound: (selected.value?.groups ?? []).includes("beam"),
     },
     sceneKey(),
     props.sceneId ?? null,
@@ -222,7 +256,14 @@ watch(
 
 watch(
   () => bpm.value,
-  (value) => setBpm(Number(value) || 120),
+  (value) => {
+    const groups = selected.value?.groups ?? [];
+    if (groups.includes("beam")) {
+      void refreshPreview();
+      return;
+    }
+    setBpm(Number(value) || 120);
+  },
 );
 
 watch(selectedId, () => {
@@ -254,38 +295,41 @@ onMounted(async () => {
         <span class="auto-preview__state">{{ playing ? "Грає" : "Пауза" }}</span>
       </header>
       <p class="hint">
-        Зал з цієї сторінки не керується.
+        Зал з цієї сторінки не керується. Галочка одразу прибирає ефект зі світла.
       </p>
       <div class="auto-preview__toolbar">
-        <button
-          type="button"
-          class="btn btn--sm"
-          :disabled="!compatible || !canonical || previewLoading"
-          @click="playing ? pause() : play()"
+        <div
+          class="icon-bar"
+          role="toolbar"
+          aria-label="Перегляд"
         >
-          {{ playing ? "Пауза" : "Грати" }}
-        </button>
-        <button
-          type="button"
-          class="btn btn--sm"
-          @click="restart()"
-        >
-          Спочатку
-        </button>
-        <button
-          type="button"
-          class="btn btn--sm"
-          @click="step(-1)"
-        >
-          Попередня
-        </button>
-        <button
-          type="button"
-          class="btn btn--sm"
-          @click="step(1)"
-        >
-          Наступна
-        </button>
+          <IconButton
+            :icon="playing ? 'pause' : 'play'"
+            :label="playing ? 'Пауза' : 'Грати'"
+            :disabled="!compatible || !canonical || previewLoading"
+            @click="playing ? pause() : play()"
+          />
+          <IconButton
+            icon="restart"
+            label="Спочатку"
+            @click="restart()"
+          />
+          <IconButton
+            icon="prev"
+            label="Попередня"
+            @click="step(-1)"
+          />
+          <IconButton
+            icon="next"
+            label="Наступна"
+            @click="step(1)"
+          />
+          <IconButton
+            :icon="wide ? 'collapse' : 'expand'"
+            :label="wide ? 'Вийти' : 'На весь екран'"
+            @click="wide = !wide"
+          />
+        </div>
         <label class="field field--inline">
           <span>Темп</span>
           <input
@@ -332,13 +376,6 @@ onMounted(async () => {
             </option>
           </select>
         </label>
-        <button
-          type="button"
-          class="btn btn--sm"
-          @click="wide = !wide"
-        >
-          {{ wide ? "Вийти" : "На весь екран" }}
-        </button>
       </div>
       <p
         v-if="!sceneReady"
@@ -398,11 +435,15 @@ onMounted(async () => {
       aria-label="Каталог авто-епізодів"
     >
       <header class="card__head">
-        <h2>Авто-епізоди</h2>
-        <span
-          v-if="catalog"
-          class="preset-card__meta"
-        >{{ catalog.count }}</span>
+        <div>
+          <h2>Авто-епізоди</h2>
+          <p
+            v-if="catalog"
+            class="hint"
+          >
+            У шоу {{ allowedCount }} з {{ catalog.count }}
+          </p>
+        </div>
       </header>
       <div class="form-grid">
         <label class="field">
@@ -464,21 +505,32 @@ onMounted(async () => {
         ref="listEl"
         class="preset-cards auto-cards"
       >
-        <button
+        <article
           v-for="item in filtered"
           :key="item.id"
-          type="button"
-          class="preset-card"
-          :class="{ active: selectedId === item.id }"
+          class="auto-row"
+          :class="{ active: selectedId === item.id, 'is-off': !allowedInAuto(item.id) }"
           :data-look="item.id"
-          :aria-pressed="selectedId === item.id"
-          @click="choose(item.id)"
         >
-          <span class="preset-card__label">{{ item.title }}</span>
-          <span class="preset-card__meta">{{ item.family_title || item.family }}</span>
-          <span class="hint">{{ item.motion || item.notes }}</span>
-          <span class="preset-card__meta">{{ item.groups.map(groupLabel).join(" · ") }}</span>
-        </button>
+          <label class="auto-allow">
+            <input
+              class="auto-check"
+              type="checkbox"
+              :checked="allowedInAuto(item.id)"
+              :aria-label="`У шоу: ${item.title}`"
+              @change="toggleAllowed(item.id)"
+            >
+          </label>
+          <button
+            type="button"
+            class="auto-row__open"
+            :aria-pressed="selectedId === item.id"
+            @click="choose(item.id)"
+          >
+            <span class="auto-row__title">{{ item.title }}</span>
+            <span class="auto-row__meta">{{ item.family_title || item.family }} · {{ item.groups.map(groupLabel).join(" · ") }}</span>
+          </button>
+        </article>
       </div>
     </section>
   </div>

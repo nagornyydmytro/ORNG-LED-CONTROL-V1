@@ -241,6 +241,7 @@ def test_repo_has_no_musical_recordings() -> None:
         for path in root.rglob("*")
         if path.suffix.lower() in {".wav", ".mp3", ".flac", ".ogg"}
         and "node_modules" not in path.parts
+        and "show-bench" not in path.parts
     ]
     assert found == []
 

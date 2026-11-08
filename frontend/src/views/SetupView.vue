@@ -1219,20 +1219,34 @@ onBeforeUnmount(() => {
     >
       <button
         type="button"
-        class="action-btn"
+        class="icon-btn"
+        aria-label="Назад"
+        title="Назад"
         :disabled="step === 0"
         @click="step -= 1"
       >
-        Назад
+        <svg
+          viewBox="0 0 24 24"
+          aria-hidden="true"
+        >
+          <path d="M15 6 9 12l6 6" />
+        </svg>
       </button>
       <span>{{ step + 1 }} / {{ STEPS.length }}</span>
       <button
         type="button"
-        class="action-btn"
+        class="icon-btn"
+        aria-label="Далі"
+        title="Далі"
         :disabled="step >= STEPS.length - 1"
         @click="step += 1"
       >
-        Далі
+        <svg
+          viewBox="0 0 24 24"
+          aria-hidden="true"
+        >
+          <path d="M9 6l6 6-6 6" />
+        </svg>
       </button>
     </footer>
   </section>

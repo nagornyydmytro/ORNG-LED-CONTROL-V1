@@ -621,9 +621,9 @@ def render_beam(
 ) -> None:
     """Write axes always; light only when confirmed + intent is on.
 
-    Beams never use Master Dimmer / show-master scaling: when lit they are full
-    brightness (RGB at 1.0). Hardware dimmer should be mapped as FIXED 255.
-    Strobe is still driven from the intent.
+    Beams ignore the show master. RGB follows BeamIntent.dimmer so operator
+    intensity and the volume rider can dim them. The hardware dimmer channel
+    stays parked at full. Strobe still comes from the intent.
     """
     _ = master  # Beams ignore the show master fader.
     _write_beam_axes(frame, fixture, profile, motion)
@@ -633,16 +633,15 @@ def render_beam(
         _apply_fixed_and_unused(frame, fixture, profile)
         return
 
-    # dimmer on BeamIntent is on/off only (>0 → full); never an intensity curve.
+    # Hardware dimmer stays parked. RGB follows the operator and the volume rider.
     look = max(0.0, min(1.0, intent.dimmer))
     if look <= 0.02:
         _apply_fixed_and_unused(frame, fixture, profile)
         return
 
-    # If an operator still maps DIMMER, park it at full — never scale it.
     if ChannelRole.DIMMER in roles:
         _write_role(frame, fixture, roles, ChannelRole.DIMMER, 1.0)
-    _write_rgbw_look(frame, fixture, roles, intent.color, look_level=1.0)
+    _write_rgbw_look(frame, fixture, roles, intent.color, look_level=look)
     _write_strobe_speed(frame, fixture, roles, intent.strobe)
     _apply_fixed_and_unused(frame, fixture, profile)
 

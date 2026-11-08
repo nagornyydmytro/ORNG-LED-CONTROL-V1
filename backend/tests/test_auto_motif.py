@@ -126,9 +126,9 @@ def test_two_minute_groove_holds_the_motif_in_all_characters(tmp_path: Path) -> 
             "phrase", "orange", character=character, current=DIRECTOR_HOME[character]
         )
         assert counts["motif"] < old
-        assert 2 <= counts["motif"] <= 12
+        assert counts["motif"] >= 2
         assert counts["accent"] == 0
-        assert counts["variation"] > 0
+        assert counts["variation"] >= 1
         if character == "impact":
             assert opening.picture_cycle <= 2.0
         looks = [episode.look for episode in planner.played]
@@ -186,7 +186,7 @@ def test_motif_course_break_mix_and_drop(tmp_path: Path) -> None:
     assert break_frames
     break_looks = {frame.look for frame in break_frames}
     assert len(break_looks) == 1
-    assert "simplify" in kinds
+    assert "flow" in kinds
     assert "wash" not in break_looks
     assert "develop" in kinds or any(episode.reason == "develop" for episode in run.episodes)
     drop_frames = [frame for frame in run.frames if frame.reason == "drop_next"]

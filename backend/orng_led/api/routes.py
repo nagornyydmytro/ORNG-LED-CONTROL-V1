@@ -840,6 +840,8 @@ def build_api_router() -> APIRouter:
             scope=body.scope,
             palette=body.palette,
             cast=body.cast,
+            groups=body.groups,
+            excluded=body.excluded,
             character=body.character,
             intensity=body.intensity,
             period=body.period,

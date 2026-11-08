@@ -37,6 +37,8 @@ export type LocationShowPrefs = {
   scope: "preset" | "auto";
   palette: string;
   cast: "all" | "bars" | "heads";
+  groups: Array<"par" | "bar" | "beam">;
+  excluded: string[];
   character: "smooth" | "rhythmic" | "impact";
   intensity: "soft" | "normal" | "full";
   period: string;
@@ -89,6 +91,45 @@ function migratePalette(palette: string, cast: string): { palette: string; cast:
   return { palette, cast };
 }
 
+const GROUP_ORDER = ["par", "bar", "beam"] as const;
+
+function groupsFromCast(cast: string): Array<"par" | "bar" | "beam"> {
+  if (cast === "bars") return ["bar"];
+  if (cast === "heads") return ["par", "beam"];
+  return ["par", "bar", "beam"];
+}
+
+function normalizeGroups(value: unknown, cast: string): Array<"par" | "bar" | "beam"> {
+  if (!Array.isArray(value)) return groupsFromCast(cast);
+  const found: Array<"par" | "bar" | "beam"> = [];
+  for (const item of GROUP_ORDER) {
+    if (value.includes(item)) found.push(item);
+  }
+  return found;
+}
+
+function legacyCast(groups: Array<"par" | "bar" | "beam">): LocationShowPrefs["cast"] {
+  const chosen = new Set(groups);
+  if (chosen.size === 3) return "all";
+  if (chosen.size === 1 && chosen.has("bar")) return "bars";
+  if (chosen.size === 2 && chosen.has("par") && chosen.has("beam")) return "heads";
+  return "all";
+}
+
+function normalizeExcluded(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const found: string[] = [];
+  for (const item of value) {
+    if (typeof item !== "string" || !/^[a-z0-9][a-z0-9_-]{0,80}$/.test(item)) continue;
+    if (!found.includes(item)) found.push(item);
+  }
+  return found;
+}
+
+function sameList(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((item, index) => item === right[index]);
+}
+
 function clampAccent(value: unknown): number {
   const number = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(number)) return 0;
@@ -136,6 +177,8 @@ function blankPrefs(): LocationShowPrefs {
     scope: "preset",
     palette: "orange",
     cast: "all",
+    groups: ["par", "bar", "beam"],
+    excluded: [],
     character: "rhythmic",
     intensity: "full",
     period: "auto",
@@ -151,6 +194,8 @@ function storedJson(prefs: LocationShowPrefs): string {
     scope: prefs.scope,
     palette: prefs.palette,
     cast: prefs.cast,
+    groups: prefs.groups,
+    excluded: prefs.excluded,
     character: prefs.character,
     intensity: prefs.intensity,
     period: prefs.period,
@@ -168,11 +213,28 @@ function fromBody(
   const castIn = pick(body.cast, CASTS, base.cast) as LocationShowPrefs["cast"];
   const migrated = migratePalette(paletteIn, castIn);
   const character = pick(body.character, CHARACTERS, base.character) as LocationShowPrefs["character"];
+  const cast = (
+    Object.prototype.hasOwnProperty.call(body, "groups")
+      ? legacyCast(normalizeGroups(body.groups, migrated.cast))
+      : migrated.cast
+  ) as LocationShowPrefs["cast"];
+  const groups = Object.prototype.hasOwnProperty.call(body, "groups")
+    ? normalizeGroups(body.groups, cast)
+    : Object.prototype.hasOwnProperty.call(body, "cast") ||
+        body.palette === "bars" ||
+        body.palette === "heads"
+      ? groupsFromCast(cast)
+      : normalizeGroups(base.groups, cast);
+  const excluded = Object.prototype.hasOwnProperty.call(body, "excluded")
+    ? normalizeExcluded(body.excluded)
+    : normalizeExcluded(base.excluded);
   return {
     mode: pick(body.mode, MODES, base.mode) as LocationShowPrefs["mode"],
     scope: pick(body.scope, SCOPES, base.scope) as LocationShowPrefs["scope"],
     palette: migrated.palette,
-    cast: migrated.cast as LocationShowPrefs["cast"],
+    cast,
+    groups,
+    excluded,
     character,
     intensity: pick(body.intensity, INTENSITIES, base.intensity) as LocationShowPrefs["intensity"],
     period: clampPeriod(asPeriod(body.period, base.period), character),
@@ -227,6 +289,9 @@ export function mergeShowPrefs(
       if (!Object.prototype.hasOwnProperty.call(body, "cast")) {
         if (next.cast !== migrated.cast) {
           next.cast = migrated.cast as LocationShowPrefs["cast"];
+          if (!Object.prototype.hasOwnProperty.call(body, "groups")) {
+            next.groups = groupsFromCast(next.cast);
+          }
           changed = true;
         }
       }
@@ -253,14 +318,38 @@ export function mergeShowPrefs(
     changed = true;
   }
   if (Object.prototype.hasOwnProperty.call(body, "par_rhythm") && typeof body.par_rhythm === "boolean") {
-    if (body.par_rhythm !== next.par_rhythm) {
+    const seen = base && typeof base.par_rhythm === "boolean" ? base.par_rhythm : null;
+    if (seen !== null && seen !== current.par_rhythm) conflicts.push("par_rhythm");
+    else if (body.par_rhythm !== next.par_rhythm) {
       next.par_rhythm = body.par_rhythm;
+      changed = true;
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "groups") && Array.isArray(body.groups)) {
+    const desired = normalizeGroups(body.groups, next.cast);
+    const seen = base && Array.isArray(base.groups) ? normalizeGroups(base.groups, current.cast) : null;
+    if (seen && !sameList(seen, current.groups)) conflicts.push("groups");
+    else if (!sameList(desired, next.groups)) {
+      next.groups = desired;
+      next.cast = legacyCast(desired);
+      changed = true;
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "excluded")) {
+    const desired = normalizeExcluded(body.excluded);
+    const seen = base && Array.isArray(base.excluded) ? normalizeExcluded(base.excluded) : null;
+    if (seen && !sameList(seen, current.excluded)) conflicts.push("excluded");
+    else if (!sameList(desired, next.excluded)) {
+      next.excluded = desired;
       changed = true;
     }
   }
   if (Object.prototype.hasOwnProperty.call(body, "accent")) {
     const desired = clampAccent(body.accent);
-    if (desired !== next.accent) {
+    const seen =
+      base && Object.prototype.hasOwnProperty.call(base, "accent") ? clampAccent(base.accent) : null;
+    if (seen !== null && seen !== clampAccent(current.accent)) conflicts.push("accent");
+    else if (desired !== next.accent) {
       next.accent = desired;
       changed = true;
     }

@@ -395,4 +395,50 @@ describe("show prefs isolation", () => {
     expect(merged.conflicts).toEqual(["palette"]);
     expect(merged.next.updated_at).toBe("t1");
   });
+
+  it("keeps another desk's classes and exclusions when only the palette changes", () => {
+    const current = {
+      mode: "beat" as const,
+      scope: "auto" as const,
+      palette: "orange" as const,
+      cast: "all" as const,
+      groups: ["bar", "beam"] as Array<"par" | "bar" | "beam">,
+      excluded: ["vertical_wave"],
+      character: "rhythmic" as const,
+      intensity: "full" as const,
+      period: "auto",
+      par_rhythm: true,
+      accent: 0.5,
+      updated_at: "t1",
+    };
+    const merged = mergeShowPrefs(current, {
+      palette: "red",
+      base: { palette: "orange", par_rhythm: false, accent: 0 },
+    });
+    expect(merged.conflicts).toEqual([]);
+    expect(merged.next.palette).toBe("red");
+    expect(merged.next.groups).toEqual(["bar", "beam"]);
+    expect(merged.next.excluded).toEqual(["vertical_wave"]);
+    expect(merged.next.par_rhythm).toBe(true);
+    expect(merged.next.accent).toBe(0.5);
+
+    const rhythm = mergeShowPrefs(merged.next, {
+      par_rhythm: false,
+      accent: 1,
+      base: { par_rhythm: false, accent: 0 },
+    });
+    expect(rhythm.conflicts).toEqual(["par_rhythm", "accent"]);
+    expect(rhythm.next.par_rhythm).toBe(true);
+    expect(rhythm.next.accent).toBe(0.5);
+
+    const both = mergeShowPrefs(merged.next, {
+      palette: "white",
+      par_rhythm: false,
+      base: { palette: "red", par_rhythm: true },
+    });
+    expect(both.conflicts).toEqual([]);
+    expect(both.next.palette).toBe("white");
+    expect(both.next.par_rhythm).toBe(false);
+    expect(both.next.groups).toEqual(["bar", "beam"]);
+  });
 });

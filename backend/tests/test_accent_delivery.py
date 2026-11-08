@@ -29,7 +29,7 @@ def test_fresh_analysis_arms_the_accent_the_backlog_used_to_own(tmp_path) -> Non
     service = _service(tmp_path)
     service._accept_analysis(
         None, "few_onsets", {}, [0.0], dt_s=0.2, now=5.0, latency_s=0.0,
-        hearing=_hearing(), energy=0.1,
+        hearing=_hearing(attacks=(0.2,)), energy=0.1,
     )
     assert service.section.accent_ready == 5.0
 
@@ -37,14 +37,14 @@ def test_fresh_analysis_arms_the_accent_the_backlog_used_to_own(tmp_path) -> Non
 def test_carried_attack_keeps_its_time_and_does_not_repeat(tmp_path) -> None:
     service = _service(tmp_path)
     service._now = 5.05
-    hearing = _hearing(origin_s=5.0)
+    hearing = _hearing(origin_s=5.0, attacks=(0.05,))
     service._apply_pending_hearings((hearing,), dt_s=0.2)
     assert service.section.accent_ready == 5.0
     service._apply_pending_hearings((hearing,), dt_s=0.2)
     assert service.section.accent_ready == 5.0
     service.section.accent_ready = None
     service._now = 6.0
-    service._apply_pending_hearings((_hearing(origin_s=5.0),), dt_s=0.2)
+    service._apply_pending_hearings((_hearing(origin_s=5.0, attacks=(0.05,)),), dt_s=0.2)
     assert service.section.accent_ready is None
     service._apply_pending_hearings((_hearing(),), dt_s=0.2)
     assert service.section.accent_ready is None

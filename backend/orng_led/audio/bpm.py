@@ -201,19 +201,32 @@ class TempoFollower:
             return
         self._hits += 1
 
-    def _apply_phase(self, reading: TempoReading, chosen: float, moment: float, latency_s: float) -> None:
-        """Pull the beat fraction only. The planning counter is not the phase."""
+    def _heard_error(
+        self, reading: TempoReading, chosen: float, moment: float, latency_s: float
+    ) -> float:
+        """Beat-fraction error at ``moment``. Planning beats are not involved."""
         heard = (float(reading.beat_phase) + max(0.0, latency_s) * (chosen / 60.0)) % 1.0
         current = (self.beats_at(moment) + self._phase) % 1.0
-        error = _wrap_error(heard, current)
+        return _wrap_error(heard, current)
+
+    def _shift_phase(self, delta: float) -> None:
+        self._action_offset += float(delta)
+        self._phase = (self._action_offset + 0.5) % 1.0 - 0.5
+
+    def _apply_phase(self, reading: TempoReading, chosen: float, moment: float, latency_s: float) -> None:
+        """Pull the beat fraction only. The planning counter is not the phase."""
+        error = self._heard_error(reading, chosen, moment, latency_s)
         # A third of a beat away with no capture delay is a mismatched
         # window (clock ran without samples), not a heard downbeat.
         # A measured capture delay may be that large; then pull.
         if abs(error) > 0.22 and float(latency_s) <= 1e-9:
             return
         pull = max(-PHASE_PULL, min(PHASE_PULL, error))
-        self._action_offset += pull
-        self._phase = (self._action_offset + 0.5) % 1.0 - 0.5
+        self._shift_phase(pull)
+
+    def _place_phase(self, reading: TempoReading, chosen: float, moment: float, latency_s: float) -> None:
+        """Put the heard beat on the action coordinate once. Do not rewind ``_beats``."""
+        self._shift_phase(self._heard_error(reading, chosen, moment, latency_s))
 
     def _take_tempo(self, chosen: float) -> None:
         """Install ``chosen``. A confirmed octave jumps; a real accel still glides."""
@@ -261,7 +274,9 @@ class TempoFollower:
             self._take_tempo(raw)
             self._started = True
             if pull_phase:
-                self._apply_phase(reading, float(self.bpm or raw), moment, latency_s)
+                # The lock is the first time the show may follow this beat.
+                # Later readings only pull. Placing here does not reset _beats.
+                self._place_phase(reading, float(self.bpm or raw), moment, latency_s)
             self.locked = True
             self._release_until = None
             self.confidence = max(0.0, min(1.0, float(reading.confidence)))
@@ -270,10 +285,18 @@ class TempoFollower:
         chosen = self.choose_tempo(raw)
         if chosen is None:
             return self.bpm
+        previous = float(self.bpm) if self.bpm is not None else float(chosen)
         self._commit(moment)
         self._take_tempo(chosen)
-        if pull_phase:
-            self._apply_phase(reading, float(self.bpm or chosen), moment, latency_s)
+        accepted = float(self.bpm or chosen)
+        # A half or double that is only a vote is not this beat's phase.
+        raw_matches = abs(raw - accepted) / max(accepted, 1.0) <= 0.06
+        jumped = _harmonic_ratio(accepted / previous) and abs(accepted - previous) > 0.5
+        if pull_phase and raw_matches:
+            if jumped:
+                self._place_phase(reading, accepted, moment, latency_s)
+            else:
+                self._apply_phase(reading, accepted, moment, latency_s)
         self.locked = True
         self._started = True
         self._release_until = None

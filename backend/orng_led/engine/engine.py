@@ -82,6 +82,7 @@ class Engine:
     # When set, replaces the preset base. Live effects and blackout still apply.
     # Heads in this look must leave pan/tilt empty so they do not chase a target.
     auto_base: StageIntent | None = None
+    auto_groups: tuple[str, ...] | None = None
     # Kept so older callers can set it. Live FX never read it: strobe and
     # sweep stay on their own press clock.
     bpm_fx: bool = False
@@ -533,6 +534,16 @@ class Engine:
             base = StageIntent()
 
         composed = compose_layers(base, self.show, self.overlays, time_s)
+        if self.auto_groups is not None:
+            from orng_led.audio.auto_show import mask_auto_groups
+            from orng_led.config.models import FixtureKind
+
+            face = {
+                fixture.id
+                for fixture in self.show.patch.fixtures
+                if fixture.kind is FixtureKind.FACE_PAR
+            }
+            composed = mask_auto_groups(composed, self.auto_groups, keep=face)
         # Live FX advance on their own clock. Tempo, episode and lock do not
         # move this phase and do not release the hold.
         fx_dt = float(wall_dt_s) if wall_dt_s is not None else float(dt_s)

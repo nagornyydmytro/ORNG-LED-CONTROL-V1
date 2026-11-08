@@ -64,13 +64,14 @@ def test_kind_palette_does_not_mint_unwheelable_bar_colour() -> None:
 
 
 def test_incompatible_period_and_heads_migrate_on_this_location(tmp_path: Path) -> None:
-    assert known_period(0.5, "smooth") is None
-    assert known_period(8, "impact") is None
+    assert known_period(0.5, "smooth") == 0.5
+    assert known_period(8, "impact") == 8.0
     assert known_period(2, "smooth") == 2.0
+    assert known_period(3, "rhythmic") is None
     runtime = AppRuntime.create(autostart_loop=False, config_dir=tmp_path)
     runtime.apply_bpm_sync(enabled=True, scope="auto", character="rhythmic", period=0.5)
     runtime.apply_bpm_sync(character="smooth")
-    assert runtime.bpm.status()["period"] == "auto"
+    assert runtime.bpm.status()["period"] == 0.5
     runtime.apply_bpm_sync(palette="heads")
     status = runtime.bpm.status()
     assert status["palette"] == "white"

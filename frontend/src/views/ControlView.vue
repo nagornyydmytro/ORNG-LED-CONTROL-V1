@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, inject, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { useAutoPreview } from "../composables/useAutoPreview";
 import { useRoute } from "vue-router";
 import BlackoutButton from "../components/control/BlackoutButton.vue";
 import BpmModePicker from "../components/control/BpmModePicker.vue";
@@ -12,7 +11,7 @@ import { getPreset, type EpisodeCard, type PresetDocument } from "../api/presets
 import { isCloudAdminBuild } from "../cloud/mode";
 import { APP_STATE_KEY } from "../composables/appStateKey";
 import { acceptedBpmValue, bpmDeskReason } from "../lib/acceptedBpm";
-import { bpmControlsLocked, hasBpmSync } from "../lib/bpmPalettes";
+import { BPM_INTENSITIES, bpmControlsLocked, hasBpmSync } from "../lib/bpmPalettes";
 import { presetButtonLabel } from "../lib/presetLabel";
 import type { StageLayout } from "../vite-env";
 
@@ -123,11 +122,23 @@ const playingTitle = computed(() => {
 const remoteDesk = computed(
   () => cloudScene || state.value?.desk_role === "raspberry",
 );
+const previewClock = ref(Date.now());
+let previewTimer: number | null = null;
+onMounted(() => {
+  previewTimer = window.setInterval(() => {
+    previewClock.value = Date.now();
+  }, 250);
+});
+onBeforeUnmount(() => {
+  if (previewTimer != null) window.clearInterval(previewTimer);
+});
 const executorFrame = computed(() => {
   const view = state.value?.simulator;
   const fixtures = view
     ? view.pars.length + view.bars.length + view.beams.length + view.faces.length
     : 0;
+  const stamped = state.value?.preview_at;
+  if (typeof stamped === "number" && previewClock.value - stamped > 750) return false;
   return fixtures > 0 && state.value?.executor_online !== false;
 });
 const playingSeconds = computed(() => {
@@ -346,25 +357,33 @@ const autoDesk = computed(
 );
 const bpmAccepted = computed(() => acceptedBpmValue(state.value?.bpm ?? null));
 const bpmStatus = computed(() => bpmDeskReason(state.value?.bpm ?? null));
-const deskPreview = useAutoPreview();
-const deskPreviewKey = computed(() => {
-  if (!autoDesk.value) return "";
-  const bpm = state.value?.bpm;
-  return [bpm?.look || "", bpm?.palette || "orange", bpm?.intensity || "full", state.value?.scene_id || ""].join("|");
+const confirmedLive = computed(() => {
+  if (offline.value) return false;
+  if (state.value?.executor_online === false) return false;
+  return executorFrame.value;
 });
-watch(deskPreviewKey, (key) => {
-  if (!key) return;
-  const [look, palette, intensity, sceneId] = key.split("|");
-  if (!look) return;
-  void deskPreview.load(
-    { look, cycleBeats: 8, palette, intensity, bpm: 96, frames: 24 },
-    sceneId,
-    sceneId || null,
-  );
-}, { immediate: true });
+const stageNote = computed(() => {
+  if (!confirmedLive.value) return "Немає живого кадру";
+  if (blackoutShown.value) return "Blackout · на екрані план, вихід темний";
+  const bpm = state.value?.bpm;
+  if (bpm?.enabled && bpm.scope === "auto") {
+    const program = bpm.program === "beat" ? "бітова програма" : "плавна програма";
+    const cycle = typeof bpm.picture_cycle === "number" ? ` · ${bpm.picture_cycle}` : "";
+    const names: Record<string, string> = { beam: "Голови", par: "PAR", bar: "Бари" };
+    const groups = Array.isArray(bpm.groups) ? bpm.groups : [];
+    const cast = groups.length ? groups.map((id: string) => names[id] ?? id).join(", ") : "порожній склад";
+    const intensity = BPM_INTENSITIES.find((item) => item.id === bpm.intensity)?.label;
+    const motion = groups.includes("beam") && typeof bpm.motion_beats === "number"
+      ? ` · рух голів ${bpm.motion_beats}`
+      : "";
+    const blend = bpm.blend_from ? " · перехід" : "";
+    return `План виконавця · ${program}${cycle} · ${cast}${intensity ? ` · ${intensity}` : ""}${motion}${blend}`;
+  }
+  return frameNote.value;
+});
 
 function stageView() {
-  if (autoDesk.value) return deskPreview.view();
+  if (!confirmedLive.value) return null;
   return liveView();
 }
 
@@ -463,6 +482,12 @@ function goNextEpisode() {
             v-show="stageOpen"
             class="stage-card__body"
           >
+            <p
+              class="hint"
+              data-stage-note
+            >
+              {{ stageNote }}
+            </p>
             <StageSimulator
               plain
               :show-cables="false"
@@ -470,8 +495,8 @@ function goNextEpisode() {
               :view="stageView"
               :frame="liveFrame"
               :nonzero-channels="cloudScene ? undefined : (state?.simulator?.nonzero_channels ?? 0)"
-              :blackout="autoDesk ? false : blackoutShown"
-              :disabled="offline"
+              :blackout="blackoutShown"
+              :disabled="offline || !confirmedLive"
               :show-inspector="false"
             />
           </div>

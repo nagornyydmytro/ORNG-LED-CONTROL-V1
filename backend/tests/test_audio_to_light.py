@@ -470,8 +470,10 @@ def test_beam_brightness_stays_binary_and_face_keeps_its_own_fader() -> None:
         for channel in show.profile_for(beam).channels
         if channel.role is ChannelRole.RED
     )
-    assert dim_frame[red] == 255
+    assert dim_frame[red] == int(round(0.25 * 255))
     assert full_frame[red] == 255
+    same = render_stage(show, dim, pose, master=1.0)
+    assert same[red] == dim_frame[red]
     face = next(fixture for fixture in show.patch.fixtures if fixture.kind is FixtureKind.FACE_PAR)
     from orng_led.engine.intents import ParIntent
 

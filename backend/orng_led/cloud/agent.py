@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Any
 from orng_led.api.runtime import CommandConflictError
 from orng_led.cloud.credentials import credential_status, load_device_token
 from orng_led.cloud.hold_lease import CloudHoldLeases, CloudLease
+from orng_led.cloud.preview import PreviewOutbox
 from orng_led.cloud.metadata import load_cloud_metadata
 from orng_led.cloud.sync_service import SceneSyncError, SceneSyncService
 from orng_led.input.contract import InputAction, InputEvent, InputSource
@@ -47,6 +48,10 @@ def bpm_sync_args(payload: dict[str, Any]) -> dict[str, Any]:
         "intensity": payload.get("intensity") or None,
         "period": payload.get("period"),
     }
+    if isinstance(payload.get("groups"), list):
+        args["groups"] = [str(item) for item in payload["groups"]]
+    if isinstance(payload.get("excluded"), list):
+        args["excluded"] = [str(item) for item in payload["excluded"]]
     if "par_rhythm" in payload:
         args["par_rhythm"] = bool(payload.get("par_rhythm"))
     if "accent" in payload:
@@ -169,6 +174,7 @@ class CloudDeviceAgent:
         self._sync = SceneSyncService(runtime)
         self._calibration_until = 0.0
         self._leases = CloudHoldLeases()
+        self._preview = PreviewOutbox()
         self._key_profile: dict[str, str] = {}
 
     @property
@@ -271,6 +277,7 @@ class CloudDeviceAgent:
             self._seen_commands.clear()
             await self._flush_pending_update_result(ws)
             heartbeat = asyncio.create_task(self._heartbeat(ws))
+            preview = asyncio.create_task(self._preview_loop(ws))
             try:
                 async for raw in ws:
                     if self._stop.is_set():
@@ -284,8 +291,64 @@ class CloudDeviceAgent:
                     await self._handle_message(ws, msg)
             finally:
                 heartbeat.cancel()
+                preview.cancel()
                 self.connected = False
                 self._drop_all_cloud_holds()
+
+    async def _preview_loop(self, ws: Any) -> None:
+        """Ten pictures a second. A stuck socket drops the old one."""
+        while not self._stop.is_set():
+            try:
+                packet = await asyncio.to_thread(self.runtime.desk_preview)
+            except Exception:  # noqa: BLE001 — a preview must not stop the session
+                packet = None
+            if isinstance(packet, dict):
+                self._preview.offer(packet)
+            await self._send_preview(ws)
+            try:
+                await asyncio.wait_for(self._stop.wait(), timeout=0.1)
+                return
+            except TimeoutError:
+                continue
+
+    async def _send_preview(self, ws: Any) -> None:
+        packet = self._preview.start()
+        if packet is None:
+            return
+        text = json.dumps(
+            {
+                "protocol_version": PROTOCOL_VERSION,
+                "message_id": str(uuid.uuid4()),
+                "type": "preview",
+                "device_id": self.installation_id or "unknown",
+                "sent_at": _now(),
+                "payload": packet,
+            }
+        )
+        try:
+            await asyncio.wait_for(ws.send(text), timeout=0.05)
+            size = len(text)
+        except Exception:  # noqa: BLE001
+            size = 0
+        while True:
+            nxt = self._preview.finish(size)
+            if nxt is None:
+                return
+            text = json.dumps(
+                {
+                    "protocol_version": PROTOCOL_VERSION,
+                    "message_id": str(uuid.uuid4()),
+                    "type": "preview",
+                    "device_id": self.installation_id or "unknown",
+                    "sent_at": _now(),
+                    "payload": nxt,
+                }
+            )
+            try:
+                await asyncio.wait_for(ws.send(text), timeout=0.05)
+                size = len(text)
+            except Exception:  # noqa: BLE001
+                size = 0
 
     async def _heartbeat(self, ws: Any) -> None:
         while not self._stop.is_set():

@@ -280,6 +280,8 @@ export interface AutoPreviewQuery {
   intensity: string;
   bpm: number;
   frames?: number;
+  /** Head paths depend on tempo. Do not reuse a clip recorded at another BPM. */
+  tempoBound?: boolean;
 }
 
 export interface AutoAvailableClip {
@@ -365,6 +367,8 @@ export interface BpmSyncState {
   mode: BpmSyncMode;
   palette?: BpmPaletteId;
   cast?: BpmCastId;
+  groups?: Array<"par" | "bar" | "beam">;
+  excluded?: string[];
   character?: BpmCharacterId;
   intensity?: BpmIntensityId;
   period?: BpmPeriodId | number | string;
@@ -373,6 +377,12 @@ export interface BpmSyncState {
   par_note?: string | null;
   look?: string | null;
   look_title?: string | null;
+  /** Live picture period. Absent until an episode is playing. Not a preview default. */
+  picture_cycle?: number | null;
+  /** Head trajectory length in beats. The preview loop, not the wire frame. */
+  motion_beats?: number | null;
+  /** Outgoing look while the performer is blending. Absent means no transition. */
+  blend_from?: string | null;
   section?: string;
   bpm: number | null;
   beat_phase?: number;
@@ -383,6 +393,8 @@ export interface BpmSyncState {
   capture: string;
   /** no_input / waiting / searching / locked / hold / fallback. Not a beat claim. */
   sync?: "no_input" | "waiting" | "searching" | "locked" | "hold" | "fallback";
+  /** The playing episode clock. Locked tempo can still be a smooth picture. */
+  program?: "beat" | "smooth";
 }
 
 export interface AppState {
@@ -398,6 +410,8 @@ export interface AppState {
   strobe_speed?: number;
   sweep_speed?: number;
   simulator: SimulatorView;
+  /** Epoch ms of the last live-preview frame. Absent on a heartbeat-only desk. */
+  preview_at?: number | null;
   scene_id?: string | null;
   scene_name?: string | null;
   /** Operator location. Absent on a desktop that has only the active scene. */

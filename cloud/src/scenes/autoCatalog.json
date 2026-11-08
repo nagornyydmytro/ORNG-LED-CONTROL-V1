@@ -539,43 +539,6 @@
       "program": "smooth"
     },
     {
-      "id": "vertical_wave_scan_bars",
-      "family": "vertical_wave",
-      "family_title": "Вертикальна хвиля",
-      "title": "Хвиля по барах як по сходах",
-      "groups": [
-        "bar"
-      ],
-      "palettes": [
-        "orange",
-        "red",
-        "blue",
-        "violet",
-        "bars"
-      ],
-      "motion": "знизу вгору і назад по сегментах",
-      "envelope": "triangle",
-      "axis": "bar",
-      "direction": "up",
-      "stagger": "none",
-      "roles": "together",
-      "cycles": [
-        1.0,
-        2.0,
-        4.0
-      ],
-      "durations": [
-        8,
-        16
-      ],
-      "transition": "bar",
-      "pool": "phrase",
-      "needs_segments": false,
-      "notes": "Кожен бар — сходинка полотна.",
-      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
-      "program": "smooth"
-    },
-    {
       "id": "vertical_wave_with_pars",
       "family": "vertical_wave",
       "family_title": "Вертикальна хвиля",
@@ -1688,80 +1651,6 @@
       "program": "beat"
     },
     {
-      "id": "cascade_left",
-      "family": "cascade",
-      "family_title": "Ступінчастий каскад",
-      "title": "Каскад зліва",
-      "groups": [
-        "bar"
-      ],
-      "palettes": [
-        "orange",
-        "red",
-        "blue",
-        "violet",
-        "bars"
-      ],
-      "motion": "дискретні сходи по барах або висоті",
-      "envelope": "cascade",
-      "axis": "bar",
-      "direction": "up",
-      "stagger": "none",
-      "roles": "together",
-      "cycles": [
-        1.0,
-        2.0,
-        4.0
-      ],
-      "durations": [
-        8,
-        16
-      ],
-      "transition": "bar",
-      "pool": "phrase",
-      "needs_segments": true,
-      "notes": "",
-      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
-      "program": "beat"
-    },
-    {
-      "id": "cascade_right",
-      "family": "cascade",
-      "family_title": "Ступінчастий каскад",
-      "title": "Каскад справа",
-      "groups": [
-        "bar"
-      ],
-      "palettes": [
-        "orange",
-        "red",
-        "blue",
-        "violet",
-        "bars"
-      ],
-      "motion": "дискретні сходи по барах або висоті",
-      "envelope": "cascade",
-      "axis": "bar",
-      "direction": "left",
-      "stagger": "none",
-      "roles": "together",
-      "cycles": [
-        1.0,
-        2.0,
-        4.0
-      ],
-      "durations": [
-        8,
-        16
-      ],
-      "transition": "bar",
-      "pool": "phrase",
-      "needs_segments": true,
-      "notes": "",
-      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
-      "program": "beat"
-    },
-    {
       "id": "cascade_up",
       "family": "cascade",
       "family_title": "Ступінчастий каскад",
@@ -1818,43 +1707,6 @@
       "axis": "y",
       "direction": "down",
       "stagger": "none",
-      "roles": "together",
-      "cycles": [
-        1.0,
-        2.0,
-        4.0
-      ],
-      "durations": [
-        8,
-        16
-      ],
-      "transition": "bar",
-      "pool": "phrase",
-      "needs_segments": true,
-      "notes": "",
-      "constraints": "Сегмент бара — палітра on/off. Діммер бара аналоговий. Голови двійкові, без pan/tilt/strobe.",
-      "program": "beat"
-    },
-    {
-      "id": "cascade_bars_then_segments",
-      "family": "cascade",
-      "family_title": "Ступінчастий каскад",
-      "title": "Спочатку бари, потім сегменти",
-      "groups": [
-        "bar"
-      ],
-      "palettes": [
-        "orange",
-        "red",
-        "blue",
-        "violet",
-        "bars"
-      ],
-      "motion": "дискретні сходи по барах або висоті",
-      "envelope": "cascade",
-      "axis": "bar",
-      "direction": "up",
-      "stagger": "y",
       "roles": "together",
       "cycles": [
         1.0,
@@ -4646,7 +4498,7 @@
   ],
   "regression": "vertical_wave",
   "note": "Перегляд. Зал з цієї сторінки не керується.",
-  "count": 119,
+  "count": 115,
   "default_look": "vertical_wave",
   "intensities": [
     "soft",

@@ -30,6 +30,7 @@ import { fetchPatch, fetchProfiles } from "../api/setup";
 import { lookCaption, matchesGroups, offeredGroups } from "../runtime/sceneValidate";
 import { presetButtonLabel } from "../lib/presetLabel";
 import BlackoutButton from "../components/control/BlackoutButton.vue";
+import IconButton from "../components/IconButton.vue";
 import StageSimulator from "../components/simulator/StageSimulator.vue";
 import { APP_STATE_KEY } from "../composables/appStateKey";
 import { activeScenePort, publishLocationDraft } from "../runtime/scenePort";
@@ -101,6 +102,16 @@ const sceneRevision = computed(() =>
     layout: layout.value,
     fixtures: rigFixtures.value,
     profiles: rigProfiles.value,
+    presets: summaries.value.map((item) => [
+      item.id,
+      item.hardware_tuned ?? false,
+      item.source ?? "",
+      item.effects ?? [],
+      item.avg_speed ?? null,
+      item.episode_count ?? null,
+      item.total_duration_s ?? null,
+    ]),
+    calibration: state.value?.beam_calibration ?? null,
   }),
 );
 
@@ -593,15 +604,13 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="presets-view">
-    <header class="page-title">
+    <header class="presets-head">
       <h1>Пресети</h1>
-    </header>
-
-    <div
-      class="chips catalog-switch"
-      role="tablist"
-      aria-label="Каталог"
-    >
+      <div
+        class="chips catalog-switch"
+        role="tablist"
+        aria-label="Каталог"
+      >
       <button
         type="button"
         class="chip"
@@ -623,7 +632,8 @@ onBeforeUnmount(() => {
       >
         Авто-епізоди
       </button>
-    </div>
+      </div>
+    </header>
 
     <p
       v-if="loading"
@@ -740,49 +750,6 @@ onBeforeUnmount(() => {
       </ul>
     </section>
 
-    <section
-      v-if="catalogKind === 'presets'"
-      class="card"
-      aria-label="Пульт — 9 пресетів"
-    >
-      <header class="card__head">
-        <h2>Пульт</h2>
-      </header>
-      <div class="form-grid pad-slots">
-        <label
-          v-for="(_, index) in 9"
-          :key="index"
-          class="field"
-        >
-          <span>Слот {{ index + 1 }}</span>
-          <select
-            :value="padDraft[index] ?? ''"
-            :disabled="padSaving"
-            @change="setPadSlot(index, ($event.target as HTMLSelectElement).value)"
-          >
-            <option
-              v-for="preset in summaries"
-              :key="preset.id"
-              :value="preset.id"
-              :disabled="padDraft.includes(preset.id) && padDraft[index] !== preset.id"
-            >
-              {{ presetButtonLabel(preset.id, preset.label) }}
-            </option>
-          </select>
-        </label>
-      </div>
-      <div class="row-actions">
-        <button
-          type="button"
-          class="btn"
-          :disabled="padSaving || padDraft.length !== 9"
-          @click="savePadSlots"
-        >
-          Зберегти склад пульта
-        </button>
-      </div>
-    </section>
-
     <AutoCatalogPanel
       v-if="catalogKind === 'auto'"
       :layout="layout"
@@ -803,6 +770,41 @@ onBeforeUnmount(() => {
       >
         <header class="card__head">
           <h2>Каталог</h2>
+          <div class="row-actions catalog-actions">
+            <button
+              type="button"
+              class="btn btn--primary"
+              :disabled="offline || !selectedId"
+              @click="selectedId && onApplyVisualization(selectedId)"
+            >
+              На сцену
+            </button>
+            <button
+              type="button"
+              class="btn"
+              :disabled="!selectedId"
+              @click="selectedId && openEditor(selectedId)"
+            >
+              Редагувати
+            </button>
+            <button
+              type="button"
+              class="btn"
+              :disabled="saving || !selectedId"
+              @click="selectedId && onDuplicate(selectedId)"
+            >
+              Дублювати
+            </button>
+            <button
+              v-if="selected && !selected.builtin"
+              type="button"
+              class="btn btn--danger"
+              :disabled="saving"
+              @click="onDelete(selected.id, selected.builtin)"
+            >
+              Видалити
+            </button>
+          </div>
         </header>
 
         <div class="preset-cards">
@@ -829,41 +831,6 @@ onBeforeUnmount(() => {
           </button>
         </div>
 
-        <div class="row-actions catalog-actions">
-          <button
-            type="button"
-            class="btn btn--primary"
-            :disabled="offline || !selectedId"
-            @click="selectedId && onApplyVisualization(selectedId)"
-          >
-            На сцену
-          </button>
-          <button
-            type="button"
-            class="btn"
-            :disabled="!selectedId"
-            @click="selectedId && openEditor(selectedId)"
-          >
-            Редагувати
-          </button>
-          <button
-            type="button"
-            class="btn"
-            :disabled="saving || !selectedId"
-            @click="selectedId && onDuplicate(selectedId)"
-          >
-            Дублювати
-          </button>
-          <button
-            v-if="selected && !selected.builtin"
-            type="button"
-            class="btn btn--danger"
-            :disabled="saving"
-            @click="onDelete(selected.id, selected.builtin)"
-          >
-            Видалити
-          </button>
-        </div>
       </section>
 
       <div class="preview-column">
@@ -904,6 +871,50 @@ onBeforeUnmount(() => {
         </section>
       </div>
     </div>
+
+    <section
+      v-if="catalogKind === 'presets'"
+      class="card"
+      aria-label="Пульт — 9 пресетів"
+    >
+      <header class="card__head">
+        <h2>Пульт</h2>
+      </header>
+      <div class="form-grid pad-slots">
+        <label
+          v-for="(_, index) in 9"
+          :key="index"
+          class="field"
+        >
+          <span>{{ index + 1 }}</span>
+          <select
+            :value="padDraft[index] ?? ''"
+            :aria-label="`Слот ${index + 1}`"
+            :disabled="padSaving"
+            @change="setPadSlot(index, ($event.target as HTMLSelectElement).value)"
+          >
+            <option
+              v-for="preset in summaries"
+              :key="preset.id"
+              :value="preset.id"
+              :disabled="padDraft.includes(preset.id) && padDraft[index] !== preset.id"
+            >
+              {{ presetButtonLabel(preset.id, preset.label) }}
+            </option>
+          </select>
+        </label>
+      </div>
+      <div class="row-actions">
+        <button
+          type="button"
+          class="btn"
+          :disabled="padSaving || padDraft.length !== 9"
+          @click="savePadSlots"
+        >
+          Зберегти склад пульта
+        </button>
+      </div>
+    </section>
 
     <section
       v-if="catalogKind === 'presets'"
@@ -1007,22 +1018,18 @@ onBeforeUnmount(() => {
             >
               Відтворити на обладнанні
             </button>
-            <button
-              type="button"
-              class="action-btn"
+            <IconButton
+              icon="up"
+              label="Вище"
               :disabled="index === 0"
               @click="moveEpisode(index, index - 1)"
-            >
-              ↑
-            </button>
-            <button
-              type="button"
-              class="action-btn"
+            />
+            <IconButton
+              icon="down"
+              label="Нижче"
               :disabled="index >= editing.episodes.length - 1"
               @click="moveEpisode(index, index + 1)"
-            >
-              ↓
-            </button>
+            />
             <button
               type="button"
               class="action-btn"
@@ -1267,22 +1274,18 @@ onBeforeUnmount(() => {
             </label>
           </div>
           <div class="row-actions">
-            <button
-              type="button"
-              class="action-btn"
+            <IconButton
+              icon="up"
+              label="Вище"
               :disabled="actionAt(ep) === 0"
               @click="moveLook(index, actionAt(ep), actionAt(ep) - 1)"
-            >
-              ↑
-            </button>
-            <button
-              type="button"
-              class="action-btn"
+            />
+            <IconButton
+              icon="down"
+              label="Нижче"
               :disabled="actionAt(ep) >= ep.actions.length - 1"
               @click="moveLook(index, actionAt(ep), actionAt(ep) + 1)"
-            >
-              ↓
-            </button>
+            />
             <button
               type="button"
               class="action-btn"

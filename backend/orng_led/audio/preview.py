@@ -210,6 +210,21 @@ def clip_key(look: str, cycle: float, palette: str, intensity: str) -> str:
     return f"{look}|{cycle_key(cycle)}|{palette}|{intensity}"
 
 
+def _beam_pose(view: dict[str, object]) -> tuple[object, ...]:
+    rows = []
+    for item in view.get("beams") or []:
+        if not isinstance(item, dict):
+            continue
+        rows.append(
+            (
+                str(item.get("id")),
+                round(float(item.get("pan") or 0.0) * 255.0),
+                round(float(item.get("tilt") or 0.0) * 255.0),
+            )
+        )
+    return tuple(rows)
+
+
 def phase_frame_count(cycle_beats: float) -> int:
     """Phase samples of one cycle. Tempo only changes how long that cycle lasts."""
     return max(
@@ -284,6 +299,7 @@ def render_preview_view(
         beat_period_s=60.0 / 96.0 if beat_period_s is None else float(beat_period_s),
         rig=rig if rig is not None else HeadRig(),
         travel=travel,  # type: ignore[arg-type]
+        cycle_beats=float(cycle_beats),
     )
     pose = motion if motion is not None else {}
     _follow_preview_axes(show, stage, pose, dt_s)
@@ -346,9 +362,16 @@ def preview_clip(
     }
     if not check["ok"]:
         return payload
+    from orng_led.audio.head_motion import travel_fingerprint
+    from orng_led.presets.io import default_presets_dir, load_presets_dir
+
+    directory = Path(scene_dir) / "presets" if scene_dir is not None else default_presets_dir()
+    documents = load_presets_dir(directory) if directory.is_dir() else {}
+    fingerprint = travel_fingerprint(show, documents, scene_id=scene_id or "preview")
     cache_key = "|".join(
         [
             str(payload["scene_hash"]),
+            fingerprint,
             look,
             cycle_key(cycle),
             str(payload["palette"]),
@@ -364,13 +387,9 @@ def preview_clip(
         payload["frames"] = cached
         payload["canonical"] = True
         return payload
-    from orng_led.presets.io import default_presets_dir, load_presets_dir
-
-    directory = Path(scene_dir) / "presets" if scene_dir is not None else default_presets_dir()
-    travel_key = f"{scene_id or 'preview'}|{payload['scene_hash']}|{directory}"
+    travel_key = f"{scene_id or 'preview'}|{payload['scene_hash']}|{fingerprint}"
     travel = _TRAVEL_CACHE.get(travel_key)
     if travel is None:
-        documents = load_presets_dir(directory) if directory.is_dir() else {}
         travel = prepare_head_travel(
             show,
             documents,
@@ -384,23 +403,35 @@ def preview_clip(
     period_s = 60.0 / tempo
     if "beam" in BY_ID[look].groups:
         step = loop / count
-        for index in range(count * 2 - 1):
-            beats = (index + 1) * step
-            view = render_preview_view(
-                show,
-                look,
-                beats=beats,
-                cycle_beats=cycle,
-                palette=str(payload["palette"]),
-                intensity=str(payload["intensity"]),
-                rig=clip_rig,
-                motion=clip_motion,
-                dt_s=step * period_s,
-                beat_period_s=period_s,
-                travel=travel,
-            )
-            if index >= count - 1:
-                steps.append(view)
+        beats = 0.0
+        recorded: list[dict[str, object]] = []
+        previous_pose: tuple[object, ...] | None = None
+        for _lap in range(8):
+            lap: list[dict[str, object]] = []
+            start_pose: tuple[object, ...] | None = None
+            for index in range(count):
+                beats += step
+                view = render_preview_view(
+                    show,
+                    look,
+                    beats=beats,
+                    cycle_beats=cycle,
+                    palette=str(payload["palette"]),
+                    intensity=str(payload["intensity"]),
+                    rig=clip_rig,
+                    motion=clip_motion,
+                    dt_s=step * period_s,
+                    beat_period_s=period_s,
+                    travel=travel,
+                )
+                if index == 0:
+                    start_pose = _beam_pose(view)
+                lap.append(view)
+            recorded = lap
+            if previous_pose is not None and start_pose == previous_pose:
+                break
+            previous_pose = start_pose
+        steps.extend(recorded)
     else:
         previous_beat: float | None = None
         for index in range(count):
@@ -478,6 +509,10 @@ def _compact_frame(view: dict[str, object]) -> dict[str, object]:
                 "g": _round(row.get("g", 0.0)),
                 "b": _round(row.get("b", 0.0)),
                 "t": _round(row.get("throw", 0.0)),
+                "p": _round(row.get("pan", 0.5)),
+                "ti": _round(row.get("tilt", 0.5)),
+                "pp": _round(row.get("physical_pan", row.get("pan", 0.5))),
+                "pt": _round(row.get("physical_tilt", row.get("tilt", 0.5))),
             }
         )
     return {"pars": pars, "bars": bars, "beams": beams, "n": int(view.get("nonzero_channels") or 0)}
@@ -534,6 +569,7 @@ def dump_preview_pack(dest: Path | None = None) -> Path:
         row = {
             "look": look,
             "cycle_beats": cycle,
+            "loop_beats": clip.get("loop_beats", cycle),
             "palette": clip["palette"],
             "intensity": clip["intensity"],
             "frames": [_compact_frame(frame) for frame in clip["frames"]],  # type: ignore[union-attr]

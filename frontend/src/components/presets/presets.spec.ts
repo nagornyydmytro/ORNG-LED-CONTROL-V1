@@ -174,7 +174,7 @@ describe("PresetsView editor", () => {
     await wrapper.findAll("button").find((b) => b.text() === "Редагувати")!.trigger("click");
     await flushPromises();
     const firstPalette = (wrapper.find(".episode-card select").element as HTMLSelectElement).value;
-    await wrapper.findAll("button").find((b) => b.text() === "↓")!.trigger("click");
+    await wrapper.get("[aria-label=Нижче]").trigger("click");
     expect((wrapper.find(".episode-card select").element as HTMLSelectElement).value).not.toBe(firstPalette);
   });
 
@@ -271,7 +271,7 @@ describe("PresetsView editor", () => {
     expect(cycle).toBeTruthy();
     await cycle!.setValue("8");
     const firstCard = wrapper.findAll(".episode-card")[0]!;
-    await firstCard.find(".action-list").findAll("button").find((button) => button.text() === "↓")!.trigger("click");
+    await firstCard.find(".action-list").get("[aria-label=Нижче]").trigger("click");
     await firstCard.findAll(".row-actions")[0]!.findAll("button").find((button) => button.text() === "Копія")!.trigger("click");
     await wrapper.findAll("button").find((button) => button.text() === "Зберегти для локації")!.trigger("click");
     await flushPromises();
@@ -511,22 +511,26 @@ describe("PresetsView editor", () => {
     expect(wrapper.find("[data-look=vertical_wave]").exists()).toBe(false);
     await wrapper.get("input[type=search]").setValue("");
     await flushPromises();
-    const next = wrapper.findAll("button").find((button) => button.text() === "Наступна");
-    await next!.trigger("click");
+    const boxes = wrapper.findAll(".auto-check");
+    expect(boxes.length).toBeGreaterThan(1);
+    expect(boxes.every((box) => (box.element as HTMLInputElement).checked)).toBe(true);
+    const next = wrapper.get("[aria-label=Наступна]");
+    await next.trigger("click");
     await flushPromises();
     expect(wrapper.find("[data-look=hit_bars]").classes()).toContain("active");
-    const prev = wrapper.findAll("button").find((button) => button.text() === "Попередня");
-    await prev!.trigger("click");
+    const prev = wrapper.get("[aria-label=Попередня]");
+    await prev.trigger("click");
     await flushPromises();
     expect(wrapper.find("[data-look=vertical_wave]").classes()).toContain("active");
     const bpm = wrapper.get("input[type=number]");
     await bpm.setValue(60);
     await flushPromises();
     expect(wrapper.text()).toContain("4.00 с");
-    await wrapper.findAll("button").find((button) => button.text() === "На весь екран")!.trigger("click");
+    await wrapper.get("[aria-label='На весь екран']").trigger("click");
     expect(wrapper.find(".auto-library--wide").exists()).toBe(true);
-    expect(wrapper.findAll("button").some((button) => button.text() === "Вийти")).toBe(true);
-    expect(wrapper.text()).toContain("Пауза");
+    expect(wrapper.find("[aria-label=Вийти]").exists()).toBe(true);
+    expect(wrapper.text()).toContain("Грає");
+    expect(wrapper.find("[aria-label=Пауза]").exists()).toBe(true);
   });
 
   it("clears Auto preview as soon as the scene is not ready", async () => {

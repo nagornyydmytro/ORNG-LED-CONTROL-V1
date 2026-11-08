@@ -364,12 +364,13 @@ def test_pattern_changes_on_a_phrase_and_pulses_on_the_beat() -> None:
     assert again.fixtures["par"] == up.fixtures["par"]
 
 
-def test_drop_accent_is_full_then_the_palette_returns() -> None:
+def test_drop_accent_stays_at_the_operator_level() -> None:
     lamp = _Lamp("par", FixtureKind.PAR)
     accent = build_auto_stage([lamp], "blue", "drop", 0.2, 0.3, drop_age=0.1)
     after = build_auto_stage([lamp], "blue", "drop", 0.2, 0.3, drop_age=DROP_ACCENT_S + 0.05)
-    assert accent.fixtures["par"].intensity == 1.0
-    assert after.fixtures["par"].intensity < 1.0
+    assert accent.fixtures["par"].intensity == pytest.approx(0.3, abs=0.05)
+    assert accent.fixtures["par"].intensity < 0.9
+    assert after.fixtures["par"].intensity <= 0.3 + 0.05
     assert accent.fixtures["par"].strobe == 0.0
     assert after.fixtures["par"].strobe == 0.0
 
@@ -524,8 +525,60 @@ def test_riser_strobe_does_not_move_heads() -> None:
     )
     assert isinstance(early.fixtures["par"], ParIntent)
     assert early.fixtures["par"].strobe == 0.0
-    assert early.fixtures["par"].intensity == 1.0
+    assert early.fixtures["par"].intensity == pytest.approx(0.6)
     assert late.fixtures["par"].strobe == 0.0
     assert early.fixtures["beam"].strobe == 0.0
     assert late.fixtures["beam"].strobe == 0.0
     assert early.fixtures["beam"].pan is None and early.fixtures["beam"].tilt is None
+
+
+def test_enable_loudness_is_full_brightness_and_only_dims_down() -> None:
+    tracker = SectionTracker()
+    tracker._fast = 0.9
+    tracker.begin_loudness_anchor()
+    assert tracker._fast == 0.0
+    assert tracker._loud_ref is None
+    for _ in range(6):
+        tracker.push(0.2, 0.1)
+    assert tracker._loud_ref == pytest.approx(0.2, abs=0.02)
+    assert tracker.level == pytest.approx(1.0)
+    for _ in range(40):
+        tracker.push(0.05, 0.1)
+    assert tracker.level < 0.7
+    held = tracker._loud_ref
+    for _ in range(20):
+        tracker.push(0.8, 0.1)
+    assert tracker.level == pytest.approx(1.0)
+    assert tracker._loud_ref == pytest.approx(held)
+    for _ in range(20):
+        tracker.push(0.05, 0.1)
+    assert tracker.level < 0.7
+    assert tracker._loud_ref == pytest.approx(held)
+    tracker.push(0.0, 1.5)
+    assert tracker.level == pytest.approx(0.0)
+    assert tracker.shown == pytest.approx(0.0)
+
+
+def test_a_quiet_lamp_does_not_stay_black_for_more_than_five_seconds() -> None:
+    tracker = SectionTracker()
+    tracker.begin_loudness_anchor()
+    for _ in range(6):
+        tracker.push(0.2, 0.1)
+    for _ in range(80):
+        tracker.push(0.006, 0.1)
+    assert tracker.level == pytest.approx(0.4)
+
+
+def test_bars_and_pars_match_across_the_centre_unless_the_sweep_is_horizontal() -> None:
+    from orng_led.audio.canvas import Cell
+    from orng_led.audio.library import _axis_u
+    from orng_led.config.models import FixtureKind
+
+    left = Cell("l", FixtureKind.BAR, 0, 0.2, 0.0, 0.0, 0.5, 0)
+    right = Cell("r", FixtureKind.BAR, 0, 0.8, 0.0, 0.0, 0.5, 1)
+    assert _axis_u(left, "x", "none", 2) == pytest.approx(_axis_u(right, "x", "none", 2))
+    assert _axis_u(left, "x", "left", 2) != pytest.approx(_axis_u(right, "x", "left", 2))
+    par_l = Cell("pl", FixtureKind.PAR, 0, 0.2, 0.0, 0.0, 0.4, -1)
+    par_r = Cell("pr", FixtureKind.PAR, 0, 0.8, 0.0, 0.0, 0.6, -1)
+    assert _axis_u(par_l, "x", "none", 2) == pytest.approx(_axis_u(par_r, "x", "none", 2))
+    assert _axis_u(par_l, "x", "right", 2) != pytest.approx(_axis_u(par_r, "x", "right", 2))

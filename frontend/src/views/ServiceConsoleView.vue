@@ -626,10 +626,17 @@ onUnmounted(() => {
         <h1>Новий пристрій</h1>
         <button
           type="button"
-          class="ui-link"
+          class="icon-btn"
+          aria-label="Назад"
+          title="Назад"
           @click="screen = 'list'"
         >
-          ← Назад
+          <svg
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+          >
+            <path d="M15 6 9 12l6 6" />
+          </svg>
         </button>
       </div>
       <p class="ui-muted">

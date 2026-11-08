@@ -1,6 +1,6 @@
 {
   "scene_hash": "3d952497d16e9eb7eadb6f2db53e4e7afc96a20dd3140456b0aa4aa1e9d7a004",
-  "library_version": "09f7cfdcf0c9248ea5414b42dd53d353ea2dd9b8c125b4d45475b92acb09f7cc",
+  "library_version": "08f2c6e57e63b16a503fb1165eea46901defc1ca939ccca2964a71399425f8b6",
   "library_count": 119,
   "clip_count": 945,
   "note": "Перегляд. Зал з цієї сторінки не керується.",
@@ -5796,5 +5796,6 @@
       "palette": "orange",
       "intensity": "full"
     }
-  ]
+  ],
+  "travel_hash": "91999a4728c9a2ccfb9e9836e10b68017b5e3a9b0c55ff73c62bb1741f96bf90"
 }

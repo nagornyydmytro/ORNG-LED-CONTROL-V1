@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from orng_led.audio.auto_show import build_auto_stage
 from orng_led.audio.library import BY_ID, LOOKS, director_looks
 from orng_led.audio.planner import EpisodePlanner, _cycle_floor, _step_cycle, _variation_cycles
@@ -210,7 +212,7 @@ def test_intensity_scales_brightness_not_the_mask_or_tempo() -> None:
         peaks.append((max(pars) if pars else 0.0, max(dimmers)))
         for intent in stage.fixtures.values():
             if isinstance(intent, BeamIntent):
-                assert intent.dimmer in {0.0, 1.0}
+                assert intent.dimmer == pytest.approx(0.0) or intent.dimmer == pytest.approx(amount)
                 assert intent.strobe == 0.0
     assert masks[0] == masks[1] == masks[2]
     assert peaks[0][0] < peaks[1][0] <= peaks[2][0] + 1e-9

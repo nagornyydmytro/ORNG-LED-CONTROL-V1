@@ -46,7 +46,10 @@ class StructuralEvent:
 
 # Real time, not the length of an overlapping analysis window.
 NOISE_RMS = 0.004
-SILENCE_S = 1.0
+# One pause length for the hearing, the riser, and the lamps. A missing kick
+# is shorter than this. USB hiss counts; exact zero is not required.
+NEAR_SILENCE_S = 1.5
+SILENCE_S = NEAR_SILENCE_S
 INPUT_LOSS_S = 1.2
 ATTACK_TAU_S = 0.35
 CONTEXT_TAU_S = 8.0
@@ -60,6 +63,10 @@ RISE_HOLD_S = 1.0
 RISER_LIMIT_S = 6.0
 DROP_ONSET = 1.2
 DROP_ONSET_REL = 1.8
+# Onset divided by RMS squared. A click stays large at every gain; a tone,
+# noise, or a fader stays near 1. Loudness is not a section and not an accent.
+GROOVE_REL = 4.0
+ACCENT_REL = 4.0
 DENSITY_TAU_S = 0.55
 DENSITY_CTX_S = 4.0
 BAND_TAU_S = 0.7
@@ -144,6 +151,8 @@ class SliceHearing:
     high: float = 0.0
     low_density: float = 0.0
     high_density: float = 0.0
+    low_attacks: tuple[float, ...] = ()
+    high_attacks: tuple[float, ...] = ()
     origin_s: float | None = None
     origin_clock: str | None = None
     generation: int | None = None
@@ -203,9 +212,10 @@ def _slice_peaks(
 def analyze_slice(samples: object, sample_rate: int = 44100) -> SliceHearing:
     """RMS, strongest energy jump, attack times, density, and two bands.
 
-    The slice is only the audio that arrived since the previous push. Onset is
-    not normalised here; the tracker compares it with its own context. This is
-    not a second BPM reading: times stay on the original hop peaks.
+    The slice is only the audio that arrived since the previous push. Onset stays
+    the raw energy jump. Hearing and accents divide it by the slice level;
+    section ratios already do the same against their own context. This is not a
+    second BPM reading: times stay on the original hop peaks.
     """
     block = np.asarray(samples, dtype=np.float64).reshape(-1)
     block = np.nan_to_num(block, nan=0.0, posinf=0.0, neginf=0.0)
@@ -281,7 +291,56 @@ def analyze_slice(samples: object, sample_rate: int = 44100) -> SliceHearing:
         high=high,
         low_density=len(low_hits) / duration,
         high_density=len(high_hits) / duration,
+        low_attacks=tuple(low_hits),
+        high_attacks=tuple(high_hits),
     )
+
+
+def _extra_attack_offset(
+    low_attacks: tuple[float, ...] | list[float],
+    high_attacks: tuple[float, ...] | list[float],
+) -> float | None:
+    """Newest high-band hit that is not the kick, in seconds from the slice start."""
+    low = tuple(float(item) for item in low_attacks)
+    high = tuple(float(item) for item in high_attacks)
+    unmatched = [hit for hit in high if all(abs(hit - kick) > 0.025 for kick in low)]
+    if not unmatched:
+        return None
+    return max(unmatched)
+
+
+def _extra_attack_age(
+    low_attacks: tuple[float, ...] | list[float],
+    high_attacks: tuple[float, ...] | list[float],
+    dt: float,
+) -> float | None:
+    """Seconds since the newest high-band hit that is not the kick."""
+    low = tuple(float(item) for item in low_attacks)
+    high = tuple(float(item) for item in high_attacks)
+    unmatched = [hit for hit in high if all(abs(hit - kick) > 0.025 for kick in low)]
+    if not unmatched:
+        return None
+    latest = max(unmatched)
+    if latest < 0.0 or latest > float(dt) + 1e-6:
+        return None
+    return max(0.0, float(dt) - latest)
+
+
+def extra_layer(low_attacks: tuple[float, ...] | list[float], high_attacks: tuple[float, ...] | list[float]) -> bool:
+    """High-band hits that are not the kick.
+
+    A second BPM, or the same pulse at half or double time, is not a second
+    instrument. Hits that land on the low-band attacks are the same stroke.
+    """
+    low = tuple(float(item) for item in low_attacks)
+    high = tuple(float(item) for item in high_attacks)
+    if len(high) < 2:
+        return False
+    unmatched = [hit for hit in high if all(abs(hit - kick) > 0.025 for kick in low)]
+    if len(unmatched) < 2:
+        return False
+    gaps = [right - left for left, right in zip(unmatched, unmatched[1:]) if right > left]
+    return any(gap >= 0.04 for gap in gaps)
 
 
 class SectionTracker:
@@ -303,7 +362,12 @@ class SectionTracker:
         self._prev_rms = 0.0
         self._section_age = MIN_SECTION_S
         self._silent = 0.0
+        self._loud_ref: float | None = None
+        self._anchor = False
+        self._dark_for = 0.0
         self._rise = 0.0
+        self._rise_from: float | None = None
+        self._break_from: float | None = None
         self._flat = 0.0
         self._drop_left = 0.0
         self._cooldown = 0.0
@@ -336,7 +400,10 @@ class SectionTracker:
         self._break_hold = 0.0
         self._have_hearing = False
         self._beat_period = DEFAULT_BEAT_S
+        self._tempo_known = False
         self._musical_rise = False
+        self._climb_for = 0.0
+        self._hat_for = 0.0
         self._activity_drop = False
         self._level_change = False
         self._noted_level = False
@@ -345,8 +412,26 @@ class SectionTracker:
         self.drive_id = 0
         self.accent_amount = 0.0
         self.accent_ready: float | None = None
+        self.accent_strength = 0.0
+        self.extra_pulse = False
+        self.extra_phase: float | None = None
+        self.extra_attack_at: float | None = None
+        self.extra_generation: int | None = None
+        self._extra_seen: list[tuple[int | None, float]] = []
+        self._wall = 0.0
+        self._slice_start: float | None = None
         self._accent_at: float | None = None
         self._accent_ids: list[tuple[float, float]] = []
+        self._hear = "melodic"
+        self._hear_for = 0.0
+        self._gap_credit = 0.0
+        self._noise_floor = NOISE_RMS
+        self._floor_hold = 0.0
+        self._floor_sample = NOISE_RMS
+        self._loud_run: list[float] = []
+        self._loud_held = 0.0
+        self._extra_for = 0.0
+        self.reasons: list[tuple[float, float, str, str]] = []
 
     @property
     def clock_s(self) -> float:
@@ -357,11 +442,9 @@ class SectionTracker:
         """What the room is doing. Missing lock is not itself a pause or a drop."""
         if self.input_lost:
             return "absent"
-        if self._silent >= SILENCE_S or self._fast <= NOISE_RMS:
+        if self._silent >= NEAR_SILENCE_S:
             return "silence"
-        if self._onset_fast < 0.08 and self._fast > NOISE_RMS * 3.0:
-            return "melodic"
-        return "rhythmic"
+        return self._hear
 
     def consider_accent(
         self,
@@ -372,14 +455,21 @@ class SectionTracker:
         phase: float | None,
         attack_at: float | None = None,
         attack_id: tuple[float, float] | None = None,
+        attack: bool = True,
     ) -> None:
         """A clear extra attack. Not a grid kick, a fader, or the tracker's own window.
 
         ``attack_at`` is the attack's own time. A late drain does not make it fresh.
         """
-        if self.accent_amount <= 0.0:
+        if self.accent_amount <= 0.0 or not attack:
             return
-        if float(onset) < 0.55 or float(level) <= 0.02:
+        level_now = float(level)
+        # No useful signal. This floor is not a loudness class: the same click
+        # stays an accent when it is only turned down.
+        if level_now <= NOISE_RMS:
+            return
+        unit = float(onset) / max(level_now * level_now, 1e-8)
+        if unit < ACCENT_REL:
             return
         if phase is not None:
             frac = abs(float(phase) % 1.0)
@@ -389,15 +479,15 @@ class SectionTracker:
         when = float(now if attack_at is None else attack_at)
         if float(now) - when > 0.12:
             return
-        if attack_id is not None and attack_id in self._accent_ids:
+        if any(abs(when - previous) < 0.08 for previous, _strength in self._accent_ids):
             return
         gap = 0.9 - 0.55 * float(self.accent_amount)
         if self._accent_at is not None and when - self._accent_at < gap:
             return
-        if attack_id is not None:
-            self._accent_ids.append(attack_id)
-            del self._accent_ids[:-32]
+        self._accent_ids.append((when, unit))
+        del self._accent_ids[:-32]
         self._accent_at = when
+        self.accent_strength = unit
         self.accent_ready = when
 
     def take_events(self) -> tuple[StructuralEvent, ...]:
@@ -414,6 +504,8 @@ class SectionTracker:
         self.drop_age = 0.0
         self.riser_age = 0.0
         self._rise = 0.0
+        self._rise_from = None
+        self._break_from = None
         self._flat = 0.0
         self._silent = 0.0
         self.level = 0.0
@@ -423,6 +515,8 @@ class SectionTracker:
         self.input_lost = True
         self._break_hold = 0.0
         self._musical_rise = False
+        self._climb_for = 0.0
+        self._hat_for = 0.0
         self._activity_drop = False
         self._log("break", "signal")
 
@@ -437,7 +531,8 @@ class SectionTracker:
         if not self._have_hearing or not self._musical_rise:
             return 0.0
         extra = max(0.0, self._den_fast - self._den_ctx)
-        return max(0.0, min(1.0, extra / 8.0))
+        climb = min(1.0, self._climb_for / 3.0)
+        return max(0.0, min(1.0, max(extra / 8.0, climb)))
 
     def push(
         self,
@@ -446,6 +541,8 @@ class SectionTracker:
         onset: float | None = None,
         hearing: SliceHearing | None = None,
         beat_period_s: float | None = None,
+        now: float | None = None,
+        slice_start: float | None = None,
     ) -> str:
         """``dt_s`` is time that actually passed, not an overlapping window."""
         rms = max(0.0, float(energy))
@@ -453,26 +550,38 @@ class SectionTracker:
         if dt <= 0.0:
             return self.section
         self._clock += dt
+        self._wall = float(self._clock if now is None else now)
+        self._slice_start = None if slice_start is None else float(slice_start)
         if beat_period_s is not None and 0.25 <= float(beat_period_s) <= 1.0:
             self._beat_period = float(beat_period_s)
+            self._tempo_known = True
+        else:
+            self._tempo_known = False
         self._have_hearing = hearing is not None
         attack = 0.0 if onset is None else max(0.0, float(onset))
         if hearing is not None:
             rms = max(rms, float(hearing.rms))
             if onset is None:
                 attack = max(0.0, float(hearing.onset))
-        if rms < NOISE_RMS:
+        self._observe_floor(rms, dt)
+        if self._is_near_silence(rms):
             self._silent += dt
             self._fast = _ema(self._fast, 0.0, dt, ATTACK_TAU_S)
             self._smooth_hearing(0.0, 0.0, 0.0, 0.0, 0.0, dt)
             self._prev_rms = 0.0
-            if self._silent >= SILENCE_S:
-                self.lost_signal()
-                self._silent = SILENCE_S
+            self._ride_loudness(rms, dt)
+            # Samples are still arriving. This is a pause, not a pulled cable.
+            if self._silent >= NEAR_SILENCE_S:
+                self._gap_credit = 0.0
+                self._pause_for_silence()
+                self._silent = NEAR_SILENCE_S
                 return self.section
-            # A gap between kicks is not silence yet. The rise and the accent
-            # still spend this time, or a missing kick would hold a strobe open.
+            # A gap between kicks is not silence yet. The rise still spends
+            # this time, or one missing kick would end the build.
             self._section_age += dt
+            # A gap inside a pulse is not a new hearing. Remember it; do not
+            # score the decaying onset while the slice itself is empty.
+            self._gap_credit = min(0.5, self._gap_credit + dt)
             self._cooldown = max(0.0, self._cooldown - dt)
             self._hold_drop(dt)
             if self._drop_left <= 0.0 and self.section == "drop":
@@ -481,11 +590,14 @@ class SectionTracker:
                 self.riser_age += dt
                 if self.riser_age >= RISER_LIMIT_S:
                     self._enter("groove", force=True)
+                    self._log("groove", "riser-limit")
             return self.section
+        was_silent = self._silent >= 0.4
         self._silent = 0.0
         self.input_lost = False
         if self._warm <= 0.0:
             self._adopt(rms, attack, dt, hearing=hearing)
+            self._ride_loudness(rms, dt)
             return self.section
         self._fast = _ema(self._fast, rms, dt, ATTACK_TAU_S)
         self._onset_fast = _ema(self._onset_fast, attack, dt, ATTACK_TAU_S)
@@ -498,16 +610,31 @@ class SectionTracker:
                 hearing.high_density,
                 dt,
             )
+        if was_silent:
+            # The pause is not a density context. The first notes are not a rise.
+            self._den_ctx = self._den_fast
+            self._low_d_ctx = self._low_d_fast
+            self._high_d_ctx = self._high_d_fast
+            self._musical_rise = False
+            self._rise = 0.0
+            self._rise_from = None
         onset_norm = attack / max(rms * rms, 1e-8)
         den_rel = self._den_fast / max(self._den_ctx, 0.45)
         # A rise already in progress is allowed to hit. Retuning it would
         # swallow the accent and would also freeze the rise timer.
+        self._note_climb(rms, dt)
         if self.section in {"groove", "break"} and (
-            self._is_gain(rms, onset_norm, den_rel)
-            or self._held_new_level(rms, onset_norm, den_rel)
+            not self._climbing(rms)
+            and (
+                self._is_gain(rms, onset_norm, den_rel)
+                or self._held_new_level(rms, onset_norm, den_rel)
+            )
         ):
             self._adopt(rms, attack, dt, retune=True, hearing=hearing)
+            self._hold_hearing(dt)
+            self._hold_extra(hearing, dt)
             self._log("gain", "level")
+            self._ride_loudness(rms, dt)
             return self.section
         self._prev_rms = rms
         self._context = _ema(self._context, rms, dt, CONTEXT_TAU_S)
@@ -519,6 +646,9 @@ class SectionTracker:
         if rel > 0.8:
             self._loud_at = self._clock
         self.level = self._brightness(rel, onset_rel)
+        self._hold_hearing(dt)
+        self._hold_extra(hearing, dt)
+        self._ride_loudness(rms, dt)
         self.confidence = self._confidence(rel)
         self._section_age += dt
         self._cooldown = max(0.0, self._cooldown - dt)
@@ -530,10 +660,14 @@ class SectionTracker:
             return self.section
         self.drop_age = 0.0
         if self._musical_rise:
+            if self._rise_from is None:
+                self._rise_from = self._clock
             self._rise += dt
             self._noted_level = False
         else:
             self._rise = max(0.0, self._rise - dt)
+            if self._rise <= 0.0:
+                self._rise_from = None
             if (
                 self._level_change
                 and not self._noted_level
@@ -542,18 +676,33 @@ class SectionTracker:
                 self._log("reject", "level")
                 self._noted_level = True
         if self._activity_drop:
+            if self._break_from is None:
+                self._break_from = self._clock
             self._break_hold += dt
         else:
             self._break_hold = max(0.0, self._break_hold - dt)
+            if self._break_hold <= 0.0:
+                self._break_from = None
+        heard_hit = self._heard_attack(hearing, dt)
         if self.section == "riser":
-            return self._while_riser(dt, onset_norm, onset_rel, rel)
+            return self._while_riser(dt, onset_norm, onset_rel, rel, heard_hit)
         if self.section == "break":
             return self._while_break()
         return self._while_groove(rel, dt)
 
     def observe(self, now: float, beat_phase: float, bar_phase: float) -> None:
         """Move the drawn look. Pattern identity changes on a phrase, not a frame."""
-        del beat_phase
+        if self.extra_pulse and self.extra_attack_at is not None and self._beat_period > 0.0:
+            age = float(now) - float(self.extra_attack_at)
+            if age < -0.05:
+                self.extra_phase = None
+            else:
+                # Age is measured from the attack's own clock, so it grows
+                # between analyses. Subtracting the current beat phase here
+                # would cancel that growth and hold one brightness.
+                self.extra_phase = (float(beat_phase) - age / self._beat_period) % 1.0
+        else:
+            self.extra_phase = None
         moment = float(now)
         bar = float(bar_phase) % 1.0
         if self._seen is None:
@@ -647,6 +796,27 @@ class SectionTracker:
         total = max(0.15, float(low_density) + float(high_density))
         return float(low_density) / total
 
+    def _climbing(self, rms: float) -> bool:
+        """High band and level both leaving the recent context. A pad fader is not this."""
+        if not self._have_hearing or self._den_fast < 3.0 or self._high_ctx <= 1e-3:
+            return False
+        high_up = (
+            self._high_fast >= self._high_ctx * 1.35
+            and self._high_fast >= self._high_ctx + 0.05
+        )
+        energy_up = rms >= max(self._context, NOISE_RMS) * 1.12
+        return high_up and energy_up
+
+    def _note_climb(self, rms: float, dt: float) -> None:
+        if self._cooldown > 0.0:
+            self._climb_for = 0.0
+            self._hat_for = 0.0
+            return
+        if self._climbing(rms):
+            self._climb_for += dt
+        else:
+            self._climb_for = max(0.0, self._climb_for - dt)
+
     def _is_gain(self, rms: float, onset_norm: float, den_rel: float) -> bool:
         loud = (
             self._prev_rms > NOISE_RMS
@@ -699,20 +869,34 @@ class SectionTracker:
         high_up = self._high_d_fast >= self._high_d_ctx * 1.18 + 0.35
         low_ok = self._low_d_ctx < 0.5 or low_rel >= 0.55
         self._slope = extra / 0.8
-        rising = (
-            self._warm >= RISE_WARM_S
+        spike = (
+            self._hear == "rhythmic"
             and self._den_fast >= MIN_RISE_DENSITY
             and den_rel >= RISE_DENSITY_RATIO
             and extra >= RISE_DENSITY_EXTRA
-            and low_ok
-            and (high_up or extra >= RISE_DENSITY_EXTRA)
+            and high_up
+            and (low_ok or self._climb_for >= 1.2)
+        )
+        # A noise bed hides hats from the rhythmic label. A high band and the
+        # level that keep climbing for more than a second are still a roll.
+        # A plain groove can sit above its high-band average; only a strong,
+        # unbroken acceleration opens a rise on attacks alone.
+        sustained = self._climb_for >= 2.0 and self._den_fast >= 3.0
+        rising = (
+            self._cooldown <= 0.0
+            and self._warm >= RISE_WARM_S
+            and (spike or sustained)
         )
         if rising and not self._musical_rise and self._rise < 0.2:
             self.drive_id += 1
         self._musical_rise = rising
         had_events = self._den_ctx >= 1.0
         collapsed = den_rel < 0.45
-        kick_gone = self._low_d_ctx >= 0.6 and low_rel < BREAK_LOW_RATIO
+        kick_gone = (
+            self._low_d_ctx >= 0.6
+            and low_rel < BREAK_LOW_RATIO
+            and not sustained
+        )
         self._activity_drop = (not self._musical_rise) and (
             (had_events and collapsed) or kick_gone
         )
@@ -722,6 +906,165 @@ class SectionTracker:
             and extra < RISE_DENSITY_EXTRA
         )
         self._activity = min(1.0, 0.5 * min(1.4, den_rel) + 0.5 * min(1.4, low_rel))
+
+    def begin_loudness_anchor(self) -> None:
+        """The ceiling is this input's normal level, not the previous EMA."""
+        self._anchor = True
+        self._loud_ref = None
+        self._loud_run = []
+        self._loud_held = 0.0
+        self._fast = 0.0
+        self._dark_for = 0.0
+        self.level = 1.0
+        self.shown = 1.0
+
+    def _ride_loudness(self, rms: float, dt: float) -> None:
+        if not self._anchor:
+            return
+        if self.input_lost or self._silent >= NEAR_SILENCE_S:
+            self.level = 0.0
+            self.shown = 0.0
+            self._dark_for = 0.0
+            return
+        if self._loud_ref is None:
+            # Stay at the operator ceiling until the passage is more than a spike.
+            if rms >= max(NOISE_RMS * 3.0, self._noise_floor * 3.0):
+                self._loud_run.append(float(rms))
+                self._loud_held += dt
+                if self._loud_held >= 0.5 and len(self._loud_run) >= 3:
+                    ordered = sorted(self._loud_run)
+                    body = ordered[:-1]
+                    self._loud_ref = sum(body) / len(body)
+            self.level = 1.0
+            self.shown = 1.0
+            return
+        self.level = max(0.0, min(1.0, self._fast / self._loud_ref))
+        # Audible but very quiet. The lift is only this rider. Blackout,
+        # intensity 0, disabled groups, an empty catalogue, and no input
+        # are applied by the caller and are not restored here.
+        if self.level <= 0.05 and not self._is_near_silence(rms):
+            self._dark_for += dt
+            if self._dark_for >= 5.0:
+                self.level = 0.4
+        else:
+            self._dark_for = 0.0
+        glide = 1.0 if dt <= 0.0 else min(1.0, dt / LEVEL_GLIDE_S)
+        self.shown += (self.level - self.shown) * glide
+
+    def _observe_floor(self, rms: float, dt: float) -> None:
+        """The quiet baseline of this input. It does not climb with the music."""
+        if rms > NOISE_RMS * 3.0:
+            self._floor_hold = 0.0
+            return
+        if abs(rms - self._floor_sample) <= max(0.002, self._floor_sample * 0.35):
+            self._floor_hold += dt
+        else:
+            self._floor_hold = 0.0
+            self._floor_sample = rms
+        if rms < self._noise_floor:
+            self._noise_floor = max(NOISE_RMS * 0.5, rms) if rms > 0.0 else NOISE_RMS * 0.5
+        elif (
+            self._loud_ref is None
+            and self._floor_hold >= 0.4
+            and rms <= NOISE_RMS * 3.0
+        ):
+            self._noise_floor = max(NOISE_RMS, min(NOISE_RMS * 3.0, rms))
+
+    def _is_near_silence(self, rms: float) -> bool:
+        ceiling = max(NOISE_RMS, self._noise_floor * 1.2)
+        return rms <= ceiling and rms < NOISE_RMS * 3.0
+
+    def _pause_for_silence(self) -> None:
+        """The music went quiet. The cable is still there."""
+        started = self._clock - self._silent
+        self.input_lost = False
+        self.level = 0.0
+        self.shown = 0.0
+        self._rise = 0.0
+        self._rise_from = None
+        self._musical_rise = False
+        self._climb_for = 0.0
+        self._hat_for = 0.0
+        self._flat = 0.0
+        if self.section != "break":
+            self._enter("break", force=True)
+        self._log("break", "silence", sound_s=started)
+
+    def _hold_hearing(self, dt: float) -> None:
+        """One slice does not flip rhythmic and melodic. A fader does not either."""
+        unit = self._onset_fast / max(self._fast * self._fast, 1e-8)
+        percussive = unit >= GROOVE_REL or (self._den_fast >= 4.0 and unit >= 3.0)
+        credit = self._gap_credit
+        self._gap_credit = 0.0
+        raw = "rhythmic" if percussive else "melodic"
+        if raw == self._hear:
+            self._hear_for = 0.0
+            return
+        # The empty hop between two clicks belongs to the same pulse.
+        self._hear_for += dt + (min(credit, 0.5) if percussive else 0.0)
+        if self._hear_for >= 1.25:
+            self._hear = raw
+            self._hear_for = 0.0
+
+    def _hold_extra(self, hearing: SliceHearing | None, dt: float) -> None:
+        """A repeating high-band layer. Not a second tempo reading."""
+        found = False
+        fresh: float | None = None
+        if hearing is not None and self._tempo_known:
+            if (
+                hearing.generation is not None
+                and self.extra_generation is not None
+                and int(hearing.generation) < int(self.extra_generation)
+            ):
+                found = False
+            else:
+                found = extra_layer(hearing.low_attacks, hearing.high_attacks)
+                fresh = self._fresh_extra_attack(hearing, dt)
+        if found:
+            self._extra_for += dt
+            if fresh is not None:
+                self.extra_attack_at = fresh
+                if hearing is not None and hearing.generation is not None:
+                    self.extra_generation = int(hearing.generation)
+            if self._extra_for >= 0.5 and self.extra_attack_at is not None:
+                self.extra_pulse = True
+        else:
+            self._extra_for = max(0.0, self._extra_for - dt)
+            if self._extra_for <= 0.0:
+                self.extra_pulse = False
+                self.extra_phase = None
+
+    def _fresh_extra_attack(self, hearing: SliceHearing, dt: float) -> float | None:
+        """Absolute time of a new high-band hit. Same generation, new time: accept.
+
+        ``generation`` is the audio session, not the event. A second delivery of
+        the same attack time is ignored. A late packet does not become "now".
+        """
+        offset = _extra_attack_offset(hearing.low_attacks, hearing.high_attacks)
+        if offset is None:
+            return None
+        if hearing.generation is not None and (
+            self.extra_generation is None or int(hearing.generation) > int(self.extra_generation)
+        ):
+            self._extra_seen.clear()
+            self.extra_generation = int(hearing.generation)
+        if self._slice_start is not None:
+            start = float(self._slice_start)
+        elif hearing.origin_s is not None and hearing.origin_clock != "monotonic":
+            start = float(hearing.origin_s)
+        else:
+            start = self._wall - float(dt)
+        when = start + float(offset)
+        age = self._wall - when
+        if age < -0.02 or age > max(0.35, float(dt) + 0.02):
+            return None
+        generation = None if hearing.generation is None else int(hearing.generation)
+        ident = (generation, round(when, 4))
+        if ident in self._extra_seen:
+            return None
+        self._extra_seen.append(ident)
+        del self._extra_seen[:-32]
+        return when
 
     def _brightness(self, rel: float, onset_rel: float) -> float:
         bright = min(1.0, 0.45 + 0.55 * min(1.0, rel))
@@ -741,14 +1084,38 @@ class SectionTracker:
         self.riser_age = 0.0
         self.section = "drop"
 
-    def _while_riser(self, dt: float, onset_norm: float, onset_rel: float, rel: float) -> str:
-        self.riser_age += dt
+    def _heard_attack(self, hearing: SliceHearing | None, dt: float) -> float | None:
+        """Latest attack already inside this window. Not a time we have not heard."""
+        if hearing is None or not hearing.attacks:
+            return None
+        start = self._clock - dt
+        offsets = [
+            float(item)
+            for item in hearing.attacks
+            if 0.0 <= float(item) <= dt + 1e-3
+        ]
+        if not offsets:
+            return None
+        return start + max(offsets)
+
+    def _while_riser(
+        self,
+        dt: float,
+        onset_norm: float,
+        onset_rel: float,
+        rel: float,
+        heard: float | None,
+    ) -> str:
+        if self._musical_rise:
+            self.riser_age = 0.0
+        else:
+            self.riser_age += dt
         if self.riser_age >= RISER_LIMIT_S:
             self._enter("groove", force=True)
             self._log("groove", "riser-limit")
             return self.section
         if self._is_hit(onset_norm, onset_rel, rel):
-            self._begin_drop()
+            self._begin_drop(heard if heard is not None else self._clock - dt)
             return self.section
         if self._musical_rise or self._slope > 0.0:
             self._flat = 0.0
@@ -758,7 +1125,7 @@ class SectionTracker:
         # not a rise that keeps going.
         if self._flat >= 0.6 and self._can_leave():
             self._enter("groove", force=True)
-            self._log("groove", "rise-stopped")
+            self._log("groove", "rise-stopped", sound_s=self._clock - self._flat)
         return self.section
 
     def _while_break(self) -> str:
@@ -766,7 +1133,7 @@ class SectionTracker:
         hold = self._rise_hold_s()
         if self._rise >= hold and self._can_leave():
             self._enter("riser")
-            self._log("riser", "density")
+            self._log("riser", "density", sound_s=self._rise_from)
         elif self._activity > GROOVE_ACTIVITY and self._can_leave() and self._rise <= 0.0:
             self._enter("groove")
             self._log("groove", "return")
@@ -778,7 +1145,7 @@ class SectionTracker:
             self._log("reject", "hit")
         if self._rise >= self._rise_hold_s() and self._can_leave():
             self._enter("riser")
-            self._log("riser", "density")
+            self._log("riser", "density", sound_s=self._rise_from)
             return self.section
         if self._activity_drop and self._break_hold >= self._break_hold_s() and self._can_leave():
             self._enter("break")
@@ -786,7 +1153,7 @@ class SectionTracker:
             loud_at = getattr(self, "_loud_at", None)
             if loud_at is not None and self._clock - float(loud_at) <= self._break_hold_s() + 0.45:
                 self._emit_event("pause")
-            self._log("break", "activity")
+            self._log("break", "activity", sound_s=self._break_from)
             return self.section
         if not self._have_hearing:
             quiet = self._activity < QUIET_ACTIVITY and rel < 0.7 and self._warm > 1.5
@@ -803,7 +1170,13 @@ class SectionTracker:
         return rel >= 1.25 and self._onset_fast > max(self._onset_context * 1.6, 1e-4)
 
     def _rise_hold_s(self) -> float:
-        return max(RISE_HOLD_S, 0.45 * self._bar_s())
+        hold = max(RISE_HOLD_S, 0.45 * self._bar_s())
+        # Three quarters of a second of a real high-band acceleration is a roll.
+        # A half-second density bump in a groove is not.
+        fast = self._high_d_fast >= self._high_d_ctx * 1.18 + 0.35
+        if self._rise >= 0.75 and fast:
+            return min(hold, 0.75)
+        return hold
 
     def _break_hold_s(self) -> float:
         return max(BREAK_HOLD_S, 0.55 * self._bar_s())
@@ -841,17 +1214,20 @@ class SectionTracker:
             and rel >= 1.05
         )
 
-    def _begin_drop(self) -> None:
+    def _begin_drop(self, heard: float | None = None) -> None:
         self.section = "drop"
         self._section_age = 0.0
         self._drop_left = DROP_HOLD_S
+        self._climb_for = 0.0
+        self._hat_for = 0.0
         self.drop_age = 0.0
         self.riser_age = 0.0
         self._rise = 0.0
+        self._rise_from = None
         self._cooldown = DROP_COOLDOWN_S
         self._advance_pattern()
         self._emit_event("drop")
-        self._log("drop", "hit")
+        self._log("drop", "hit", sound_s=heard)
 
     def _emit_event(self, kind: str) -> None:
         self._event_seq += 1
@@ -859,13 +1235,18 @@ class SectionTracker:
         if len(self._events) > 16:
             del self._events[:-16]
 
-    def _log(self, kind: str, detail: str) -> None:
+    def _log(self, kind: str, detail: str, *, sound_s: float | None = None) -> None:
+        decision = round(self._clock, 4)
+        sound = decision if sound_s is None else min(decision, round(float(sound_s), 4))
         last = self.journal[-1] if self.journal else None
         if last is not None and last[1] == kind and last[2] == detail:
             return
-        self.journal.append((round(self._clock, 2), kind, detail))
+        self.journal.append((decision, kind, detail))
+        self.reasons.append((sound, decision, kind, detail))
         if len(self.journal) > 48:
             del self.journal[:-48]
+        if len(self.reasons) > 48:
+            del self.reasons[:-48]
 
     def _enter(self, name: str, *, force: bool = False, keep_pattern: bool = False) -> None:
         if name == self.section:
@@ -917,6 +1298,84 @@ def window_energy(samples: list[float]) -> float:
     return max(0.0, min(1.0, (mean**0.5) / 0.12))
 
 
+def _blend_level(old: float, new: float, mix: float) -> float:
+    return (1.0 - mix) * float(old) + mix * float(new)
+
+
+def _crossfade_stages(old: StageIntent, new: StageIntent, mix: float) -> StageIntent:
+    """Frame blend. Heads stay on or off. Axes stay where the winning side left them."""
+    weight = max(0.0, min(1.0, float(mix)))
+    painted: dict[str, object] = {}
+    for ident in list(dict.fromkeys([*old.fixtures, *new.fixtures])):
+        left = old.fixtures.get(ident)
+        right = new.fixtures.get(ident)
+        blended = _blend_fixture(left, right, weight)
+        if blended is not None:
+            painted[ident] = blended
+    return StageIntent(fixtures=painted)  # type: ignore[arg-type]
+
+
+def _blend_fixture(old: object, new: object, mix: float) -> object | None:
+    if isinstance(old, ParIntent) or isinstance(new, ParIntent):
+        left = old if isinstance(old, ParIntent) else None
+        right = new if isinstance(new, ParIntent) else None
+        color = (right or left).color if (right or left) is not None else None
+        if color is None:
+            return None
+        return ParIntent(
+            color=color,
+            intensity=_blend_level(0.0 if left is None else left.intensity, 0.0 if right is None else right.intensity, mix),
+            strobe=0.0,
+        )
+    if isinstance(old, BarIntent) or isinstance(new, BarIntent):
+        left = old if isinstance(old, BarIntent) else None
+        right = new if isinstance(new, BarIntent) else None
+        source = right or left
+        if source is None:
+            return None
+        left_segments = (0.0,) * 8 if left is None else tuple(left.segments)
+        right_segments = (0.0,) * 8 if right is None else tuple(right.segments)
+        width = max(len(left_segments), len(right_segments), 1)
+        segments = tuple(
+            _blend_level(
+                left_segments[index] if index < len(left_segments) else 0.0,
+                right_segments[index] if index < len(right_segments) else 0.0,
+                mix,
+            )
+            for index in range(width)
+        )
+        return BarIntent(
+            segments=segments,
+            dimmer=_blend_level(0.0 if left is None else left.dimmer, 0.0 if right is None else right.dimmer, mix),
+            color=source.color,
+            strobe=0.0,
+            whole=bool(getattr(source, "whole", False)),
+        )
+    if isinstance(old, BeamIntent) or isinstance(new, BeamIntent):
+        left = old if isinstance(old, BeamIntent) else None
+        right = new if isinstance(new, BeamIntent) else None
+        source = right if mix >= 0.5 and right is not None else (left or right)
+        if source is None:
+            return None
+        weighted = _blend_level(0.0 if left is None else left.dimmer, 0.0 if right is None else right.dimmer, mix)
+        winner = right if mix >= 0.5 else left
+        other = left if winner is right else right
+        pan = None if winner is None else winner.pan
+        tilt = None if winner is None else winner.tilt
+        if pan is None and other is not None:
+            pan = other.pan
+        if tilt is None and other is not None:
+            tilt = other.tilt
+        return BeamIntent(
+            pan=pan,
+            tilt=tilt,
+            dimmer=1.0 if weighted >= 0.5 else 0.0,
+            color=source.color,
+            strobe=0.0,
+        )
+    return new if mix >= 0.5 else old
+
+
 def build_auto_stage(
     fixtures: list[LitFixture],
     palette: str,
@@ -939,6 +1398,7 @@ def build_auto_stage(
     flash_hold: float | None = None,
     colour: str | None = None,
     cast: str | None = None,
+    mix_from: str | None = None,
 ) -> StageIntent:
     """One frame. Face lights are left out. Heads do not move or strobe.
 
@@ -947,7 +1407,58 @@ def build_auto_stage(
     pull does not fold that cycle onto the fractional beat. Beam brightness
     is on or off: the renderer has no smooth beam dimmer. Bars share one
     canvas; left/right mirroring is a composition choice, not a law.
+    ``mix`` is the weight of ``look``. ``mix_from`` is the picture leaving.
     """
+    origin = None if mix_from is None else str(mix_from)
+    weight = max(0.0, min(1.0, float(mix)))
+    if origin and origin != (look or "") and weight < 0.999:
+        departed = build_auto_stage(
+            fixtures,
+            palette,
+            section,
+            beat_phase,
+            level,
+            drop_age,
+            riser_age=riser_age,
+            pattern=pattern,
+            mix=1.0,
+            beats=beats,
+            cycle_beats=cycle_beats,
+            placements=placements,
+            look=origin,
+            motion_cycle=motion_cycle,
+            strobe_hold=strobe_hold,
+            groups=groups,
+            actions=None,
+            flash_hold=None,
+            colour=colour,
+            cast=cast,
+            mix_from=None,
+        )
+        arrived = build_auto_stage(
+            fixtures,
+            palette,
+            section,
+            beat_phase,
+            level,
+            drop_age,
+            riser_age=riser_age,
+            pattern=pattern,
+            mix=1.0,
+            beats=beats,
+            cycle_beats=cycle_beats,
+            placements=placements,
+            look=look,
+            motion_cycle=motion_cycle,
+            strobe_hold=strobe_hold,
+            groups=groups,
+            actions=actions,
+            flash_hold=flash_hold,
+            colour=colour,
+            cast=cast,
+            mix_from=None,
+        )
+        return _crossfade_stages(departed, arrived, weight)
     cast_name = cast_of(palette, cast)
     colour_name = colour_of(palette, colour)
     name = colour_name
@@ -984,7 +1495,6 @@ def build_auto_stage(
     else:
         phase = _action_phase(float(beats), cycle, 0.0)
     if look_accent:
-        amount = cap
         phase = 0.0
     canvas = build_canvas(list(fixtures), placements)
     layers = list(actions or ())
@@ -1066,11 +1576,11 @@ def build_auto_stage(
             fixtures,
             flash_kinds or allowed,
             color,
-            cap,
-            on=float(flash) >= 0.5,
+            amount,
+            on=float(flash) >= 0.5 and amount > 1e-9,
         )
     if composition.roles == "head_pulse" and flash is not None:
-        lit = float(flash) >= 0.5
+        lit = float(flash) >= 0.5 and amount > 1e-9
         for fixture_id, intent in list(stage.fixtures.items()):
             if isinstance(intent, BeamIntent):
                 stage.fixtures[fixture_id] = replace(
@@ -1079,15 +1589,91 @@ def build_auto_stage(
     return stage
 
 
-def lay_par_bed(stage: StageIntent, wall_s: float, amount: float) -> StageIntent:
-    """PAR as a slow bed. This is not a second recognised BPM."""
-    phase = (float(wall_s) / 8.0) % 1.0
-    level = max(0.0, min(float(amount), 0.35 + 0.25 * math.sin(phase * math.tau)))
+def _atmosphere_pars(
+    fixtures: list[object] | None,
+    groups: tuple[str, ...] | list[str] | None,
+) -> list[object]:
+    """PARs the operator left on. Face and a bars-only cast stay out."""
+    allowed = {"par"} if groups is None else set(groups)
+    if "par" not in allowed or not fixtures:
+        return []
+    found = []
+    for fixture in fixtures:
+        kind = getattr(fixture, "kind", None)
+        if kind is FixtureKind.FACE_PAR or kind is not FixtureKind.PAR:
+            continue
+        spatial = getattr(fixture, "spatial", None)
+        if bool(getattr(spatial, "face", False)):
+            continue
+        found.append(fixture)
+    return found
+
+
+def _paint_par_layer(
+    stage: StageIntent,
+    fixtures: list[object] | None,
+    level: float,
+    color: Rgbw | None,
+    groups: tuple[str, ...] | list[str] | None,
+    *,
+    own_par: bool,
+) -> StageIntent:
+    """Fill allowed PARs. A PAR the picture already painted is left alone."""
     painted = dict(stage.fixtures)
-    for fixture_id, intent in painted.items():
-        if isinstance(intent, ParIntent):
-            painted[fixture_id] = replace(intent, intensity=level, strobe=0.0)
+    tint = color or Rgbw(r=1.0, g=0.35, b=0.05, w=0.0)
+    targets = _atmosphere_pars(fixtures, groups)
+    if targets:
+        for fixture in targets:
+            current = painted.get(fixture.id)
+            if own_par and isinstance(current, ParIntent):
+                continue
+            if isinstance(current, ParIntent):
+                tint = current.color
+            painted[fixture.id] = ParIntent(color=tint, intensity=level, strobe=0.0)
+        return StageIntent(fixtures=painted)
+    for fixture_id, intent in list(painted.items()):
+        if own_par or not isinstance(intent, ParIntent):
+            continue
+        painted[fixture_id] = replace(intent, intensity=level, strobe=0.0)
     return StageIntent(fixtures=painted)
+
+
+def lay_par_pulse(
+    stage: StageIntent,
+    beat_phase: float,
+    amount: float,
+    fixtures: list[object] | None = None,
+    *,
+    color: Rgbw | None = None,
+    groups: tuple[str, ...] | list[str] | None = None,
+    own_par: bool = False,
+    attack_phase: float | None = None,
+) -> StageIntent:
+    """PAR answer on the confirmed extra attack. Not a fixed off-beat and not a second BPM."""
+    if float(amount) <= 0.0 or attack_phase is None:
+        return stage
+    local = (float(beat_phase) - float(attack_phase)) % 1.0
+    level = max(0.0, min(float(amount), 0.12 + 0.7 * math.exp(-local * 6.0)))
+    return _paint_par_layer(stage, fixtures, level, color, groups, own_par=own_par)
+
+
+def lay_par_bed(
+    stage: StageIntent,
+    wall_s: float,
+    amount: float,
+    fixtures: list[object] | None = None,
+    *,
+    color: Rgbw | None = None,
+    groups: tuple[str, ...] | list[str] | None = None,
+    own_par: bool = False,
+) -> StageIntent:
+    """Slow PAR air. Honest bed: not a recognised second tempo."""
+    if float(amount) <= 0.0:
+        return stage
+    phase = (float(wall_s) / 8.0) % 1.0
+    breathe = 0.5 + 0.5 * math.sin(phase * math.tau)
+    level = max(0.0, min(float(amount) * 0.55, 0.32 + 0.16 * breathe))
+    return _paint_par_layer(stage, fixtures, level, color, groups, own_par=own_par)
 
 
 def consume_accent(
@@ -1098,8 +1684,14 @@ def consume_accent(
     *,
     now: float,
     ready_at: float | None,
+    color: Rgbw | None = None,
+    head_dark: frozenset[str] | set[str] | None = None,
 ) -> tuple[StageIntent, bool]:
-    """Light one free fixture of the cast. A late event is skipped, not flashed."""
+    """One short mark on a fresh extra attack. Zero amount paints nothing.
+
+    A free PAR is preferred, then any other free fixture, then the quietest
+    allowed one. Face stays out. A head the look does not own stays out.
+    """
     if ready_at is None:
         return stage, False
     if float(now) - float(ready_at) > 0.12:
@@ -1107,35 +1699,47 @@ def consume_accent(
     if float(amount) <= 0.0:
         return stage, True
     allowed = set(groups)
+    forbidden = set(head_dark or ())
     kind_name = {"par": FixtureKind.PAR, "bar": FixtureKind.BAR, "beam": FixtureKind.BEAM}
     wanted = {kind_name[name] for name in allowed if name in kind_name}
+    brightness = max(0.0, min(float(amount), 1.0))
+    tint = color or Rgbw(r=1.0, g=0.35, b=0.05, w=0.0)
     dark: list[object] = []
+    ranked: list[tuple[float, str, object]] = []
     for fixture in fixtures:
         spatial = getattr(fixture, "spatial", None)
         if bool(getattr(spatial, "face", False)):
             continue
-        if getattr(fixture, "kind", None) not in wanted:
+        kind = getattr(fixture, "kind", None)
+        if kind not in wanted or str(getattr(fixture, "id", "")) in forbidden:
             continue
         intent = stage.fixtures.get(fixture.id)
+        if intent is None and kind is not FixtureKind.PAR:
+            continue
         level = _intent_level(intent)
+        ranked.append((level, str(getattr(fixture, "id", "")), fixture))
         if level < 0.08:
             dark.append(fixture)
     if not dark:
-        return stage, True
-    chosen = dark[0]
+        ranked.sort()
+        if not ranked or ranked[0][0] >= brightness - 1e-3:
+            return stage, True
+        floor = ranked[0][0]
+        dark = [fixture for level, _ident, fixture in ranked if level <= floor + 1e-6]
+    chosen = _prefer_free(dark)
     targets = [chosen]
     if getattr(chosen, "kind", None) is FixtureKind.BEAM:
         targets = [item for item in dark if getattr(item, "kind", None) is FixtureKind.BEAM][:2]
         if len(targets) < 2:
             return stage, True
     painted = dict(stage.fixtures)
-    brightness = max(0.0, min(float(amount), 0.55))
     updates: dict[str, ParIntent | BarIntent | BeamIntent] = {}
     for fixture in targets:
         intent = painted.get(fixture.id)
         kind = getattr(fixture, "kind", None)
-        if kind is FixtureKind.PAR and isinstance(intent, ParIntent):
-            updates[fixture.id] = ParIntent(color=intent.color, intensity=brightness, strobe=0.0)
+        if kind is FixtureKind.PAR and (isinstance(intent, ParIntent) or intent is None):
+            held = intent.color if isinstance(intent, ParIntent) else tint
+            updates[fixture.id] = ParIntent(color=held, intensity=brightness, strobe=0.0)
         elif kind is FixtureKind.BAR and isinstance(intent, BarIntent):
             updates[fixture.id] = BarIntent(
                 segments=intent.segments,
@@ -1158,6 +1762,145 @@ def consume_accent(
         return stage, True
     painted.update(updates)
     return StageIntent(fixtures=painted), True
+
+
+def _prefer_free(dark: list[object]) -> object:
+    """A free PAR, then a free bar, then whatever is quietest in patch order."""
+    for kind in (FixtureKind.PAR, FixtureKind.BAR):
+        found = [item for item in dark if getattr(item, "kind", None) is kind]
+        if found:
+            return found[0]
+    return dark[0]
+
+
+def mask_auto_groups(
+    stage: StageIntent,
+    groups: tuple[str, ...] | list[str],
+    *,
+    keep: set[str] | None = None,
+) -> StageIntent:
+    """Drop light the operator turned off. A dark head keeps its last aim."""
+    allowed = set(groups)
+    held = keep or set()
+    painted: dict[str, object] = {}
+    for fixture_id, intent in stage.fixtures.items():
+        if fixture_id in held:
+            painted[fixture_id] = intent
+            continue
+        if isinstance(intent, ParIntent):
+            if "par" in allowed:
+                painted[fixture_id] = intent
+        elif isinstance(intent, BarIntent):
+            if "bar" in allowed:
+                painted[fixture_id] = intent
+        elif isinstance(intent, BeamIntent):
+            if "beam" in allowed:
+                painted[fixture_id] = intent
+            else:
+                painted[fixture_id] = replace(intent, dimmer=0.0, strobe=0.0)
+        else:
+            painted[fixture_id] = intent
+    return StageIntent(fixtures=painted)
+
+
+def _keep_head_dark(
+    before: StageIntent,
+    after: StageIntent,
+    head_dark: frozenset[str] | set[str] | None,
+) -> StageIntent:
+    """A dark return is a required phase. A later automatic layer must not relight it."""
+    if not head_dark:
+        return after
+    painted = dict(after.fixtures)
+    changed = False
+    for ident in head_dark:
+        current = painted.get(ident)
+        previous = before.fixtures.get(ident)
+        if not isinstance(current, BeamIntent):
+            continue
+        cap = float(previous.dimmer) if isinstance(previous, BeamIntent) else 0.0
+        if float(current.dimmer) > cap + 1e-6:
+            painted[ident] = replace(current, dimmer=cap, strobe=0.0)
+            changed = True
+    if not changed:
+        return after
+    return StageIntent(fixtures=painted)
+
+
+def stack_auto_layers(
+    stage: StageIntent,
+    fixtures: list[LitFixture],
+    *,
+    amount: float,
+    color: Rgbw,
+    cast_groups: tuple[str, ...] | list[str],
+    own_par: bool,
+    par_bed: bool,
+    pulse: bool,
+    wall_s: float,
+    beat_phase: float,
+    attack_phase: float | None = None,
+    accent: float,
+    accent_ready: float | None,
+    now: float,
+    flash: float | None,
+    head_dark: frozenset[str] | set[str] | None = None,
+) -> tuple[StageIntent, bool]:
+    """Bed, then one extra accent, then the series. The base is already painted.
+
+    Amount 0 adds no light. The series is the last automatic layer and can
+    darken a frame; operator blackout is applied later, outside this stack.
+    """
+    if float(amount) <= 0.0:
+        return stage, False
+    painted = stage
+    if par_bed and "par" in set(cast_groups):
+        if pulse:
+            painted = lay_par_pulse(
+                painted,
+                beat_phase,
+                amount,
+                fixtures,
+                color=color,
+                groups=cast_groups,
+                own_par=own_par,
+                attack_phase=attack_phase,
+            )
+        else:
+            painted = lay_par_bed(
+                painted,
+                wall_s,
+                amount,
+                fixtures,
+                color=color,
+                groups=cast_groups,
+                own_par=own_par,
+            )
+    spent = False
+    if float(accent) > 0.0:
+        painted, spent = consume_accent(
+            painted,
+            fixtures,
+            cast_groups,
+            float(amount) * (0.55 + 0.45 * float(accent)),
+            now=now,
+            ready_at=accent_ready,
+            color=color,
+            head_dark=head_dark,
+        )
+    elif accent_ready is not None and float(now) - float(accent_ready) > 0.12:
+        spent = True
+    if flash is not None:
+        kinds = frozenset(
+            kind
+            for name, kind in (
+                ("par", FixtureKind.PAR),
+                ("bar", FixtureKind.BAR),
+            )
+            if name in set(cast_groups)
+        )
+        _apply_auto_flash(painted, fixtures, kinds, color, float(amount), on=float(flash) >= 0.5)
+    return _keep_head_dark(stage, painted, head_dark), spent
 
 
 def _intent_level(intent: object) -> float:

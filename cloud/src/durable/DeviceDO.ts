@@ -459,6 +459,23 @@ export class DeviceDO implements DurableObject {
       void this.nudgeAppUpdate(att.installationId, payload);
       return;
     }
+    if (type === "preview") {
+      const payload = (msg.payload ?? {}) as Record<string, unknown>;
+      this.broadcastAdmins({
+        protocol_version: PROTOCOL_VERSION,
+        message_id: uuid(),
+        type: "device_preview",
+        device_id: att.installationId,
+        sent_at: nowIso(),
+        payload: {
+          stage: payload.stage ?? null,
+          program: payload.program ?? null,
+          look: payload.look ?? null,
+          captured_at: payload.captured_at ?? null,
+        },
+      });
+      return;
+    }
     if (type === "update_result") {
       // Device WSS: terminal apply/fail/rollback with original command_id.
       const payload = (msg.payload ?? {}) as Record<string, unknown>;

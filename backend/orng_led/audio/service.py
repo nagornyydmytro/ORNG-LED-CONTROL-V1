@@ -22,22 +22,26 @@ from orng_led.audio.auto_show import (
     SliceHearing,
     analyze_slice,
     build_auto_stage,
-    consume_accent,
-    lay_par_bed,
+    mask_auto_groups,
+    stack_auto_layers,
     window_energy,
 )
 from orng_led.audio.head_motion import HEAD_PATHS_LIVE, HeadRig, preview_heads
 from orng_led.audio.library import BY_ID
 from orng_led.audio.planner import EpisodePlanner
-from orng_led.audio.palettes import known_palette, migrate_palette
+from orng_led.audio.palettes import known_palette, migrate_palette, rgbw_of
 from orng_led.audio.settings import (
     CAST_IDS,
     CHARACTER_IDS,
     COLOR_IDS,
     INTENSITY_IDS,
     colour_of,
+    groups_from_cast,
+    groups_of,
     intensity_of,
     known_period,
+    legacy_cast,
+    normalize_groups,
 )
 from orng_led.audio.bpm import (
     MAX_ANALYSIS_AGE_S,
@@ -78,6 +82,7 @@ class BpmService:
         self.scope = "preset"
         self.palette = "orange"
         self.cast = "all"
+        self.groups: tuple[str, ...] = groups_from_cast("all")
         self.character = "rhythmic"
         self.intensity = "full"
         self.period: float | None = None
@@ -412,22 +417,36 @@ class BpmService:
         if captured_at is not None and age > MAX_ANALYSIS_AGE_S:
             _trace("stale_capture")
             return
+        # Freshness uses the real queue time. Phase does not: a logical show
+        # clock must not inherit the worker's wall wait, and a drain must not
+        # restamp the capture as if the samples arrived now.
+        phase_latency = age
+        if not live_usb and captured_at is not None:
+            phase_latency = max(0.0, float(self._now) - float(captured_at)) + float(
+                self._device_latency
+            )
+        novel_s = float(latest[9] or 0.0) if len(latest) > 9 else 0.0
+        extras = latest[13] if len(latest) > 13 else ()
+        if kind == "error" and extras:
+            self._apply_pending_hearings(extras, dt_s=novel_s)
+        if kind == "hearing":
+            self._take_worker_hearing(latest, novel_s=novel_s, extras=extras, trace=_trace)
+            return
         if kind != "ok":
             _trace("error")
             self._note_analysis_failure(RuntimeError(str(latest[1] if len(latest) > 1 else "analysis")))
             return
         hearing = latest[8] if len(latest) > 8 else None
-        if not isinstance(hearing, SliceHearing):
+        if hearing is not None and not isinstance(hearing, SliceHearing):
             _trace("no_hearing")
             return
         from orng_led.audio.tempo_worker import _stamp_hearing
 
-        hearing = _stamp_hearing(hearing, latest)
-        novel_s = float(latest[9] or 0.0) if len(latest) > 9 else 0.0
-        energy = latest[10] if len(latest) > 10 else float(hearing.rms)
+        if isinstance(hearing, SliceHearing):
+            hearing = _stamp_hearing(hearing, latest)
+        energy = latest[10] if len(latest) > 10 else (None if hearing is None else float(hearing.rms))
         peak = latest[11] if len(latest) > 11 else None
         clipping = latest[12] if len(latest) > 12 else None
-        extras = latest[13] if len(latest) > 13 else ()
         if extras:
             self._apply_pending_hearings(extras, dt_s=novel_s)
         applied = self._accept_analysis(
@@ -437,7 +456,7 @@ class BpmService:
             None,
             dt_s=novel_s,
             now=None,
-            latency_s=age,
+            latency_s=phase_latency,
             sample_rate=self._sample_rate,
             hearing=hearing,
             energy=None if energy is None else float(energy),
@@ -482,11 +501,13 @@ class BpmService:
         scope: str | None = None,
         palette: str | None = None,
         cast: str | None = None,
+        groups: tuple[str, ...] | list[str] | None = None,
         character: str | None = None,
         intensity: str | float | None = None,
         period: float | int | str | None = None,
         par_rhythm: bool | None = None,
         accent: float | None = None,
+        excluded: tuple[str, ...] | list[str] | None = None,
     ) -> None:
         was_auto = self.enabled and self.scope == "auto"
         if mode is not None:
@@ -505,12 +526,20 @@ class BpmService:
                 raise ValueError("unknown bpm palette")
             ident, extra = migrate_palette(palette)
             self.palette = ident
-            if extra:
+            if extra and groups is None and cast is None:
                 self.cast = extra
-        if cast is not None:
+                self.groups = groups_from_cast(extra)
+                self.planner.set_groups(self.groups)
+        if groups is not None:
+            self.groups = normalize_groups(groups)
+            self.cast = legacy_cast(self.groups)
+            self.planner.set_groups(self.groups)
+        elif cast is not None:
             if cast not in CAST_IDS:
                 raise ValueError("cast must be all, bars, or heads")
             self.cast = cast
+            self.groups = groups_from_cast(cast)
+            self.planner.set_groups(self.groups)
         if character is not None:
             if character not in CHARACTER_IDS:
                 raise ValueError("character must be smooth, rhythmic, or impact")
@@ -520,6 +549,12 @@ class BpmService:
                 raise ValueError("intensity must be soft, normal, or full")
             self.intensity = intensity if isinstance(intensity, str) else "full"
             self.planner.intensity_cap = intensity_of(intensity)
+        if excluded is not None:
+            self.planner.set_excluded(excluded)
+            self.planner.drop_excluded_current(
+                self.follower.beats_at(self._now),
+                locked=bool(self.follower.locked),
+            )
         if period is not None:
             self.period = known_period(period, self.character)
         elif character is not None and self.period is not None:
@@ -550,9 +585,11 @@ class BpmService:
                 self._signal = False
             elif turning_on:
                 self._schedule_worker_recovery()
+        if self.enabled and self.scope == "auto" and not was_auto:
+            self.section.begin_loudness_anchor()
         changed = any(
             item is not None
-            for item in (mode, scope, palette, cast, character, intensity, period, par_rhythm, accent)
+            for item in (mode, scope, palette, cast, groups, character, intensity, period, par_rhythm, accent, excluded)
         )
         if changed:
             self._save_prefs()
@@ -576,7 +613,20 @@ class BpmService:
         and rewind it. ``latency_s`` is the age of the newest sample, so phase
         correction aims at the render instant rather than the end of the buffer.
         """
+        heard = samples if energy_samples is None else energy_samples
         try:
+            # The slice is enough for a section. Tempo may still be running.
+            if now is not None:
+                with self._lock:
+                    self._now = float(now)
+            hearing = analyze_slice(heard, int(sample_rate))
+            self._accept_hearing(
+                hearing,
+                dt_s=0.0 if dt_s is None else max(0.0, float(dt_s)),
+                energy=float(hearing.rms),
+                peak=None,
+                clipping=None,
+            )
             reading, reject, detail = inspect_tempo(samples, sample_rate)
         except Exception as exc:  # noqa: BLE001 — analysis must not escape into frames
             self._note_analysis_failure(exc)
@@ -585,11 +635,104 @@ class BpmService:
             reading,
             reject,
             detail,
-            samples if energy_samples is None else energy_samples,
+            heard,
             dt_s=dt_s,
             now=now,
             latency_s=latency_s,
             sample_rate=sample_rate,
+            hearing=hearing,
+            energy=window_energy(heard),
+            section_applied=True,
+        )
+
+    def _take_worker_hearing(
+        self,
+        latest: tuple[object, ...],
+        *,
+        novel_s: float,
+        extras: object,
+        trace,
+    ) -> None:
+        """Apply one slice that arrived before the tempo estimate. No second BPM."""
+        from orng_led.audio.tempo_worker import _stamp_hearing
+
+        hearing = latest[8] if len(latest) > 8 else None
+        if not isinstance(hearing, SliceHearing):
+            trace("no_hearing")
+            return
+        hearing = _stamp_hearing(hearing, latest)
+        energy = latest[10] if len(latest) > 10 else float(hearing.rms)
+        peak = latest[11] if len(latest) > 11 else None
+        clipping = latest[12] if len(latest) > 12 else None
+        if extras:
+            self._apply_pending_hearings(extras, dt_s=novel_s)
+        self._accept_hearing(
+            hearing,
+            dt_s=novel_s,
+            energy=None if energy is None else float(energy),
+            peak=None if peak is None else float(peak),
+            clipping=None if clipping is None else float(clipping),
+        )
+        trace("hearing")
+
+    def _accept_hearing(
+        self,
+        hearing: SliceHearing,
+        *,
+        dt_s: float,
+        energy: float | None,
+        peak: float | None,
+        clipping: float | None,
+    ) -> None:
+        """Section and accent only. The tempo reading arrives in a later snapshot."""
+        level = float(hearing.rms if energy is None else energy)
+        with self._lock:
+            moment = self._now
+            step = max(0.0, float(dt_s))
+            self._last_feed_at = moment
+            self._heard_at = moment
+            beat_period = None if self.follower.bpm is None else 60.0 / float(self.follower.bpm)
+            self._push_section(hearing, step, moment, beat_period)
+            phase = self.follower.phase_at(moment) if self.follower.locked else None
+            self._offer_accent(
+                hearing,
+                moment=moment,
+                window_s=step,
+                phase=phase,
+                carried=False,
+            )
+            self._signal = level >= _HEARD
+            self._analysis_mono = time.monotonic()
+            self._analysis_error = None
+            if self.capture in {"idle", "unavailable"}:
+                self.capture = "listening"
+            if peak is not None and clipping is not None:
+                self._rms = float(hearing.rms)
+                self._peak = float(peak)
+                self._clipping = float(clipping)
+
+    def _push_section(
+        self,
+        hearing: SliceHearing,
+        dt_s: float,
+        moment: float,
+        beat_period: float | None,
+    ) -> None:
+        step = max(0.0, float(dt_s))
+        if hearing.origin_s is None:
+            slice_start = float(moment) - step
+        elif hearing.origin_clock == "monotonic":
+            slice_start = float(moment) - (time.monotonic() - float(hearing.origin_s))
+        else:
+            slice_start = float(hearing.origin_s)
+        self.section.push(
+            hearing.rms,
+            step,
+            onset=hearing.onset,
+            hearing=hearing,
+            beat_period_s=beat_period,
+            now=float(moment),
+            slice_start=slice_start,
         )
 
     def _offer_accent(
@@ -618,6 +761,8 @@ class BpmService:
         if self.follower.locked and self.follower.bpm is not None:
             phase = self._phase_at(when)
         ident = (round(when, 4), round(float(hearing.onset), 4))
+        attacks = tuple(getattr(hearing, "attacks", ()) or ())
+        dense = float(getattr(hearing, "density", 0.0) or 0.0) > 30.0
         self.section.consider_accent(
             now=float(moment),
             onset=float(hearing.onset),
@@ -625,6 +770,7 @@ class BpmService:
             phase=phase,
             attack_at=when,
             attack_id=ident,
+            attack=bool(attacks) and not dense,
         )
 
     def _phase_at(self, when: float) -> float:
@@ -647,13 +793,7 @@ class BpmService:
                 if not isinstance(hearing, SliceHearing):
                     continue
                 phase = self.follower.phase_at(self._now) if self.follower.locked else None
-                self.section.push(
-                    hearing.rms,
-                    step,
-                    onset=hearing.onset,
-                    hearing=hearing,
-                    beat_period_s=beat_period,
-                )
+                self._push_section(hearing, step, self._now, beat_period)
                 self._offer_accent(
                     hearing,
                     moment=self._now,
@@ -678,12 +818,16 @@ class BpmService:
         peak: float | None = None,
         clipping: float | None = None,
         refuse_stale: bool = True,
+        section_applied: bool = False,
     ) -> TempoReading | None:
         rate = int(sample_rate or self._sample_rate or 44100)
-        if hearing is None:
+        if hearing is None and heard is not None:
             # Sync feed / tests. The frame path must pass a worker SliceHearing.
             energy = window_energy(heard)
             hearing = analyze_slice(heard, rate)
+        elif hearing is None:
+            # Tempo finished after the slice was already published.
+            energy = 0.0 if energy is None else float(energy)
         elif energy is None:
             energy = float(hearing.rms)
         stale = bool(refuse_stale) and float(latency_s) > STALE_ANALYSIS_S
@@ -709,21 +853,16 @@ class BpmService:
             self._tempo_reject = None if reading is not None else reject
             self._tempo_fit = detail
             beat_period = None if self.follower.bpm is None else 60.0 / float(self.follower.bpm)
-            self.section.push(
-                hearing.rms,
-                dt_s,
-                onset=hearing.onset,
-                hearing=hearing,
-                beat_period_s=beat_period,
-            )
-            phase = self.follower.phase_at(moment) if self.follower.locked else None
-            self._offer_accent(
-                hearing,
-                moment=moment,
-                window_s=float(dt_s),
-                phase=phase,
-                carried=False,
-            )
+            if hearing is not None and not section_applied:
+                self._push_section(hearing, float(dt_s), moment, beat_period)
+                phase = self.follower.phase_at(moment) if self.follower.locked else None
+                self._offer_accent(
+                    hearing,
+                    moment=moment,
+                    window_s=float(dt_s),
+                    phase=phase,
+                    carried=False,
+                )
             self._signal = energy >= _HEARD
             fresh = reading is not None and self._signal
             self._analysis_mono = time.monotonic()
@@ -748,7 +887,7 @@ class BpmService:
                 else:
                     self._lock_reason = "no_tempo"
             self._sync_lock_reason()
-            if peak is not None and clipping is not None:
+            if peak is not None and clipping is not None and hearing is not None:
                 if self._diag_at is None or moment - self._diag_at >= DIAG_INTERVAL_S:
                     self._diag_at = moment
                     self._rms = float(hearing.rms)
@@ -1084,17 +1223,16 @@ class BpmService:
             palette = self.palette
             drop_age = self.section.drop_age
             riser_age = self.section.riser_age
-            mix = self.section.mix
             plan_beats = self.follower.beats_at(self._now)
             action_beats = self.follower.action_beats_at(self._now)
             events = self.section.take_events()
             locked = bool(self.follower.locked)
             tempo_held = bool(self.follower.releasing)
-            theme = self.cast if self.cast in {"bars", "heads"} else palette
-            if self.cast in {"bars", "heads"}:
-                theme = self.cast
-            elif palette in COLOR_IDS:
-                theme = palette
+            if palette in {"bars", "heads"}:
+                self.cast = palette
+                self.groups = groups_of(palette)
+            self.planner.set_groups(self.groups)
+            theme = palette if palette in {"bars", "heads", "all", *COLOR_IDS} else "orange"
             beat_period = None if self.follower.bpm is None else 60.0 / float(self.follower.bpm)
             episode = self.planner.advance(
                 plan_beats,
@@ -1113,13 +1251,15 @@ class BpmService:
                 phase_beats=action_beats,
                 fixtures=fixtures,
                 texture_id=int(self.section.texture_id),
-                drive=bool(self.section.roll_drive) and locked,
+                drive=bool(self.section.roll_drive)
+                and (locked or self.section.section == "riser"),
                 drive_id=int(self.section.drive_id),
                 drive_density=float(self.section.roll_density),
                 beat_period_s=beat_period,
                 hearing=self.section.hearing,
                 manual=bool(manual),
             )
+            mix_from, mix = self.planner.blend(self._now)
             placed = placements
             if (
                 blackout
@@ -1148,20 +1288,19 @@ class BpmService:
             riser_age=riser_age if picture == "riser" else 0.0,
             pattern=0,
             mix=mix,
+            mix_from=mix_from,
             beats=action_beats,
             cycle_beats=picture_cycle,
             placements=placed,
             look=chosen,
             motion_cycle=motion,
-            flash_hold=flash,
+            flash_hold=None,
             groups=owned,
             actions=episode.actions,
             colour=colour,
             cast=episode.cast,
         )
-        if blackout or axes_busy:
-            self.heads.reset()
-        elif HEAD_PATHS_LIVE:
+        if HEAD_PATHS_LIVE:
             from types import SimpleNamespace
 
             stage = preview_heads(
@@ -1173,23 +1312,38 @@ class BpmService:
                 beat_period_s=float(beat_period or 0.5),
                 rig=self.heads,
                 travel=self.head_travel,
+                cycle_beats=picture_cycle,
+                blackout=bool(blackout),
+                axes_busy=bool(axes_busy) or "beam" not in self.groups,
+                grid_lost=bool(self.section.input_lost)
+                or episode.reason in {"signal_loss", "freewheel"},
             )
-        if self.par_rhythm and not blackout:
-            stage = lay_par_bed(stage, self._now, amount)
-        if not blackout and not self.planner.dimming(self._now):
-            stage, spent = consume_accent(
+        catalog_open = bool(chosen) or any(str(action.look) for action in episode.actions)
+        if not blackout and catalog_open:
+            picture_item = BY_ID.get(str(chosen))
+            stage, spent = stack_auto_layers(
                 stage,
                 list(fixtures),
-                tuple(owned),
-                amount,
-                now=self._now,
-                ready_at=self.section.accent_ready,
+                amount=amount,
+                color=rgbw_of(colour),
+                cast_groups=self.groups,
+                own_par=picture_item is not None and "par" in picture_item.groups,
+                par_bed=bool(self.par_rhythm) and "par" in self.groups,
+                pulse=bool(self.section.extra_pulse and locked and self.section.extra_phase is not None),
+                wall_s=float(self._now),
+                beat_phase=float(phase),
+                attack_phase=self.section.extra_phase,
+                accent=float(self.accent),
+                accent_ready=self.section.accent_ready,
+                now=float(self._now),
+                flash=flash,
+                head_dark=self.heads.unlit,
             )
             if spent:
                 self.section.accent_ready = None
         elif self.section.accent_ready is not None and self._now - float(self.section.accent_ready) > 0.12:
             self.section.accent_ready = None
-        return stage
+        return mask_auto_groups(stage, self.groups)
 
     def operator_next_look(self) -> str:
         """Desk asked for another picture. Does not open USB and does not reset the clock."""
@@ -1230,19 +1384,33 @@ class BpmService:
                 sync = "fallback"
             else:
                 sync = "searching"
+            blend_from = (
+                self.planner._blend_from if self.planner._blend_wall0 is not None else None
+            )
         return {
             "enabled": self.enabled,
             "scope": self.scope,
             "mode": self.mode,
             "palette": colour_of(self.palette, self.palette),
             "cast": self.cast,
+            "groups": list(self.groups),
             "character": self.character,
             "intensity": self.intensity,
             "period": self.period if self.period is not None else "auto",
             "par_rhythm": self.par_rhythm,
             "accent": round(float(self.accent), 3),
-            "par_note": "PAR — плавний фон" if self.par_rhythm else None,
+            "excluded": sorted(self.planner.excluded),
+            "par_note": (
+                None
+                if not self.par_rhythm
+                else "PAR — додатковий ритм"
+                if self.section.extra_pulse
+                else "PAR — плавний фон"
+            ),
             "look": None if self.planner.current is None else self.planner.current.look,
+            "picture_cycle": self._picture_cycle(),
+            "motion_beats": self._motion_beats(),
+            "blend_from": blend_from,
             "look_title": (
                 None
                 if self.planner.current is None
@@ -1259,10 +1427,31 @@ class BpmService:
             "locked": locked,
             "signal": signal,
             "sync": sync,
+            "program": "beat" if clock == "musical" else "smooth",
             "grid": "internal_4" if self.mode == "bar" else None,
             "device": self.device_name,
             "capture": self.capture,
         }
+
+    def _picture_cycle(self) -> float | None:
+        current = self.planner.current
+        if current is None:
+            return None
+        for action in current.actions:
+            if str(getattr(action, "role", "")) == "picture":
+                cycle = float(getattr(action, "cycle_beats", 0.0) or 0.0)
+                if cycle > 0.0:
+                    return cycle
+        return None
+
+    def _motion_beats(self) -> float | None:
+        current = self.planner.current
+        cycle = self._picture_cycle()
+        if current is None or cycle is None:
+            return None
+        from orng_led.audio.head_motion import motion_loop_beats
+
+        return float(motion_loop_beats(current.look, cycle))
 
     def _prefs_path(self) -> Path:
         return self.config_root / "location-show" / f"{self.scene_id}.json"
@@ -1314,6 +1503,15 @@ class BpmService:
                 self.cast = extra
             stored_cast = str(data.get("cast") or self.cast)
             self.cast = stored_cast if stored_cast in CAST_IDS else "all"
+            if isinstance(data.get("groups"), list):
+                self.groups = normalize_groups(data.get("groups"))
+                self.cast = legacy_cast(self.groups)
+            else:
+                self.groups = groups_from_cast(self.cast)
+            self.planner.set_groups(self.groups)
+            raw_excluded = data.get("excluded")
+            if isinstance(raw_excluded, list):
+                self.planner.set_excluded(tuple(str(item) for item in raw_excluded))
             stored_character = str(data.get("character") or "rhythmic")
             self.character = stored_character if stored_character in CHARACTER_IDS else "rhythmic"
             stored_intensity = str(data.get("intensity") or "full")
@@ -1349,11 +1547,13 @@ class BpmService:
             "scope": self.scope,
             "palette": colour_of(self.palette, self.palette),
             "cast": self.cast,
+            "groups": list(self.groups),
             "character": self.character,
             "intensity": self.intensity,
             "period": "auto" if self.period is None else self.period,
             "par_rhythm": self.par_rhythm,
             "accent": self.accent,
+            "excluded": sorted(self.planner.excluded),
         }
         try:
             path.parent.mkdir(parents=True, exist_ok=True)

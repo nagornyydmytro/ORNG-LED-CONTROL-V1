@@ -110,7 +110,7 @@ def test_melodic_hearing_leaves_a_chopped_picture() -> None:
         locked=False,
         hearing="melodic",
         character="impact",
-        wall_s=0.0,
+        wall_s=10.0,
     )
     softened = planner.advance(
         2.0,
@@ -120,7 +120,7 @@ def test_melodic_hearing_leaves_a_chopped_picture() -> None:
         locked=False,
         hearing="melodic",
         character="impact",
-        wall_s=1.0,
+        wall_s=14.2,
     )
     assert softened.look != "accent"
     assert softened.picture_cycle >= 4.0
@@ -147,7 +147,7 @@ def test_pause_dims_once_and_a_fader_does_not() -> None:
         wall_s=20.0,
         events=(StructuralEvent("pause", 1, 20.0),),
     )
-    assert planner.dimming(20.2) is True
+    assert planner.dimming(20.2) is False
     assert planner.dimming(22.0) is False
     planner.advance(
         12.0,
@@ -172,7 +172,7 @@ def test_grid_loss_clears_a_dim_and_blackout_is_separate() -> None:
         wall_s=5.0,
         events=(StructuralEvent("pause", 7, 5.0),),
     )
-    assert planner.dimming(5.2) is True
+    assert planner.dimming(5.2) is False
     planner.advance(4.5, section="break", level=0.4, theme="orange", locked=False, wall_s=5.4)
     assert planner.dimming(5.4) is False
 
@@ -253,23 +253,23 @@ def test_smooth_mode_stays_when_the_grid_returns_a_second_later() -> None:
     planner.current = replace(current, look="accent", actions=(AutoAction("picture", "accent", 1.0),))
     planner.advance(
         1.0, section="groove", level=0.6, theme="orange", locked=False,
-        hearing="melodic", wall_s=0.0, character="impact",
+        hearing="melodic", wall_s=10.0, character="impact",
     )
     softened = planner.advance(
         2.0, section="groove", level=0.6, theme="orange", locked=False,
-        hearing="melodic", wall_s=1.0, character="impact",
+        hearing="melodic", wall_s=14.2, character="impact",
     )
     assert planner._clock == "melodic"
     assert BY_ID[softened.look].program == "smooth"
     back = planner.advance(
         3.0, section="groove", level=0.7, theme="orange", locked=True,
-        hearing="rhythmic", wall_s=2.0, character="impact",
+        hearing="rhythmic", wall_s=15.2, character="impact",
     )
     assert back.clock == "melodic"
     assert BY_ID[back.look].program == "smooth"
     restored = planner.advance(
         4.0, section="groove", level=0.7, theme="orange", locked=True,
-        hearing="rhythmic", wall_s=8.0, character="impact",
+        hearing="rhythmic", wall_s=22.0, character="impact",
     )
     assert restored.clock == "musical"
     assert BY_ID[restored.look].program == "beat"

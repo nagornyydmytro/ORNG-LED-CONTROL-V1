@@ -81,16 +81,20 @@ def _pose(show):
     }
 
 
-def _overlay(view, flash: float | None) -> bool | None:
-    """Decoded overlay. None is the picture; True/False are flash on/off."""
+def _overlay(view, flash: float | None, level: float = 1.0) -> bool | None:
+    """Decoded overlay. None is the picture; True/False are flash on/off.
+
+    An on flash sits at the episode level. It does not climb back to 255.
+    """
     pars = [float(item.intensity) for item in view.pars]
     bars = list(view.bars)
     if flash is None:
         return None
     if float(flash) >= 0.5:
-        assert pars and all(level > 0.9 for level in pars)
+        ceiling = float(level)
+        assert pars and all(abs(item - ceiling) <= 0.08 for item in pars)
         if bars:
-            assert all(float(bar.dimmer) > 0.5 for bar in bars)
+            assert all(abs(float(bar.dimmer) - ceiling) <= 0.08 for bar in bars)
         return True
     assert pars and all(level < 0.02 for level in pars)
     if bars:
@@ -178,7 +182,7 @@ def _play(
                     "section": tracker.section,
                     "ident": episode.ident,
                     "flash": flash,
-                    "overlay": _overlay(view, flash),
+                    "overlay": _overlay(view, flash, float(episode.intensity)),
                     "par": round(par, 3),
                     "bar_bits": bar_bits,
                     "beam_strobe": 0.0

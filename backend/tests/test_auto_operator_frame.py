@@ -250,7 +250,7 @@ def test_real_release_keeps_auto_moving_without_a_false_lock(tmp_path: Path) -> 
     frame_moved = _frame(show, moved)
     assert service.planner.current.ident == ident
     assert service.planner.current.start_beat == start
-    assert service.planner.current.clock == "melodic"
+    assert service.planner.current.clock == "freewheel"
     assert service.status()["bpm"] is None
     assert _bar_dmx(show, frame_moved) != _bar_dmx(show, frame_4)
     _drive_sound(service, origin + 8.0)
@@ -351,8 +351,8 @@ def test_auto_flash_has_on_off_and_does_not_paint_white_warm(tmp_path: Path) -> 
     )
     pars = [intent for intent in on_stage.fixtures.values() if isinstance(intent, ParIntent)]
     bars = [intent for intent in on_stage.fixtures.values() if isinstance(intent, BarIntent)]
-    assert pars and all(item.intensity == pytest.approx(1.0) for item in pars)
-    assert bars and all(item.dimmer == pytest.approx(1.0) for item in bars)
+    assert pars and all(item.intensity == pytest.approx(0.6) for item in pars)
+    assert bars and all(item.dimmer == pytest.approx(0.6) for item in bars)
     assert all(item.strobe == 0.0 for item in (*pars, *bars))
     orange = pars[0].color
     assert orange.r > orange.b

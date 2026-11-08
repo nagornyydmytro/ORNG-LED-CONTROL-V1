@@ -317,16 +317,24 @@ def test_auto_pulse_phrase_uses_a_half_beat() -> None:
     assert 0.5 * 60.0 / 180.0 > 2 * FRAME_DT
 
 
-def test_planner_phrases_are_not_a_single_look() -> None:
+def test_groove_holds_its_look() -> None:
+    """A phrase boundary keeps the motif. The long hold is what releases it."""
+    from orng_led.audio.planner import MOTIF_HOLD
+
     planner = EpisodePlanner(seed=3)
-    looks: set[str] = set()
+    looks: list[tuple[float, str]] = []
     beat = 0.0
-    for _ in range(32):
+    for _ in range(8):
         episode = planner.advance(beat, section="groove", level=0.7, theme="orange")
-        looks.add(episode.look)
+        looks.append((beat, episode.look))
         assert episode.picture_cycle > 0.0
         beat = episode.start_beat + episode.duration_beats
-    assert len(looks) > 1
+    low, high = MOTIF_HOLD["rhythmic"]
+    opening = looks[0][1]
+    assert all(look == opening for moment, look in looks if moment + 1e-9 < high)
+    assert any(look != opening for _moment, look in looks)
+    changed = [moment for moment, look in looks if look != opening]
+    assert changed[0] + 1e-9 >= low
 
 
 def test_half_beat_stage_peaks_twice_per_beat() -> None:

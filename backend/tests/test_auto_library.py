@@ -112,7 +112,7 @@ def test_stagger_x_bars_are_a_canvas() -> None:
     left = stage.fixtures["bar_1"]
     right = stage.fixtures["bar_4"]
     assert isinstance(left, BarIntent) and isinstance(right, BarIntent)
-    assert left.segments != right.segments
+    assert left.segments == right.segments
 
 
 def test_directional_look_is_not_required_to_mirror() -> None:
@@ -123,7 +123,7 @@ def test_directional_look_is_not_required_to_mirror() -> None:
         "groove",
         0.0,
         0.85,
-        look="cascade_left",
+        look="fill_left",
         beats=1.0,
         cycle_beats=2.0,
         placements=show.layout.placements,
@@ -265,8 +265,7 @@ def test_directed_sequences_change_family_not_only_palette() -> None:
 
     for seed, character in ((1, "rhythmic"), (7, "smooth"), (11, "impact")):
         planner = EpisodePlanner(seed=seed)
-        looks: list[str] = []
-        families: list[str] = []
+        samples: list[tuple[float, str]] = []
         beat = 0.0
         for _ in range(8):
             episode = planner.advance(
@@ -277,12 +276,14 @@ def test_directed_sequences_change_family_not_only_palette() -> None:
                 locked=True,
                 character=character,
             )
-            looks.append(episode.look)
-            families.append(BY_ID[episode.look].family)
+            samples.append((beat, episode.look))
             beat += episode.duration_beats
-        assert looks[0] != looks[1], (character, looks)
-        assert len(set(looks)) >= 2, (character, looks)
-        assert len(set(families)) <= len(set(looks)), (character, families)
+        from orng_led.audio.planner import MOTIF_HOLD
+
+        _low, high = MOTIF_HOLD[character]
+        opening = samples[0][1]
+        assert all(look == opening for moment, look in samples if moment + 1e-9 < high)
+        assert any(look != opening for _moment, look in samples), (character, samples)
 
 
 def test_incompatible_heads_theme_skips_segment_looks() -> None:

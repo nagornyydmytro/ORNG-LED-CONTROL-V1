@@ -286,6 +286,16 @@ def _dist_present(site: Path, wheel: Path) -> bool:
     return False
 
 
+def _drop_followed_libpython(runtime: Path) -> None:
+    """Windows copytree writes the libpython symlink as a second full library."""
+    lib = runtime / "lib"
+    soname = lib / "libpython3.12.so.1.0"
+    alias = lib / "libpython3.12.so"
+    if soname.is_file() and alias.is_file() and not alias.is_symlink():
+        if alias.stat().st_size == soname.stat().st_size:
+            alias.unlink()
+
+
 def _drop_pack_junk(site: Path) -> None:
     """sounddevice vendors PortAudio plus a .github folder the packer refuses."""
     for folder in site.rglob(".github"):
@@ -535,6 +545,7 @@ def main() -> int:
             if not (runtime_src / "bin" / "python").is_file():
                 raise SystemExit(f"ORNG_RASPBERRY_RUNTIME_ROOT missing bin/python: {runtime_src}")
             shutil.copytree(runtime_src, root / "runtime", dirs_exist_ok=True)
+            _drop_followed_libpython(root / "runtime")
 
         wheel_src = os.environ.get("ORNG_RASPBERRY_WHEELHOUSE", "").strip()
         if wheel_src and Path(wheel_src).is_dir() and not args.skip_wheelhouse:

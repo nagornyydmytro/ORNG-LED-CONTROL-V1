@@ -84,7 +84,10 @@ def _sha(path: Path) -> str:
 def test_musical_preset_survives_draft_publish_load_and_apply(tmp_path: Path) -> None:
     scene = _scene(tmp_path)
     patch_hash = _sha(scene / "patch.yaml")
-    profile_hash = _sha(next((scene / "profiles").glob("*.yaml")))
+    profile_hash = {
+        path.name: _sha(path) for path in sorted((scene / "profiles").glob("*.yaml"))
+    }
+    assert "beam_13ch.yaml" in profile_hash
     original = _document()
     runtime = AppRuntime.create(
         autostart_loop=False,
@@ -140,5 +143,9 @@ def test_musical_preset_survives_draft_publish_load_and_apply(tmp_path: Path) ->
     assert saved.model_dump(mode="json") == loaded.model_dump(mode="json")
     repacked, second = pack_scene_bundle(desktop)
     assert second["content_sha256"] == hashlib.sha256(repacked).hexdigest()
-    assert hashlib.sha256(next((desktop / "profiles").glob("*.yaml")).read_bytes()).hexdigest() == profile_hash
+    unpacked_profiles = {
+        path.name: hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in sorted((desktop / "profiles").glob("*.yaml"))
+    }
+    assert unpacked_profiles == profile_hash
     assert _sha(desktop / "patch.yaml") == patch_hash

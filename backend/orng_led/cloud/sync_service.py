@@ -194,6 +194,8 @@ class SceneSyncService:
                 scope=prefs.get("scope"),
                 palette=prefs.get("palette"),
                 cast=prefs.get("cast"),
+                groups=prefs.get("groups") if isinstance(prefs.get("groups"), list) else None,
+                excluded=prefs.get("excluded") if isinstance(prefs.get("excluded"), list) else None,
                 character=prefs.get("character"),
                 intensity=prefs.get("intensity"),
                 period=prefs.get("period"),

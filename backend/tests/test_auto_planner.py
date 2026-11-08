@@ -148,7 +148,7 @@ def test_course_is_a_sequence_of_episodes_not_a_frame_lottery(tmp_path: Path) ->
     assert "start" in reasons
     assert "drop_next" in reasons
     opening = planner.played[0]
-    assert any(episode.section == "break" and episode.look == opening.look for episode in planner.played)
+    assert any(episode.section == "break" and episode.reason == "flow" for episode in planner.played)
     assert all(
         not (episode.section == "break" and episode.look == "wash")
         for episode in planner.played

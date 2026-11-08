@@ -93,6 +93,8 @@ export type CloudDeviceLiveState = {
   sweep_speed?: number | null;
   /** Fixture light from the executor. No cables and no Art-Net node. */
   stage?: import("../vite-env").SimulatorView | null;
+  /** Epoch ms of the live-preview frame. The heartbeat does not set this. */
+  preview_at?: number | null;
   disk_free_bytes?: number | null;
   cpu_temp_c?: number | null;
   beam_calibration?: import("../vite-env").BeamCalibrationState | null;
@@ -124,6 +126,8 @@ export interface CloudControlTransport extends ControlTransport {
       scope?: "preset" | "auto";
       palette?: import("../vite-env").BpmPaletteId;
       cast?: "all" | "bars" | "heads";
+      groups?: Array<"par" | "bar" | "beam">;
+      excluded?: string[];
       character?: "smooth" | "rhythmic" | "impact";
       intensity?: "soft" | "normal" | "full";
       period?: "auto" | 0.5 | 1 | 2 | 4 | 8;

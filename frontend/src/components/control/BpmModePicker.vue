@@ -3,6 +3,7 @@ import { computed, inject, ref, watch } from "vue";
 import { APP_STATE_KEY } from "../../composables/appStateKey";
 import {
   BPM_CASTS,
+  BPM_GROUPS,
   BPM_CHARACTERS,
   BPM_INTENSITIES,
   BPM_LEGACY_PALETTES,
@@ -13,9 +14,11 @@ import {
   bpmChoiceKey,
   bpmChoiceRevision,
   hasAutoDirector,
+  normalizeGroups,
   readBpmChoice,
   writeBpmChoice,
   type BpmCastId,
+  type BpmGroupId,
   type BpmCharacterId,
   type BpmChoice,
   type BpmIntensityId,
@@ -52,6 +55,7 @@ const saved = computed(() => {
   bpmChoiceRevision.value;
   return readBpmChoice(choiceKey.value);
 });
+const draft = ref<BpmChoice | null>(null);
 const applied = computed<BpmChoice | null>(() => {
   const bpm = api?.state.value?.bpm;
   if (!bpm?.enabled || (bpm.scope !== "auto" && bpm.scope !== "preset")) return null;
@@ -85,15 +89,19 @@ const applied = computed<BpmChoice | null>(() => {
     character: nextCharacter,
     intensity: nextIntensity,
     period: nextPeriod,
+    groups: normalizeGroups(bpm.groups, nextCast),
+    excluded: Array.isArray(bpm.excluded)
+      ? bpm.excluded.filter((item: unknown): item is string => typeof item === "string")
+      : saved.value.excluded,
     parRhythm: bpm.par_rhythm === true,
     accent: typeof bpm.accent === "number" ? bpm.accent : saved.value.accent,
   };
 });
-const shown = computed(() => applied.value ?? saved.value);
+const shown = computed(() => draft.value ?? applied.value ?? saved.value);
 const scope = computed(() => shown.value.scope);
 const mode = computed(() => shown.value.mode);
 const palette = computed(() => shown.value.palette);
-const cast = computed(() => shown.value.cast);
+const groups = computed(() => shown.value.groups);
 const character = computed(() => shown.value.character);
 const intensity = computed(() => shown.value.intensity);
 const period = computed(() => shown.value.period);
@@ -109,6 +117,8 @@ type SyncPatch = {
   mode?: BpmSyncMode;
   palette?: BpmPaletteId;
   cast?: BpmCastId;
+  groups?: BpmGroupId[];
+  excluded?: string[];
   character?: BpmCharacterId;
   intensity?: BpmIntensityId;
   period?: BpmPeriodId;
@@ -116,10 +126,34 @@ type SyncPatch = {
   accent?: number;
 };
 
+function sameChoice(left: BpmChoice, right: BpmChoice): boolean {
+  return (
+    left.scope === right.scope &&
+    left.mode === right.mode &&
+    left.palette === right.palette &&
+    left.groups.join() === right.groups.join() &&
+    left.excluded.join() === right.excluded.join() &&
+    left.character === right.character &&
+    left.intensity === right.intensity &&
+    left.period === right.period &&
+    left.parRhythm === right.parRhythm &&
+    left.accent === right.accent
+  );
+}
+
+watch(applied, (value) => {
+  if (draft.value && value && sameChoice(draft.value, value)) draft.value = null;
+});
+
 async function commit(next: BpmChoice, patch: SyncPatch) {
+  const previous = shown.value;
   const key = choiceKey.value;
+  draft.value = next;
   const ok = await api?.setBpmSync(patch);
-  if (!ok) return;
+  if (!ok) {
+    draft.value = previous;
+    return;
+  }
   writeBpmChoice(next, key);
 }
 
@@ -138,9 +172,12 @@ function setPalette(next: BpmPaletteId) {
   void commit({ ...base, palette: next }, { palette: next });
 }
 
-function setCast(next: BpmCastId) {
+function toggleGroup(id: BpmGroupId) {
   const base = shown.value;
-  void commit({ ...base, cast: next }, { cast: next });
+  const nextGroups = base.groups.includes(id)
+    ? base.groups.filter((item) => item !== id)
+    : [...base.groups, id];
+  void commit({ ...base, groups: nextGroups }, { groups: nextGroups });
 }
 
 function setCharacter(next: BpmCharacterId) {
@@ -290,6 +327,24 @@ function paletteOf(id: string) {
             {{ item.label }}
           </button>
         </div>
+        <span class="bpm-picker__label">Склад</span>
+        <div
+          class="bpm-modes"
+          role="group"
+          aria-label="Склад приладів"
+        >
+          <button
+            v-for="item in BPM_GROUPS"
+            :key="item.id"
+            type="button"
+            class="action-btn"
+            :class="{ active: groups.includes(item.id) }"
+            :aria-pressed="groups.includes(item.id)"
+            @click="toggleGroup(item.id)"
+          >
+            {{ item.label }}
+          </button>
+        </div>
         <div class="bpm-extra">
           <button
             type="button"
@@ -314,23 +369,6 @@ function paletteOf(id: string) {
             id="bpm-extra-panel"
             class="bpm-extra__panel"
           >
-            <span class="bpm-picker__label">Склад приладів</span>
-            <div
-              class="bpm-modes"
-              role="group"
-              aria-label="Склад приладів"
-            >
-              <button
-                v-for="item in BPM_CASTS"
-                :key="item.id"
-                type="button"
-                class="action-btn"
-                :class="{ active: cast === item.id }"
-                @click="setCast(item.id)"
-              >
-                {{ item.label }}
-              </button>
-            </div>
             <span class="bpm-picker__label">Музичний період</span>
             <div
               class="bpm-modes"

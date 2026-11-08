@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from orng_led.audio.auto_show import build_auto_stage
 from orng_led.audio.head_motion import HeadRig, prepare_head_travel, preview_heads, target
 from orng_led.presets.io import default_presets_dir, load_presets_dir
@@ -96,12 +98,14 @@ def test_scene_blackout_and_sweep_drop_only_that_rig(tmp_path) -> None:
     _paint(show, service.heads, 1.0)
     _paint(show, other, 1.0)
     assert service.heads.pose("beam_left") == other.pose("beam_left")
+    before = service.heads.pose("beam_left")
     service.look(list(show.patch.fixtures), show.layout.placements, axes_busy=True)
-    assert service.heads.pose("beam_left") is None
-    assert other.pose("beam_left") is not None
+    assert service.heads.pose("beam_left") == before
+    assert other.pose("beam_left") == before
     _paint(show, service.heads, 1.5)
+    moved = service.heads.pose("beam_left")
     service.look(list(show.patch.fixtures), show.layout.placements, blackout=True)
-    assert service.heads.pose("beam_left") is None
+    assert service.heads.pose("beam_left") == moved
     held = other.pose("beam_left")
     service.set_scene("orng-bar")
     assert service.heads.pose("beam_left") is None
@@ -128,3 +132,27 @@ def test_skipped_beat_stays_inside_the_speed_limit() -> None:
     assert abs(moved[0] - home[0]) <= 0.04 * 4.0 + 1e-9
     assert abs(moved[1] - home[1]) <= 0.025 * 4.0 + 1e-9
     assert goal[0] is None or abs(moved[0] - home[0]) <= abs(float(goal[0]) - home[0]) + 1e-9
+
+
+def test_heads_share_one_pan_amplitude_about_the_stage_centre() -> None:
+    from orng_led.audio.head_motion import _mirror_goals, _period
+
+    show = load_show_config()
+    beams = [fixture for fixture in show.patch.fixtures if fixture.id in {"beam_left", "beam_right"}]
+    goals = _mirror_goals(
+        beams,
+        beats=0.25,
+        section="groove",
+        look="heads_only_oval",
+        cycle_beats=1.0,
+        beat_period_s=0.5,
+        travel=_travel(show),
+    )
+    left = goals["beam_left"]
+    right = goals["beam_right"]
+    assert left[0] is not None and right[0] is not None and left[1] is not None
+    assert abs((float(left[0]) + float(right[0])) - 1.0) < 1e-3
+    assert float(left[1]) == pytest.approx(float(right[1]))
+    assert _period("heads_only_oval", "groove", 1.0) == _period("heads_only_oval", "groove", None)
+    assert _period("heads_only_oval", "groove", 1.0) in {2.0, 4.0, 8.0}
+    assert _period("heads_only_oval", "groove", 32.0) == _period("heads_only_oval", "groove", None)

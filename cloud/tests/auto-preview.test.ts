@@ -4,9 +4,14 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   CLIP_MISSING_REASON,
+  HEAD_PERIOD_REASON,
+  HEAD_TEMPO_REASON,
+  HEAD_TRAVEL_REASON,
   MISMATCH_REASON,
+  headClipLimit,
   autoCatalogPayload,
   compatibilityForKinds,
+  expandFrame,
   fixtureKindsFromPatch,
   libraryVersionFromCatalog,
   loadClipPack,
@@ -207,6 +212,96 @@ describe("auto preview catalog", () => {
     expect(clip.canonical).toBe(true);
     expect(frames.length).toBe(72);
     expect(clip.seconds).toBe(12);
+  });
+
+  it("does not replay a packed head path at another BPM", async () => {
+    const clip = await previewFromWorkspace({
+      sceneId: "orng-bar",
+      sceneName: "ORNG BAR",
+      files: orngBarFiles(),
+      look: "heads_only_oval",
+      cycleBeats: 8,
+      palette: "orange",
+      intensity: "full",
+      bpm: 90,
+      assets: dumpAssets(),
+    });
+    expect(clip.canonical).toBe(false);
+    expect(clip.frames).toEqual([]);
+    expect(clip.reason).toBe(HEAD_TEMPO_REASON);
+  });
+
+  it("rejects a packed head loop that is not the performer period", () => {
+    expect(headClipLimit("heads_only_oval", 120, 32)).toBe(HEAD_PERIOD_REASON);
+    expect(headClipLimit("vertical_wave", 90, 32)).toBeNull();
+  });
+
+  it("serves the settled head cycle at the packed tempo", async () => {
+    const clip = await previewFromWorkspace({
+      sceneId: "orng-bar",
+      sceneName: "ORNG BAR",
+      files: orngBarFiles(),
+      look: "heads_only_oval",
+      cycleBeats: 8,
+      palette: "orange",
+      intensity: "full",
+      bpm: 120,
+      assets: dumpAssets(),
+    });
+    expect(clip.canonical).toBe(true);
+    expect(clip.loop_beats).toBe(8);
+    const frames = clip.frames as Array<{ beams: Array<{ id: string; pan: number }> }>;
+    const mid = frames[Math.floor(frames.length / 3)];
+    const left = mid?.beams.find((beam) => beam.id === "beam_left")?.pan ?? 0;
+    const right = mid?.beams.find((beam) => beam.id === "beam_right")?.pan ?? 0;
+    expect(Math.abs(left + right - 1)).toBeLessThan(0.05);
+    const pans = frames.map((frame) => frame.beams.find((beam) => beam.id === "beam_left")?.pan ?? 0);
+    const steps = pans.slice(1).map((pan, index) => Math.abs(pan - (pans[index] ?? pan)));
+    expect(Math.abs((pans[0] ?? 0) - (pans[pans.length - 1] ?? 0))).toBeLessThanOrEqual(Math.max(...steps) + 1 / 255);
+  });
+
+  it("does not pretend a head clip matches after the preset ranges change", async () => {
+    const files = [...orngBarFiles(), { path: "presets/other.yaml", text: "id: other\n" }];
+    const heads = await previewFromWorkspace({
+      sceneId: "orng-bar",
+      sceneName: "ORNG BAR",
+      files,
+      look: "heads_only_oval",
+      cycleBeats: 8,
+      palette: "orange",
+      intensity: "full",
+      bpm: 120,
+      assets: dumpAssets(),
+    });
+    expect(heads.canonical).toBe(false);
+    expect(heads.frames).toEqual([]);
+    expect(heads.reason).toBe(HEAD_TRAVEL_REASON);
+    const bars = await previewFromWorkspace({
+      sceneId: "orng-bar",
+      sceneName: "ORNG BAR",
+      files,
+      look: "vertical_wave",
+      cycleBeats: 4,
+      palette: "orange",
+      intensity: "full",
+      bpm: 60,
+      assets: dumpAssets(),
+    });
+    expect(bars.canonical).toBe(true);
+  });
+
+  it("keeps packed head axes instead of parking them at center", () => {
+    const view = expandFrame({
+      pars: [],
+      bars: [],
+      beams: [{ id: "beam_left", d: 1, o: true, r: 1, g: 0.1, b: 0, t: 0.4, p: 0.22, ti: 0.71, pp: 0.22, pt: 0.71 }],
+      n: 4,
+    });
+    const beam = (view.beams as Array<{ pan: number; tilt: number; physical_pan: number; physical_tilt: number }>)[0];
+    expect(beam.pan).toBe(0.22);
+    expect(beam.tilt).toBe(0.71);
+    expect(beam.physical_pan).toBe(0.22);
+    expect(beam.physical_tilt).toBe(0.71);
   });
 
   it("does not offer a missing palette combo as canonical frames", async () => {

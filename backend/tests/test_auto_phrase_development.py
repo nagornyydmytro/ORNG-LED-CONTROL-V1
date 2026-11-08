@@ -5,7 +5,7 @@ from __future__ import annotations
 from orng_led.audio.auto_show import StructuralEvent, build_auto_stage
 from orng_led.audio.bpm import MAX_ANALYSIS_AGE_S, PHRASE_CAP_BEATS, plan_bar
 from orng_led.audio.library import BY_ID, director_looks
-from orng_led.audio.planner import EpisodePlanner
+from orng_led.audio.planner import MOTIF_HOLD, EpisodePlanner
 from orng_led.audio.settings import CHARACTER_DURATION, CAST_IDS, CHARACTER_IDS, director_home
 from orng_led.config.io import load_show_config
 from orng_led.engine.intents import BarIntent, BeamIntent, ParIntent
@@ -104,7 +104,6 @@ def test_empty_heads_neighborhood_does_not_paint_bars() -> None:
 def test_ten_minute_groove_holds_within_phrase_and_changes_picture() -> None:
     show = _show()
     fixtures = list(show.patch.fixtures)
-    placements = show.layout.placements
     report = []
     for seed in SEEDS:
         for character in CHARACTER_IDS:
@@ -115,8 +114,7 @@ def test_ten_minute_groove_holds_within_phrase_and_changes_picture() -> None:
                 last = None
                 hold = 0.0
                 longest = 0.0
-                changes: list[tuple[float, str, tuple]] = []
-                picture = None
+                changes: list[tuple[float, str]] = []
                 while beat < BEATS_10_MIN - 1e-9:
                     episode = planner.advance(
                         beat,
@@ -128,24 +126,27 @@ def test_ten_minute_groove_holds_within_phrase_and_changes_picture() -> None:
                         fixtures=fixtures,
                     )
                     if last is None or episode.look != last:
-                        now = _picture(_stage(fixtures, placements, episode, beat))
-                        if last is None:
-                            picture = now
-                            changes.append((0.0, episode.look, now))
-                        else:
+                        if last is not None:
                             longest = max(longest, hold)
                             hold = 0.0
-                            if now != picture:
-                                changes.append((beat, episode.look, now))
-                                picture = now
+                        changes.append((0.0 if last is None else beat, episode.look))
                         last = episode.look
                     else:
                         hold += 1.0
                     beat += 1.0
                 longest = max(longest, hold)
-                phrase = float(CHARACTER_DURATION[character]["phrase"])
-                assert longest <= phrase + 4.0, (seed, character, cast, longest, phrase)
-                assert len({item[2] for item in changes}) >= 2, (seed, character, cast)
+                low, high = MOTIF_HOLD[character]
+                moments = [float(item[0]) for item in changes]
+                for left, right in zip(moments, moments[1:]):
+                    assert right - left + 1e-9 >= low, (seed, character, cast, moments)
+                if len(moments) > 1:
+                    assert moments[1] + 1e-9 >= low
+                    assert moments[1] <= high + 32.0
+                else:
+                    names = director_looks(
+                        "phrase", theme, character=character, current=changes[0][1], fixtures=fixtures
+                    )
+                    assert len(names) <= 1 or BEATS_10_MIN < high
                 report.append((seed, character, cast, longest, len(changes)))
     assert report
 

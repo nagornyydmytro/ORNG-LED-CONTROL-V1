@@ -132,7 +132,8 @@ describe("BpmModePicker", () => {
     expect(setBpmSync).not.toHaveBeenCalled();
     expect(extra.attributes("aria-expanded")).toBe("true");
     expect(extra.text()).toContain("Згорнути");
-    expect(wrapper.text()).toContain("Склад приладів");
+    expect(wrapper.text()).toContain("Склад");
+    expect(wrapper.text()).toContain("Голови");
     expect(wrapper.text()).toContain("Музичний період");
     const periodButtons = wrapper
       .find("[aria-label=\"Музичний період\"]")
@@ -183,10 +184,10 @@ describe("BpmModePicker", () => {
     const intensityButtons = wrapper.find("[aria-label=\"Інтенсивність\"]").findAll("button");
     await intensityButtons[0].trigger("click");
     expect(setBpmSync).toHaveBeenCalledWith({ intensity: "soft" });
-    const extra = wrapper.find("[aria-label=\"Склад приладів\"]").findAll("button");
+    const bars = wrapper.findAll("button").find((button) => button.text() === "Бари");
     setBpmSync.mockClear();
-    await extra[1].trigger("click");
-    expect(setBpmSync).toHaveBeenCalledWith({ cast: "bars" });
+    await bars?.trigger("click");
+    expect(setBpmSync).toHaveBeenCalledWith({ groups: ["par", "beam"] });
     const periods = wrapper.find("[aria-label=\"Музичний період\"]").findAll("button");
     setBpmSync.mockClear();
     await periods[periods.length - 1].trigger("click");

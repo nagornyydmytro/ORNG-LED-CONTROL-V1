@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
+from queue import Empty
 
 import pytest
 
@@ -181,13 +182,18 @@ def test_delayed_spawn_result_is_dropped_as_stale(tmp_path: Path) -> None:
             novel=clicks[-RATE:],
             novel_s=0.5,
         )
+        # qsize() and get_nowait() can miss a put that is still in the feeder.
+        # Take the result with a bounded wait, put it back, then let it age.
+        assert service._results is not None
         deadline = time.monotonic() + 4.0
-        while time.monotonic() < deadline:
-            results = service._results
-            if results is not None and results.qsize() > 0:
-                break
-            time.sleep(0.02)
-        assert service._results is not None and service._results.qsize() > 0
+        delivered = None
+        while time.monotonic() < deadline and delivered is None:
+            try:
+                delivered = service._results.get(timeout=0.05)
+            except Empty:
+                continue
+        assert delivered is not None
+        service._results.put(delivered)
         time.sleep(STALE_ANALYSIS_S + 0.15)
         service.poll(0.0)
         assert service.follower.locked is False
@@ -661,6 +667,90 @@ def test_old_generation_error_is_ignored_before_it_is_applied(tmp_path: Path) ->
     service._drain_results()
     assert int(service.diagnostics()["analysis_errors"]) == 1
     assert service.diagnostics()["analysis_error"] is not None
+
+
+def test_next_hearing_does_not_evict_a_ready_tempo(tmp_path: Path) -> None:
+    """put(ok 120) then put(hearing) must still drain the tempo."""
+    from queue import Queue
+
+    from orng_led.audio.auto_show import SliceHearing
+    from orng_led.audio.bpm import TempoReading
+
+    service = BpmService(tmp_path, "lab")
+    service.configure(enabled=True)
+    service._use_worker = True
+    now = time.monotonic()
+    service._now = now
+    ready = _ok_payload(service, captured_at=now, sample_now=None, enqueue_mono=now)
+    ready = (ready[0], TempoReading(120.0, 0.0, 1.0), "ok") + ready[3:]
+    hearing = (
+        "hearing",
+        None,
+        "",
+        {},
+        now,
+        None,
+        service._generation,
+        now,
+        SliceHearing(0.2, 0.5, attacks=(0.2,), generation=service._generation),
+        0.5,
+        0.2,
+        0.4,
+        0.0,
+        (),
+        now,
+        8,
+        now,
+    )
+    results: Queue = Queue(maxsize=1)
+    put_latest(results, ready)
+    put_latest(results, hearing)
+    service._results = results
+    service._drain_results()
+    assert [item.get("raw_bpm") for item in service._windows] == [120.0]
+    assert any(item.get("reason") != "hearing" for item in service._windows)
+
+
+def test_spawn_overlap_keeps_an_unread_tempo(tmp_path: Path) -> None:
+    """Two live jobs without waiting on each reply. A hearing must not be the only result."""
+    from orng_led.audio.bpm import TempoReading
+
+    service = BpmService(tmp_path, "lab")
+    service.configure(enabled=True)
+    service._start_worker()
+    try:
+        now = time.monotonic()
+        service._now = now
+        ready = _ok_payload(service, captured_at=now, sample_now=None, enqueue_mono=now)
+        ready = (ready[0], TempoReading(120.0, 0.0, 1.0), "ok") + ready[3:]
+        put_latest(service._results, ready)
+        window = np.asarray(click_track(100.0, 2.0, RATE), dtype=np.float64)
+        novel = window[-RATE // 2 :]
+        mono = time.monotonic()
+        service._enqueue_analysis(
+            window,
+            RATE,
+            captured_at=mono,
+            now=None,
+            latency_s=0.0,
+            novel=novel,
+            novel_s=float(novel.size / RATE),
+        )
+        second = np.asarray(click_track(90.0, 2.0, RATE), dtype=np.float64)
+        service._enqueue_analysis(
+            second,
+            RATE,
+            captured_at=mono,
+            now=None,
+            latency_s=0.0,
+            novel=second[-RATE // 2 :],
+            novel_s=0.5,
+        )
+        time.sleep(0.05)
+        service._drain_results()
+        assert 120.0 in [item.get("raw_bpm") for item in service._windows]
+    finally:
+        _stop(service)
 
 
 def test_replaced_snapshot_carries_hearing_not_bpm(tmp_path: Path) -> None:

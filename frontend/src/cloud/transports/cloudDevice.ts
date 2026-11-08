@@ -488,11 +488,31 @@ export function createCloudDeviceTransport(opts: {
           return;
         }
 
+        if (type === "device_preview") {
+          const payload = (msg.payload ?? {}) as Record<string, unknown>;
+          const stage = readStage(payload.stage);
+          let bpm: CloudDeviceLiveState["bpm"] = lastLive.bpm;
+          if (
+            (payload.program === "beat" || payload.program === "smooth") &&
+            lastLive.bpm
+          ) {
+            bpm = { ...lastLive.bpm, program: payload.program };
+          }
+          emitLive({
+            stage,
+            preview_at: Date.now(),
+            ...(bpm ? { bpm } : {}),
+          });
+          return;
+        }
+
         if (type === "device_offline") {
           emitLive({
             online: false,
             armed: lastLive.armed,
             blackout: lastLive.blackout,
+            stage: null,
+            preview_at: null,
           });
           return;
         }
@@ -847,6 +867,8 @@ export function createCloudDeviceTransport(opts: {
         scope?: "preset" | "auto";
         palette?: import("../../vite-env").BpmPaletteId;
         cast?: "all" | "bars" | "heads";
+        groups?: Array<"par" | "bar" | "beam">;
+        excluded?: string[];
         character?: "smooth" | "rhythmic" | "impact";
         intensity?: "soft" | "normal" | "full";
         period?: "auto" | 0.5 | 1 | 2 | 4 | 8;
@@ -860,6 +882,8 @@ export function createCloudDeviceTransport(opts: {
         ...(patch?.scope ? { scope: patch.scope } : {}),
         ...(patch?.palette ? { palette: patch.palette } : {}),
         ...(patch?.cast ? { cast: patch.cast } : {}),
+        ...(patch?.groups != null ? { groups: patch.groups } : {}),
+        ...(patch?.excluded != null ? { excluded: patch.excluded } : {}),
         ...(patch?.character ? { character: patch.character } : {}),
         ...(patch?.intensity ? { intensity: patch.intensity } : {}),
         ...(patch?.period != null ? { period: patch.period } : {}),

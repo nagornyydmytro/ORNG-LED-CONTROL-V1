@@ -31,7 +31,7 @@ def test_even_groove_develops_without_a_drop() -> None:
     assert all(frame.source == "script" for frame in run.frames)
     assert "drop" not in {frame.section for frame in run.frames}
     looks = [episode.look for episode in run.episodes]
-    assert 1 <= len(set(looks)) < 8
+    assert 2 <= len(set(looks)) < 8
     kinds = [row["kind"] for row in run.journal]
     assert kinds.count("motif") < 8
     assert "variation" in kinds
@@ -39,7 +39,6 @@ def test_even_groove_develops_without_a_drop() -> None:
         assert episode.duration_beats in {2, 4, 8, 16, 32, 64}
         assert episode.picture_cycle in {0.5, 1.0, 2.0, 4.0, 8.0}
     assert all(frame.par_strobe == 0.0 for frame in run.frames)
-    assert any(frame.cycle != run.frames[0].cycle for frame in run.frames)
 
 
 def test_calm_passage_is_long_curves_not_a_label() -> None:
@@ -53,7 +52,7 @@ def test_calm_passage_is_long_curves_not_a_label() -> None:
     opening = run.episodes[0].look
     calm_episodes = [episode for episode in run.episodes if episode.section == "break"]
     assert calm_episodes
-    assert all(episode.look == opening for episode in calm_episodes)
+    assert len({episode.look for episode in calm_episodes}) == 1
 
 
 def test_rise_accent_is_one_shot_and_not_a_prediction() -> None:

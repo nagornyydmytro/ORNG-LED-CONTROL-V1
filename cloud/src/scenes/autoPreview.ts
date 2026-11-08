@@ -8,6 +8,14 @@ const GROUP_KIND: Record<string, string> = { par: "par", bar: "bar", beam: "beam
 const GROUP_TITLE: Record<string, string> = { par: "PAR", bar: "бари", beam: "голови" };
 export const MISMATCH_REASON = "Ця картина не збігається з поточною сценою.";
 export const CLIP_MISSING_REASON = "Цього варіанту немає серед зібраних кадрів.";
+export const HEAD_TEMPO_REASON =
+  "Рух голів зібрано на 120 BPM. Інший темп може змінити амплітуду, тож цей кліп не є тим самим шляхом.";
+export const HEAD_PERIOD_REASON =
+  "Зібраний період руху голів не збігається з моделлю виконавця.";
+export const HEAD_TRAVEL_REASON =
+  "Діапазони голів зібрані з інших пресетів. Цей кліп не є поточним шляхом.";
+const PACK_HEAD_BPM = 120;
+const MECHANICAL_LOOPS = new Set([2, 4, 8]);
 
 export type AutoCatalogFile = typeof catalog;
 export type AutoComposition = AutoCatalogFile["compositions"][number];
@@ -22,13 +30,24 @@ export type PreviewPackMeta = {
   library_version: string;
   library_count: number;
   clip_count?: number;
+  travel_hash?: string;
   looks?: string[];
   available?: PreviewAvailableClip[];
 };
 type LookPack = {
   scene_hash: string;
   library_version: string;
-  clips: Record<string, { look: string; cycle_beats: number; palette: string; intensity: string; frames: CompactFrame[] }>;
+  clips: Record<
+    string,
+    {
+      look: string;
+      cycle_beats: number;
+      loop_beats?: number;
+      palette: string;
+      intensity: string;
+      frames: CompactFrame[];
+    }
+  >;
 };
 type CompactFrame = {
   pars: Array<{ id: string; i: number; r: number; g: number; b: number }>;
@@ -43,7 +62,19 @@ type CompactFrame = {
     sg: number[];
     sb: number[];
   }>;
-  beams: Array<{ id: string; d: number; o: boolean; r: number; g: number; b: number; t: number }>;
+  beams: Array<{
+    id: string;
+    d: number;
+    o: boolean;
+    r: number;
+    g: number;
+    b: number;
+    t: number;
+    p?: number;
+    ti?: number;
+    pp?: number;
+    pt?: number;
+  }>;
   n: number;
 };
 
@@ -104,8 +135,28 @@ export function cycleKey(cycle: number): string {
   return Number.isInteger(cycle) ? String(cycle) : String(cycle);
 }
 
+export function headClipLimit(look: string, bpm: number, loopBeats: number): string | null {
+  const composition = findComposition(look);
+  if (!composition?.groups.includes("beam")) return null;
+  if (Math.abs(bpm - PACK_HEAD_BPM) > 0.05) return HEAD_TEMPO_REASON;
+  if (!MECHANICAL_LOOPS.has(loopBeats)) return HEAD_PERIOD_REASON;
+  return null;
+}
+
 export function clipKey(look: string, cycle: number, palette: string, intensity: string): string {
   return `${look}|${cycleKey(cycle)}|${palette}|${intensity}`;
+}
+
+export function presetTravelText(files: Array<{ path: string; text: string }>): string {
+  return files
+    .map((file) => ({
+      path: file.path.replace(/\\/g, "/"),
+      text: file.text.replace(/\r\n/g, "\n"),
+    }))
+    .filter((file) => /^presets\/[^/]+\.ya?ml$/.test(file.path))
+    .sort((left, right) => left.path.localeCompare(right.path))
+    .map((file) => `${file.path}\n${file.text}`)
+    .join("\n");
 }
 
 export function previewSourceText(files: Array<{ path: string; text: string }>): string {
@@ -169,7 +220,7 @@ export async function loadClipPack(assets?: Fetcher): Promise<LookPack> {
   return loadLookClips("vertical_wave", assets);
 }
 
-function expandFrame(row: CompactFrame) {
+export function expandFrame(row: CompactFrame) {
   return {
     pars: (row.pars ?? []).map((item) => ({
       id: item.id,
@@ -204,10 +255,10 @@ function expandFrame(row: CompactFrame) {
       label: item.id,
       kind: "beam",
       side: "",
-      pan: 0.5,
-      tilt: 0.5,
-      physical_pan: 0.5,
-      physical_tilt: 0.5,
+      pan: typeof item.p === "number" ? item.p : 0.5,
+      tilt: typeof item.ti === "number" ? item.ti : 0.5,
+      physical_pan: typeof item.pp === "number" ? item.pp : (typeof item.p === "number" ? item.p : 0.5),
+      physical_tilt: typeof item.pt === "number" ? item.pt : (typeof item.ti === "number" ? item.ti : 0.5),
       dimmer: item.d,
       shutter_open: item.o,
       r: item.r,
@@ -320,6 +371,37 @@ export async function previewFromWorkspace(opts: {
       library_version: library,
     };
   }
+  const loop = Number(stored.loop_beats);
+  const motionBeats = Number.isFinite(loop) && loop > 0 ? loop : cycle;
+  const travelText = presetTravelText(opts.files);
+  if (travelText && findComposition(opts.look)?.groups.includes("beam") && PACK_META.travel_hash) {
+    const travel = await sha256Hex(travelText);
+    if (travel !== PACK_META.travel_hash) {
+      return {
+        ...empty,
+        compatible: true,
+        canonical: false,
+        reason: HEAD_TRAVEL_REASON,
+        scene_hash: sceneHash,
+        library_version: library,
+        loop_beats: motionBeats,
+        frames: [],
+      };
+    }
+  }
+  const headLimit = headClipLimit(opts.look, tempo, motionBeats);
+  if (headLimit) {
+    return {
+      ...empty,
+      compatible: true,
+      canonical: false,
+      reason: headLimit,
+      scene_hash: sceneHash,
+      library_version: library,
+      loop_beats: motionBeats,
+      frames: [],
+    };
+  }
   const frames = stored.frames.map(expandFrame);
   return {
     ...empty,
@@ -329,6 +411,9 @@ export async function previewFromWorkspace(opts: {
     canonical: true,
     scene_hash: sceneHash,
     library_version: library,
-    seconds,
+    cycle_beats: cycle,
+    loop_beats: motionBeats,
+    seconds: motionBeats * 60 / tempo,
+    note: "Перегляд зібраних кадрів. Це не вихідний DMX і не кадр проводу.",
   };
 }

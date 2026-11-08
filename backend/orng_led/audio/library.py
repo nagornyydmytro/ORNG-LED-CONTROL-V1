@@ -88,6 +88,31 @@ FAMILIES: tuple[Family, ...] = (
 )
 
 
+# Brightness peaks at phase 0. A spatial wave's anchor is the start of the
+# motion, not a second strobe laid on the whole canvas.
+_BRIGHTNESS_ANCHOR = frozenset(
+    {
+        "hit",
+        "hit_wide",
+        "pulse",
+        "pulse_scan",
+        "double",
+        "double_offbeat",
+        "compound_breathe_hit",
+        "compound_wave_accent",
+    }
+)
+
+
+def musical_anchor(item: Composition) -> str | None:
+    """The moment a beat composition puts on the beat. Smooth looks have none."""
+    if item.program != "beat":
+        return None
+    if item.envelope in _BRIGHTNESS_ANCHOR:
+        return "brightness"
+    return "motion"
+
+
 # Continuous loops, including the seam. A hit, a saw or a shutter is «Під біт».
 _SMOOTH_ENVELOPES = frozenset(
     {
@@ -188,14 +213,6 @@ def _catalog() -> tuple[Composition, ...]:
             stagger="inner",
         ),
         _c("vertical_wave_down", "vertical_wave", "Хвиля згори вниз і назад", direction="down"),
-        _c(
-            "vertical_wave_scan_bars",
-            "vertical_wave",
-            "Хвиля по барах як по сходах",
-            axis="bar",
-            needs_segments=False,
-            notes="Кожен бар — сходинка полотна.",
-        ),
         _c(
             "vertical_wave_with_pars",
             "vertical_wave",
@@ -306,25 +323,8 @@ def _catalog() -> tuple[Composition, ...]:
             envelope="fall",
         ),
         _c("diag_cascade", "diagonal", "Діагональний каскад", axis="diag", envelope="cascade"),
-        _c("cascade_left", "cascade", "Каскад зліва", axis="bar", envelope="cascade"),
-        _c(
-            "cascade_right",
-            "cascade",
-            "Каскад справа",
-            axis="bar",
-            direction="left",
-            envelope="cascade",
-        ),
         _c("cascade_up", "cascade", "Каскад вгору по висоті", envelope="cascade"),
         _c("cascade_down", "cascade", "Каскад вниз", direction="down", envelope="cascade"),
-        _c(
-            "cascade_bars_then_segments",
-            "cascade",
-            "Спочатку бари, потім сегменти",
-            axis="bar",
-            envelope="cascade",
-            stagger="y",
-        ),
         _c("bands_2_up", "multi_band", "Дві смуги вгору", bands=2, envelope="travel"),
         _c("bands_3_up", "multi_band", "Три смуги вгору", bands=3, envelope="travel", tail=0.12),
         _c(
@@ -400,7 +400,7 @@ def _catalog() -> tuple[Composition, ...]:
             "Темна хвиля вгору",
             polarity="negative",
             envelope="travel",
-            tail=0.22,
+            tail=0.55,
         ),
         _c(
             "negative_wave_left",
@@ -1040,30 +1040,73 @@ def composition_by_id(ident: str | None) -> Composition | None:
     return BY_ID.get(str(ident))
 
 
+def allowed_compositions(
+    theme: str = "orange",
+    *,
+    cast: str | None = None,
+    groups: tuple[str, ...] | list[str] | None = None,
+    program: str | None = None,
+    pool: str | None = None,
+    fixtures: list[object] | None = None,
+    excluded: frozenset[str] | set[str] | tuple[str, ...] | None = None,
+) -> tuple[Composition, ...]:
+    """One gate for every Auto choice.
+
+    Program type, the instruments on stage, the selected classes, what their
+    profiles can paint, and the operator's exclusions. Colour is not a filter.
+    An explicit class list must cover every class the look paints.
+    """
+    from orng_led.audio.settings import groups_cover
+
+    chosen_cast = cast_of(theme, cast)
+    theme_groups = set(groups) if groups is not None else set(groups_of(chosen_cast))
+    strict = groups is not None
+    banned = {str(item) for item in (excluded or ())}
+    found: list[Composition] = []
+    for item in COMPOSITIONS:
+        if item.id in banned:
+            continue
+        if pool is not None and item.pool != pool:
+            continue
+        if program is not None and item.program != program:
+            continue
+        if strict:
+            if not groups_cover(item.groups, theme_groups):
+                continue
+        elif not set(item.groups).intersection(theme_groups):
+            continue
+        if item.needs_segments and "bar" not in theme_groups:
+            continue
+        if fixtures is not None and not composition_fits(item, fixtures, theme):
+            continue
+        found.append(item)
+    return tuple(found)
+
+
 def compositions_for(
     pool: str,
     theme: str,
     *,
     character: str = "rhythmic",
     cast: str | None = None,
+    groups: tuple[str, ...] | list[str] | None = None,
     fixtures: list[object] | None = None,
+    program: str | None = None,
+    excluded: frozenset[str] | set[str] | tuple[str, ...] | None = None,
 ) -> tuple[Composition, ...]:
     """Catalogue for a pool. Colour does not filter who is on stage."""
-    chosen_cast = cast_of(theme, cast)
-    theme_groups = groups_of(chosen_cast)
     families = CHARACTER_FAMILIES.get(character, CHARACTER_FAMILIES["rhythmic"])
     found = []
-    for item in COMPOSITIONS:
-        if item.pool != pool:
-            continue
+    for item in allowed_compositions(
+        theme,
+        cast=cast,
+        groups=groups,
+        program=program,
+        pool=pool,
+        fixtures=fixtures,
+        excluded=excluded,
+    ):
         if pool == "calm" and item.family not in families and item.id not in {"wash", "breathe_pars"}:
-            continue
-        # Accent pool is a short answer, not a second character catalogue.
-        if not set(item.groups).intersection(theme_groups):
-            continue
-        if item.needs_segments and "bar" not in theme_groups:
-            continue
-        if fixtures is not None and not composition_fits(item, fixtures, theme):
             continue
         found.append(item)
     return tuple(found)
@@ -1111,11 +1154,20 @@ def director_looks(
     character: str = "rhythmic",
     current: str | None = None,
     fixtures: list[object] | None = None,
+    program: str | None = None,
+    excluded: frozenset[str] | set[str] | tuple[str, ...] | None = None,
+    groups: tuple[str, ...] | list[str] | None = None,
     limit: int | None = None,
 ) -> tuple[str, ...]:
     """Motif candidates for this pool. Character orders the list; it does not hide the catalogue."""
     catalog = compositions_for(
-        pool, theme, character=character, fixtures=fixtures
+        pool,
+        theme,
+        character=character,
+        groups=groups,
+        fixtures=fixtures,
+        program=program,
+        excluded=excluded,
     )
     if not catalog:
         return ()
@@ -1126,7 +1178,7 @@ def director_looks(
         if name and name in by_id and name not in ordered:
             ordered.append(name)
 
-    home = director_home(character, theme)
+    home = director_home(character, theme, groups=groups)
     _push(current)
     _push(home)
     current_item = BY_ID.get(str(current or ""))
@@ -1235,14 +1287,22 @@ def _mirror_x(cell: Cell) -> float:
     return abs(cell.x - 0.5) * 2.0
 
 
+def _horizontal_sweep(axis: str, direction: str) -> bool:
+    return axis == "x" and direction in {"left", "right", "reverse"}
+
+
 def _axis_u(cell: Cell, axis: str, direction: str, bar_count: int) -> float:
-    # Bars are one canvas. Only PAR and head pairs fold onto the mirror axis,
-    # and only when the look itself is not an explicit left/right pass.
-    across = direction in {"left", "right", "reverse"}
-    pair = cell.kind in {FixtureKind.PAR, FixtureKind.BEAM} and not across
+    # PARs fold onto the centre line except on a horizontal sweep.
+    # Bars do the same: a left/right sweep may travel, everything else matches
+    # across the vertical centre. Heads are not PARs; their light is not folded.
+    across = _horizontal_sweep(axis, direction)
+    pair = cell.kind is FixtureKind.PAR and not across
     mirrored = False
     if axis == "x":
-        if pair:
+        if cell.kind is FixtureKind.BAR and not across:
+            u = _mirror_x(cell)
+            mirrored = True
+        elif pair:
             u = _mirror_x(cell)
             mirrored = True
         else:
@@ -1273,10 +1333,14 @@ def _axis_u(cell: Cell, axis: str, direction: str, bar_count: int) -> float:
     return max(0.0, min(1.0, u))
 
 
-def _stagger(cell: Cell, name: str, bar_count: int) -> float:
+def _stagger(cell: Cell, name: str, bar_count: int, *, sweep: bool = False) -> float:
     if name == "x":
-        if cell.kind in {FixtureKind.PAR, FixtureKind.BEAM}:
+        if cell.kind is FixtureKind.BAR and not sweep:
             return 0.28 * abs(cell.x - 0.5) * 2.0
+        if cell.kind is FixtureKind.PAR and not sweep:
+            return 0.28 * abs(cell.x - 0.5) * 2.0
+        if cell.kind is FixtureKind.BEAM:
+            return 0.28 * cell.x
         return 0.28 * cell.x
     if name == "y":
         return 0.28 * cell.up
@@ -1359,7 +1423,8 @@ def _role_gate(cell: Cell, roles: str, phase: float) -> float:
 
 
 def _field(item: Composition, cell: Cell, phase: float, bar_count: int) -> float:
-    local = (phase - _stagger(cell, item.stagger, bar_count)) % 1.0
+    sweep = _horizontal_sweep(item.axis, item.direction)
+    local = (phase - _stagger(cell, item.stagger, bar_count, sweep=sweep)) % 1.0
     if item.roles == "pars_echo" and cell.kind is FixtureKind.PAR:
         local = (local - 0.22) % 1.0
     if item.roles == "bars_lead" and cell.kind is FixtureKind.PAR:
@@ -1372,18 +1437,22 @@ def _field(item: Composition, cell: Cell, phase: float, bar_count: int) -> float
         height = _triangle(local)
         value = 1.0 if u <= max(height, 0.08) + 0.02 else 0.0
     elif env == "saw":
-        value = 1.0 if u <= _saw(local) + 0.02 else 0.0
+        # Phase 0 owns the origin segment. A later phase grows the fill.
+        value = 1.0 if u <= _saw(local) + (1.0 / 8.0) else 0.0
     elif env == "fall":
-        value = 1.0 if u <= _fall(local) + 0.02 else 0.0
+        value = 1.0 if u <= _fall(local) + (1.0 / 8.0) else 0.0
     elif env == "travel":
         value = 0.0
         for index in range(bands):
             pos = (local + index / bands) % 1.0
             value = max(value, max(0.0, 1.0 - abs(u - pos) / tail))
     elif env == "oppose":
-        a = max(0.0, 1.0 - abs(u - local) / tail)
-        b = max(0.0, 1.0 - abs(u - (1.0 - local)) / tail)
-        value = max(a, b)
+        value = 0.0
+        for index in range(bands):
+            shift = index / bands
+            a = max(0.0, 1.0 - abs(u - ((local + shift) % 1.0)) / tail)
+            b = max(0.0, 1.0 - abs(u - ((1.0 - local + shift) % 1.0)) / tail)
+            value = max(value, a, b)
     elif env == "meet":
         edge = 0.5 * _triangle(local)
         value = 1.0 if u <= edge or u >= 1.0 - edge else 0.0
@@ -1410,7 +1479,7 @@ def _field(item: Composition, cell: Cell, phase: float, bar_count: int) -> float
         value = 1.0
         for index in range(bands):
             pos = (local + index / bands) % 1.0
-            if abs(u - pos) < tail * 0.7:
+            if abs(u - pos) < tail * 0.35:
                 value = 0.0
     elif env == "shutter":
         gap = 0.5 * _triangle(local)
@@ -1448,9 +1517,9 @@ def _field(item: Composition, cell: Cell, phase: float, bar_count: int) -> float
         sine_band = 1.0 if sine >= 0.62 else 0.0
         value = max(cascade, sine_band)
     elif env == "compound_negative_window":
-        bg = 0.85
-        pos = local
-        value = 0.0 if abs(u - pos) < 0.12 else bg
+        band = abs(u - local) < 0.22
+        slit = abs(u - ((local + 0.5) % 1.0)) < 0.10
+        value = 0.0 if band or slit else 1.0
     elif env == "compound_wave_accent":
         height = _triangle(local)
         wave = 1.0 if u <= height + 0.02 else 0.0
@@ -1487,10 +1556,20 @@ def paint(
     phase = float(phase) % 1.0
     amount = max(0.0, min(float(cap), float(amount)))
     bar_count = max(1, len(canvas.bar_ids))
+    # A vertical chase through PARs and heads reads as a bad sweep. Bars keep
+    # the wave. Heads stay a lamp here; their path is the symmetric rig.
+    # A canvas with no bars still paints the PARs: that is not the mixed sweep.
+    vertical = (
+        item.axis == "y"
+        and item.envelope in {"triangle", "saw", "fall", "travel", "cascade", "sine", "sine2d", "sine_travel", "meet", "oppose"}
+        and any(cell.kind is FixtureKind.BAR for cell in canvas.cells)
+    )
     levels: dict[tuple[str, int], float] = {}
     dimmers: dict[str, float] = {}
     for cell in canvas.cells:
         if cell.kind not in allowed:
+            continue
+        if vertical and item.roles == "together" and cell.kind in {FixtureKind.PAR, FixtureKind.BEAM}:
             continue
         geometry = _field(item, cell, phase, bar_count)
         key = (cell.fixture_id, cell.segment)
@@ -1553,13 +1632,30 @@ def paint(
                 color=painted, intensity=min(cap, peak * amount), strobe=strobe
             )
         elif kind is FixtureKind.BEAM:
-            beam_on = 1.0 if peak >= 0.16 else 0.0
-            if beam_on <= 0.0:
+            # The lamp level is the operator amount. Axes stay with the rig.
+            if peak < 0.16:
                 continue
             stage[fixture_id] = BeamIntent(
                 pan=None,
                 tilt=None,
-                dimmer=beam_on,
+                dimmer=0.0 if amount <= 1e-9 else amount,
+                color=painted,
+                strobe=0.0,
+            )
+    if vertical and item.roles == "together" and FixtureKind.BEAM in allowed and amount > 1e-9:
+        for fixture_id, cells in canvas.by_fixture.items():
+            if cells[0].kind is not FixtureKind.BEAM or fixture_id in stage:
+                continue
+            first = cells[0]
+            painted = (
+                color_for_fixture(palette, kind=FixtureKind.BEAM, x=first.x, bar_index=first.bar_index)
+                if palette
+                else color
+            )
+            stage[fixture_id] = BeamIntent(
+                pan=None,
+                tilt=None,
+                dimmer=amount,
                 color=painted,
                 strobe=0.0,
             )

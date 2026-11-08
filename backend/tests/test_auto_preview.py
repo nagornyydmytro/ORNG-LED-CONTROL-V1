@@ -6,8 +6,10 @@ from fastapi.testclient import TestClient
 
 from orng_led.audio.gallery import FEATURED_LOOKS
 from orng_led.audio.library import BY_ID, COMPOSITIONS, LOOKS
+from orng_led.audio.head_motion import motion_loop_beats
 from orng_led.audio.preview import (
     DEFAULT_LOOK,
+    _compact_frame,
     _wanted_preview_combos,
     catalog_payload,
     compatibility,
@@ -230,7 +232,8 @@ def test_oval_loop_seam_uses_the_settled_period() -> None:
         seam = abs(pans[0] - pans[-1])
         assert seam <= typical * 4.0
         dt_s = (float(clip_loop_beats(show)) / len(pans)) * (60.0 / bpm)
-        assert seam <= 0.35 * dt_s + 0.02
+        # One motor step, plus one 8-bit axis quantum at the loop join.
+        assert seam <= 0.35 * dt_s + 0.02 + (1.0 / 255.0)
 
 
 def clip_loop_beats(show) -> float:
@@ -335,6 +338,30 @@ def test_empty_frames_are_not_a_successful_renderer_preview() -> None:
     assert clip["frames"] == []
     assert clip["canonical"] is False
     assert clip["compatible"] is False
+
+
+def test_compact_clip_keeps_axes_and_the_full_motion_period() -> None:
+    show = load_show_config()
+    clip = preview_clip(show, "heads_only_oval", cycle_beats=8, bpm=120, frames=0)
+    loop = float(clip["loop_beats"])
+    assert loop >= motion_loop_beats("heads_only_oval", 8)
+    assert len(clip["frames"]) == phase_frame_count(8)
+    packed = [_compact_frame(frame) for frame in clip["frames"]]
+    pans = [
+        float(beam["p"])
+        for frame in packed
+        for beam in frame["beams"]
+        if beam["id"] == "beam_left"
+    ]
+    tilts = [
+        float(beam["ti"])
+        for frame in packed
+        for beam in frame["beams"]
+        if beam["id"] == "beam_left"
+    ]
+    assert max(pans) - min(pans) > 0.01
+    assert max(tilts) - min(tilts) > 0.01
+    assert any(abs(value - 0.5) > 0.01 for value in pans)
 
 
 def test_preview_hash_changes_with_layout_not_presets(tmp_path) -> None:

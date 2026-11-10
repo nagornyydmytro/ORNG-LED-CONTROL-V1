@@ -28,6 +28,8 @@ const props = defineProps<{
   locationId?: string | null;
   syncLabel?: string | null;
   showLogout?: boolean;
+  /** Venue LAN desk: show control only. Role, output and service pages stay closed. */
+  operatorDesk?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -51,13 +53,16 @@ const collapsed = ref(false);
 
 const cloudDesk = isCloudAdminBuild();
 
-const links = [
-  { to: "/", label: "Пульт", glyph: "◉" },
-  { to: "/presets", label: "Пресети", glyph: "▤" },
-  { to: "/setup", label: "Калібрування", glyph: "⚙" },
-  { to: "/channels", label: "Канали", glyph: "⑂" },
-  ...(cloudDesk ? [] : [{ to: "/cloud", label: "Привʼязка", glyph: "☁" }]),
-];
+const links = computed(() => {
+  if (props.operatorDesk) return [{ to: "/", label: "Пульт", glyph: "◉" }];
+  return [
+    { to: "/", label: "Пульт", glyph: "◉" },
+    { to: "/presets", label: "Пресети", glyph: "▤" },
+    { to: "/setup", label: "Калібрування", glyph: "⚙" },
+    { to: "/channels", label: "Канали", glyph: "⑂" },
+    ...(cloudDesk ? [] : [{ to: "/cloud", label: "Привʼязка", glyph: "☁" }]),
+  ];
+});
 
 const menuOpen = ref(false);
 const burgerBtn = ref<HTMLButtonElement | null>(null);
@@ -417,7 +422,7 @@ watch(collapsed, (value) => {
           </RouterLink>
         </nav>
         <div
-          v-if="!cloudDesk"
+          v-if="!cloudDesk && !operatorDesk"
           class="choice-group"
           role="group"
           aria-label="Виконавець"

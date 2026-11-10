@@ -96,9 +96,14 @@ def build_ws_router() -> APIRouter:
         if runtime is None:
             await websocket.close(code=1013)
             return
+        gate = getattr(websocket.app.state, "lan_gate", None)
+        if gate is not None and gate.websocket_denial(websocket):
+            await websocket.close(code=1008)
+            return
 
         await websocket.accept()
-        source_id = _resolve_connection_source_id(websocket)
+        stamped = getattr(websocket.state, "lan_source_id", None)
+        source_id = stamped if isinstance(stamped, str) and stamped else _resolve_connection_source_id(websocket)
         pump = SocketPump(websocket)
         runtime.attach_socket(pump)
         try:

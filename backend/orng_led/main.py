@@ -62,9 +62,14 @@ def create_app(
         from orng_led.desktop.remote_desk import watch_executor
 
         watcher = asyncio.create_task(watch_executor(active))
+        from orng_led.desk.lan import start_from_env
+
+        lan_desk = await start_from_env(active)
         try:
             yield
         finally:
+            if lan_desk is not None:
+                await lan_desk.aclose()
             watcher.cancel()
             await active.shutdown()
 

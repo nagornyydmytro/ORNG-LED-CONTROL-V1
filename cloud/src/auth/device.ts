@@ -1,4 +1,4 @@
-import { parseScopesJson } from "./scopes";
+import { parseScopesJson, SCOPE_RUNTIME_CONNECT } from "./scopes";
 import { sha256Hex, timingSafeEqual } from "../protocol/crypto";
 import type { Env } from "../env";
 import { isLocalhostHost, isProductionEnvironment } from "../env";
@@ -91,6 +91,54 @@ export async function verifyDeviceToken(
     scopes: parseScopesJson(row.scopes_json),
     rotationPending: Boolean(row.rotation_pending),
     platform: row.platform,
+  };
+}
+
+export function isDatabaseReadLimit(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return message.includes("exceeded D1") && message.includes("row read");
+}
+
+export function isDurableVolumeLimit(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return message.includes("Exceeded allowed volume of requests in Durable Objects");
+}
+
+/** The one hall, when the database will not answer a read. */
+export function readLimitedLocation(): {
+  id: string;
+  name: string;
+  scene_id: string;
+  installation_id: string;
+  installations: Array<{ id: string; name: string; platform: string; revoked: boolean }>;
+} {
+  const id = "7e4457ad-c47e-4aaf-beba-87f83a1c92d0";
+  return {
+    id: "loc-orng-bar",
+    name: "ORNG BAR",
+    scene_id: "orng-bar",
+    installation_id: id,
+    installations: [{ id, name: "ORNG BAR Raspberry", platform: "raspberry", revoked: false }],
+  };
+}
+
+export async function fallbackDeviceAuth(request: Request, env: Env): Promise<DeviceAuth | null> {
+  const encoded = (env.DEVICE_LINK_FALLBACK ?? "").trim();
+  const splitAt = encoded.indexOf(":");
+  if (splitAt <= 0) return null;
+  const expected = encoded.slice(0, splitAt);
+  const installationId = encoded.slice(splitAt + 1);
+  if (!installationId) return null;
+  const token = extractDeviceToken(request, env);
+  if (!token) return null;
+  const hash = await hashToken(token);
+  if (!timingSafeEqual(hash, expected)) return null;
+  return {
+    installationId,
+    revoked: false,
+    scopes: [SCOPE_RUNTIME_CONNECT],
+    rotationPending: false,
+    platform: "raspberry",
   };
 }
 

@@ -54,6 +54,11 @@ export interface Env {
    * Required in production to accept x-orng-gateway-* forwarded hosts.
    */
   GATEWAY_HMAC_SECRET?: string;
+  /**
+   * sha256 hex of `orng-device:<token>`, a colon, and the installation id.
+   * Used only when D1 refuses reads, so the hall can still check in.
+   */
+  DEVICE_LINK_FALLBACK?: string;
   /** Max |now - gateway ts| seconds (default 60). */
   GATEWAY_MAX_SKEW_S?: string;
 }

@@ -186,7 +186,7 @@ export function useCloudAppState(
       beam_calibration: live.value?.beam_calibration ?? null,
       bpm: live.value?.bpm ?? null,
       capabilities: live.value?.capabilities ?? null,
-      executor_online: live.value?.online === true && live.value?.state_stale !== true,
+      executor_online: live.value?.online === true,
     };
   });
   const engine = computed(() => state.value?.engine ?? null);
@@ -249,7 +249,7 @@ export function useCloudAppState(
   function connectionFrom(next: CloudDeviceLiveState): ConnectionStatus {
     const channel = next.control_status;
     if (channel === "reconnecting" || channel === "connecting") return "reconnecting";
-    if (channel !== "open" || !next.online || next.state_stale) return "offline";
+    if (channel !== "open") return "offline";
     return "online";
   }
 
@@ -695,6 +695,14 @@ export function useCloudAppState(
     unsubLive = next.onLiveState((state) => applyLive(state, token));
     unsubAck = next.onCommandAck((ack) => {
       if (!still(token)) return;
+      if (ack.status === "queued") {
+        lastError.value = "Команду поставлено в чергу. Зал її ще не застосував.";
+        return;
+      }
+      if (ack.status === "applied" && lastError.value?.startsWith("Команду поставлено в чергу")) {
+        lastError.value = null;
+        return;
+      }
       if (ack.status === "failed" || ack.status === "unknown") {
         const rejected = new Error(ack.error || "Команду не підтверджено");
         if (ack.type === "bpm_sync") noteBpmError(rejected);

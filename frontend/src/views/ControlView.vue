@@ -13,6 +13,7 @@ import { APP_STATE_KEY } from "../composables/appStateKey";
 import { acceptedBpmValue, bpmDeskReason } from "../lib/acceptedBpm";
 import { BPM_INTENSITIES, bpmControlsLocked, hasBpmSync } from "../lib/bpmPalettes";
 import { presetButtonLabel } from "../lib/presetLabel";
+import { REMOTE_PREVIEW_LIVE_MS } from "../lib/previewFreshness";
 import type { StageLayout } from "../vite-env";
 
 const cloudScene = isCloudAdminBuild();
@@ -49,7 +50,7 @@ const {
 
 const route = useRoute();
 const layout = ref<StageLayout | null>(null);
-const offline = computed(() => connection.value === "offline");
+const offline = computed(() => connection.value === "offline" || connection.value === "reconnecting");
 const activePresetId = computed(() => engine.value?.preset_id ?? null);
 const highlightId = computed(() => {
   const q = route.query.highlight;
@@ -122,6 +123,9 @@ const playingTitle = computed(() => {
 const remoteDesk = computed(
   () => cloudScene || state.value?.desk_role === "raspberry",
 );
+const executorDown = computed(
+  () => remoteDesk.value && state.value?.executor_online === false && !offline.value,
+);
 const previewClock = ref(Date.now());
 let previewTimer: number | null = null;
 onMounted(() => {
@@ -133,13 +137,16 @@ onBeforeUnmount(() => {
   if (previewTimer != null) window.clearInterval(previewTimer);
 });
 const executorFrame = computed(() => {
+  if (state.value?.executor_online === false) return false;
+  if (remoteDesk.value) {
+    const stamped = state.value?.preview_at;
+    return typeof stamped === "number" && previewClock.value - stamped <= REMOTE_PREVIEW_LIVE_MS;
+  }
   const view = state.value?.simulator;
   const fixtures = view
     ? view.pars.length + view.bars.length + view.beams.length + view.faces.length
     : 0;
-  const stamped = state.value?.preview_at;
-  if (typeof stamped === "number" && previewClock.value - stamped > 750) return false;
-  return fixtures > 0 && state.value?.executor_online !== false;
+  return fixtures > 0;
 });
 const playingSeconds = computed(() => {
   if (remoteDesk.value && !executorFrame.value) return null;
@@ -158,9 +165,11 @@ const frameNote = computed(() => {
     ? view.pars.length + view.bars.length + view.beams.length + view.faces.length
     : 0;
   if (cloudScene || state.value?.desk_role === "raspberry") {
-    return fixtures > 0 && state.value?.executor_online !== false
-      ? "кадр виконавця"
-      : "немає кадру виконавця";
+    if (!executorFrame.value) return "немає кадру виконавця";
+    const bpm = state.value?.bpm;
+    if (bpm?.look) return String(bpm.look);
+    if (bpm?.program === "beat" || bpm?.program === "smooth") return String(bpm.program);
+    return fixtures > 0 ? "кадр виконавця" : "ефект виконавця";
   }
   return "кадр цього комп'ютера";
 });
@@ -428,6 +437,13 @@ function goNextEpisode() {
       role="status"
     >
       Немає зв'язку з backend. Керування обмежене.
+    </p>
+    <p
+      v-else-if="executorDown"
+      class="banner banner--warn"
+      role="status"
+    >
+      Виконавець не на зв'язку. Керування чекає, поки зал відновить канал.
     </p>
     <p
       v-if="loadError"

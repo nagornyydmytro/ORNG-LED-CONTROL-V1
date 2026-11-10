@@ -2,8 +2,11 @@ import { handleAdminLogin, handleAdminLogout, handleAdminMe } from "../auth/logi
 import { localBypassAllowed, requireCsrf, resolveAdminSession } from "../auth/session";
 import { adminCorsHeaders, rejectBadOrigin } from "../auth/origin";
 import { listAudit, writeAudit } from "../db/audit";
-import { listCommands } from "../db/commands";
-import { getInstallation, listInstallations, publicInstallation } from "../db/installations";
+import { listCommands, logCommand } from "../db/commands";
+import { fresherDesk, readDeskSnapshot, replayAgeMs, type DeskSnapshot } from "../db/deskLink";
+import { isDatabaseReadLimit, isDurableVolumeLimit, readLimitedLocation } from "../auth/device";
+import { isEphemeralCommand } from "../protocol/types";
+import { getInstallation, isRecentlySeen, listInstallations, publicInstallation } from "../db/installations";
 import { listOperatorLocations } from "../db/locations";
 import { deviceStub, forwardAdminWs } from "../devices";
 import type { Env } from "../env";
@@ -128,16 +131,8 @@ export async function handleAdminRequest(request: Request, env: Env): Promise<Re
       const rows = await listInstallations(env);
       const devices = await Promise.all(
         rows.map(async (row) => {
-          let online = false;
+          const online = isRecentlySeen(row.last_seen_at);
           let rotationPending = false;
-          try {
-            const stub = deviceStub(env, row.id);
-            const statusRes = await stub.fetch("https://device-do/status");
-            const live = (await statusRes.json()) as { online?: boolean; device_connected?: boolean };
-            online = Boolean(live.online ?? live.device_connected);
-          } catch {
-            online = false;
-          }
           const cred = await env.DB.prepare(
             `SELECT rotation_pending FROM device_credentials WHERE installation_id = ?`,
           )
@@ -195,9 +190,13 @@ export async function handleAdminRequest(request: Request, env: Env): Promise<Re
     const locationPrefs = /^\/admin\/locations\/([^/]+)\/show-prefs$/.exec(path);
     if (locationPrefs && (request.method === "GET" || request.method === "PUT")) {
       const locationId = decodeURIComponent(locationPrefs[1]!);
-      const locations = await listOperatorLocations(env);
-      if (!locations.some((item) => item.id === locationId)) {
-        return withCors(errorJson(404, "not_found", "Location not found"), cors);
+      try {
+        const locations = await listOperatorLocations(env);
+        if (!locations.some((item) => item.id === locationId)) {
+          return withCors(errorJson(404, "not_found", "Location not found"), cors);
+        }
+      } catch (err) {
+        if (!isDatabaseReadLimit(err) || locationId !== readLimitedLocation().id) throw err;
       }
       if (request.method === "GET") {
         return withCors(json({ prefs: await readShowPrefs(env, locationId) }), cors);
@@ -260,21 +259,20 @@ export async function handleAdminRequest(request: Request, env: Env): Promise<Re
     }
 
     if (path === "/admin/locations" && request.method === "GET") {
-      const locations = await listOperatorLocations(env);
-      return withCors(json({ locations }), cors);
+      try {
+        const locations = await listOperatorLocations(env);
+        return withCors(json({ locations }), cors);
+      } catch (err) {
+        if (!isDatabaseReadLimit(err)) throw err;
+        return withCors(json({ locations: [readLimitedLocation()] }), cors);
+      }
     }
 
     const deviceMatch = /^\/admin\/devices\/([^/]+)$/.exec(path);
     if (deviceMatch && request.method === "GET") {
       const row = await getInstallation(env, decodeURIComponent(deviceMatch[1]!));
       if (!row) return withCors(errorJson(404, "not_found", "Device not found"), cors);
-      const stub = deviceStub(env, row.id);
-      const statusRes = await stub.fetch("https://device-do/status");
-      const live = (await statusRes.json()) as {
-        online?: boolean;
-        device_connected?: boolean;
-        [k: string]: unknown;
-      };
+      const live = readDeskSnapshot(row.capabilities_json) ?? {};
       const cred = await env.DB.prepare(
         `SELECT rotation_pending FROM device_credentials WHERE installation_id = ?`,
       )
@@ -283,7 +281,7 @@ export async function handleAdminRequest(request: Request, env: Env): Promise<Re
       return withCors(
         json({
           device: publicInstallation(row, {
-            online: Boolean(live.online ?? live.device_connected),
+            online: isRecentlySeen(row.last_seen_at),
             rotationPending: Boolean(cred?.rotation_pending),
           }),
           live,
@@ -396,15 +394,7 @@ export async function handleAdminRequest(request: Request, env: Env): Promise<Re
         version,
         fallbackName: sceneRow?.name ?? null,
       });
-      let online = false;
-      try {
-        const stub = deviceStub(env, id);
-        const statusRes = await stub.fetch("https://device-do/status");
-        const live = (await statusRes.json()) as { online?: boolean; device_connected?: boolean };
-        online = Boolean(live.online ?? live.device_connected);
-      } catch {
-        online = false;
-      }
+      const online = isRecentlySeen(row.last_seen_at);
       return withCors(
         json({
           installation_id: id,
@@ -721,46 +711,163 @@ export async function handleAdminRequest(request: Request, env: Env): Promise<Re
       if (!isAllowedCommandType(body.type)) {
         return withCors(errorJson(400, "not_allowlisted", body.type), cors);
       }
-      // Holds and keyboard belong to the admin WebSocket, which owns a per-tab
-      // source. HTTP must not stamp every tab with the shared username.
-      const socketOnly = new Set([
-        "keyboard",
-        "release_source",
-        "strobe_press",
-        "strobe_release",
-        "sweep_press",
-        "sweep_release",
-        "vertical_sweep_press",
-        "vertical_sweep_release",
-        "calibration_begin",
-        "calibration_set",
-        "calibration_visible",
-        "calibration_home",
-        "calibration_end",
-      ]);
-      if (socketOnly.has(body.type)) {
-        return withCors(
-          errorJson(400, "use_control_socket", "Hold and keyboard commands use the admin WebSocket"),
-          cors,
-        );
-      }
-      const stub = deviceStub(env, id);
-      const res = await stub.fetch(
-        new Request("https://device-do/command", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            type: body.type,
-            installation_id: id,
-            actor,
-            source: "cloud:http",
-            payload: body.payload ?? {},
+      const payload = { ...(body.payload ?? {}) };
+      const commandId =
+        typeof payload.command_id === "string" && payload.command_id ? payload.command_id : uuid();
+      payload.command_id = commandId;
+      const source =
+        typeof payload.source === "string" && payload.source.startsWith("cloud:")
+          ? payload.source
+          : `cloud:${actor}`;
+      payload.source = source;
+      try {
+        const stub = deviceStub(env, id);
+        const res = await stub.fetch(
+          new Request("https://device-do/command", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              type: body.type,
+              installation_id: id,
+              actor,
+              source,
+              payload,
+            }),
           }),
+        );
+        if (!res.ok) {
+          const data = (await res.json().catch(() => null)) as { error?: string } | null;
+          if (isEphemeralCommand(body.type)) {
+            return withCors(
+              json(
+                data ?? { ok: false, status: "failed", error: "device_offline", command_id: commandId },
+                res.status,
+              ),
+              cors,
+            );
+          }
+          throw new Error(`device channel ${res.status}`);
+        }
+        await writeAudit(env, actor, "remote.command", id, { type: body.type });
+        const data = await res.json();
+        return withCors(json(data, res.status), cors);
+      } catch (err) {
+        if (isEphemeralCommand(body.type)) {
+          return withCors(
+            json({ ok: false, status: "failed", error: "device_offline", command_id: commandId }, 409),
+            cors,
+          );
+        }
+        console.error("admin command queued without durable object", err);
+        let logged = false;
+        try {
+          await logCommand(env, {
+            command_id: commandId,
+            installation_id: id,
+            type: body.type,
+            payload,
+            status: "queued",
+          });
+          logged = true;
+        } catch (logErr) {
+          if (!isDatabaseReadLimit(logErr)) throw logErr;
+        }
+        let mailed = false;
+        try {
+          const queued = await deviceStub(env, id).fetch(
+            new Request("https://device-do/mailbox/enqueue", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ command_id: commandId, type: body.type, payload }),
+            }),
+          );
+          mailed = queued.ok;
+        } catch (enqueueErr) {
+          if (!isDurableVolumeLimit(enqueueErr)) throw enqueueErr;
+        }
+        if (!logged && !mailed) {
+          return withCors(
+            errorJson(503, "desk_unavailable", "Немає ні живого залу, ні збереженого кадру."),
+            cors,
+          );
+        }
+        await writeAudit(env, actor, "remote.command", id, { type: body.type, via: "link" }).catch(
+          () => undefined,
+        );
+        return withCors(json({ ok: true, status: "queued", command_id: commandId }), cors);
+      }
+    }
+
+    const liveMatch = /^\/admin\/devices\/([^/]+)\/live$/.exec(path);
+    if (liveMatch && request.method === "GET") {
+      const id = decodeURIComponent(liveMatch[1]!);
+      let row: Awaited<ReturnType<typeof getInstallation>> = null;
+      try {
+        row = await getInstallation(env, id);
+      } catch (err) {
+        if (!isDatabaseReadLimit(err)) throw err;
+      }
+      if (!row) {
+        let mailbox: DeskSnapshot | null = null;
+        let durableDown = false;
+        try {
+          mailbox = await readMailboxDesk(env, id);
+        } catch {
+          durableDown = true;
+        }
+        if (durableDown) {
+          return withCors(
+            errorJson(503, "desk_unavailable", "Немає ні живого залу, ні збереженого кадру."),
+            cors,
+          );
+        }
+        if (!mailbox && id !== readLimitedLocation().installation_id) {
+          return withCors(errorJson(404, "not_found", "Device not found"), cors);
+        }
+        return withCors(json(liveBody(mailbox)), cors);
+      }
+      const stored = readDeskSnapshot(row.capabilities_json);
+      const mailbox = await readMailboxDesk(env, id).catch(() => null);
+      const desk = fresherDesk(stored, mailbox);
+      const mailAt = mailbox?.updated_at ? Date.parse(mailbox.updated_at) : NaN;
+      const mailboxFresh = Number.isFinite(mailAt) && Date.now() - mailAt < 60_000;
+      return withCors(
+        json({
+          online: false,
+          device_channel: "stored",
+          recently_seen: isRecentlySeen(row.last_seen_at) || mailboxFresh,
+          armed: Boolean(row.armed),
+          blackout: Boolean(row.blackout),
+          transport: row.transport,
+          udp_active: Boolean(row.udp_active),
+          current_scene_id: row.current_scene_id,
+          scene_name: desk?.scene_name ?? null,
+          preset_id: desk?.preset_id ?? null,
+          look: desk?.look ?? null,
+          program: desk?.program ?? null,
+          bpm: desk?.bpm ?? null,
+          face_on: desk?.face_on ?? null,
+          strobe_held: desk?.strobe_held ?? null,
+          sweep_active: desk?.sweep_active ?? null,
+          vertical_sweep_active: desk?.vertical_sweep_active ?? null,
+          preset_time_s: desk?.preset_time_s ?? null,
+          episode_index: desk?.episode_index ?? null,
+          episode_count: desk?.episode_count ?? null,
+          pad_presets: desk?.pad_presets ?? null,
+          capabilities: desk?.capabilities ?? null,
+          effect: desk
+            ? {
+                session: desk.session ?? null,
+                sequence: desk.sequence ?? null,
+                age_ms: replayAgeMs(desk),
+                look: desk.look ?? null,
+                program: desk.program ?? null,
+                preset_id: desk?.preset_id ?? null,
+              }
+            : null,
         }),
+        cors,
       );
-      await writeAudit(env, actor, "remote.command", id, { type: body.type });
-      const data = await res.json();
-      return withCors(json(data, res.status), cors);
     }
 
     // Admin WSS proxy — unique source per tab.
@@ -950,3 +1057,49 @@ const LOCAL_ADMIN_FALLBACK_HTML = `<!doctype html>
   <p>Local note: configure Wrangler <code>assets.directory</code> (<code>admin-dist</code>) or build the cloud frontend into that path for a full UI.</p>
 </body>
 </html>`;
+
+async function readMailboxDesk(env: Env, installationId: string): Promise<DeskSnapshot | null> {
+  const res = await deviceStub(env, installationId).fetch("https://device-do/mailbox");
+  if (!res.ok) return null;
+  const data = (await res.json()) as { desk?: DeskSnapshot | null };
+  return data.desk ?? null;
+}
+
+function liveBody(desk: DeskSnapshot | null): Record<string, unknown> {
+  const updated = desk?.updated_at ? Date.parse(desk.updated_at) : NaN;
+  const online = Number.isFinite(updated) && Date.now() - updated < 60_000;
+  return {
+    online: false,
+    device_channel: "stored",
+    recently_seen: online,
+    armed: desk?.armed ?? null,
+    blackout: desk?.blackout ?? null,
+    transport: desk?.transport ?? null,
+    udp_active: null,
+    current_scene_id: desk?.current_scene_id ?? null,
+    scene_name: desk?.scene_name ?? null,
+    preset_id: desk?.preset_id ?? null,
+    look: desk?.look ?? null,
+    program: desk?.program ?? null,
+    bpm: desk?.bpm ?? null,
+    face_on: desk?.face_on ?? null,
+    strobe_held: desk?.strobe_held ?? null,
+    sweep_active: desk?.sweep_active ?? null,
+    vertical_sweep_active: desk?.vertical_sweep_active ?? null,
+    preset_time_s: desk?.preset_time_s ?? null,
+    episode_index: desk?.episode_index ?? null,
+    episode_count: desk?.episode_count ?? null,
+    pad_presets: desk?.pad_presets ?? null,
+    capabilities: desk?.capabilities ?? null,
+    effect: desk
+      ? {
+          session: desk.session ?? null,
+          sequence: desk.sequence ?? null,
+          age_ms: replayAgeMs(desk),
+          look: desk.look ?? null,
+          program: desk.program ?? null,
+          preset_id: desk.preset_id ?? null,
+        }
+      : null,
+  };
+}

@@ -1,5 +1,8 @@
 import {
   extractDeviceToken,
+  fallbackDeviceAuth,
+  isDatabaseReadLimit,
+  isDurableVolumeLimit,
   queryTokenForbidden,
   verifyDeviceToken,
   type DeviceAuth,
@@ -22,6 +25,8 @@ import {
   publicAppAssignment,
   reportAppUpdateResult,
 } from "../app/releases";
+import { ackDeskCommands, pollQueuedCommands, saveDeskSnapshot, takeFreshQueuedCommands, type DeskSnapshot } from "../db/deskLink";
+import { touchHeartbeat } from "../db/installations";
 import { deviceStub, forwardAdminWs, forwardDeviceWs } from "../devices";
 import type { Env } from "../env";
 import { errorJson, json } from "../env";
@@ -97,13 +102,73 @@ export async function handleDeviceRequest(request: Request, env: Env): Promise<R
       return json(result);
     }
 
+    if (path === "/device/link" && request.method === "POST") {
+      let auth: DeviceAuth;
+      try {
+        const checked = await requireDevice(request, env, [SCOPE_RUNTIME_CONNECT]);
+        if (checked instanceof Response) return checked;
+        auth = checked;
+      } catch (err) {
+        if (!isDatabaseReadLimit(err)) throw err;
+        const fallback = await fallbackDeviceAuth(request, env);
+        if (!fallback) return errorJson(401, "unauthorized", "Bearer token required");
+        auth = fallback;
+      }
+      const body = (await request.json()) as {
+        heartbeat?: Record<string, unknown>;
+        effect?: DeskSnapshot;
+        acks?: Array<{
+          command_id?: string;
+          status?: string;
+          error_code?: string | null;
+          error_message?: string | null;
+        }>;
+        wait_ms?: number;
+      };
+      const beat = body.heartbeat ?? {};
+      const effect = body.effect ?? {};
+      const desk: DeskSnapshot = {
+        preset_id: str(beat.preset_id) ?? str(effect.preset_id) ?? null,
+        look: str(effect.look) ?? str(beat.look) ?? null,
+        program: str(effect.program) ?? str(beat.program) ?? null,
+        bpm: beat.bpm ?? null,
+        face_on: bool(beat.face_on) ?? null,
+        strobe_held: bool(beat.strobe_held) ?? null,
+        sweep_active: bool(beat.sweep_active) ?? null,
+        vertical_sweep_active: bool(beat.vertical_sweep_active) ?? null,
+        preset_time_s: num(beat.preset_time_s) ?? null,
+        episode_index: num(beat.episode_index) ?? null,
+        episode_count: num(beat.episode_count) ?? null,
+        scene_name: str(beat.scene_name) ?? null,
+        pad_presets: beat.pad_presets ?? null,
+        capabilities: Array.isArray(beat.capabilities)
+          ? beat.capabilities.filter((item): item is string => typeof item === "string")
+          : null,
+        armed: bool(beat.armed) ?? null,
+        blackout: bool(beat.blackout) ?? null,
+        transport: str(beat.transport) ?? null,
+        current_scene_id: str(beat.current_scene_id) ?? null,
+        session: str(effect.session) ?? null,
+        sequence: num(effect.sequence) ?? null,
+        age_ms: num(effect.age_ms) ?? null,
+      };
+      const waitMs = Math.min(2_500, Math.max(0, num(body.wait_ms) ?? 0));
+      return postMailbox(env, auth.installationId, desk, beat, body.acks, waitMs);
+    }
+
     if (path === "/ws/device" && request.headers.get("Upgrade")?.toLowerCase() === "websocket") {
       if (queryTokenForbidden(request, env)) {
         return errorJson(401, "query_token_forbidden", "Use Authorization: Bearer (query token disabled)");
       }
       const token = extractDeviceToken(request, env);
       if (!token) return errorJson(401, "unauthorized", "Bearer token required");
-      const auth = await verifyDeviceToken(env, token);
+      let auth: DeviceAuth | null;
+      try {
+        auth = await verifyDeviceToken(env, token);
+      } catch (err) {
+        if (!isDatabaseReadLimit(err)) throw err;
+        auth = await fallbackDeviceAuth(request, env);
+      }
       if (!auth) return errorJson(401, "unauthorized", "Invalid device token");
       if (auth.revoked) return errorJson(403, "revoked", "Installation revoked");
       if (!hasScope(auth.scopes, SCOPE_RUNTIME_CONNECT)) {
@@ -540,4 +605,90 @@ async function requireDevice(
     return errorJson(403, "forbidden", `Missing required scope (${requiredAnyScope.join(" | ")})`);
   }
   return auth;
+}
+
+async function postMailbox(
+  env: Env,
+  installationId: string,
+  desk: DeskSnapshot,
+  heartbeat: Record<string, unknown>,
+  acks: Array<{ command_id?: string }> | undefined,
+  waitMs = 0,
+): Promise<Response> {
+  try {
+    const stub = deviceStub(env, installationId);
+    const res = await stub.fetch(
+      new Request("https://device-do/mailbox", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          installation_id: installationId,
+          desk,
+          heartbeat,
+          acks: acks ?? [],
+        }),
+      }),
+    );
+    const data = (await res.json()) as { commands?: unknown };
+    return json({
+      ok: true,
+      installation_id: installationId,
+      commands: Array.isArray(data.commands) ? data.commands : [],
+    });
+  } catch (err) {
+    if (!isDurableVolumeLimit(err)) throw err;
+    return linkThroughDatabase(env, installationId, desk, heartbeat, acks, waitMs);
+  }
+}
+
+async function linkThroughDatabase(
+  env: Env,
+  installationId: string,
+  desk: DeskSnapshot,
+  heartbeat: Record<string, unknown>,
+  acks: Array<{ command_id?: string; status?: string; error_code?: string | null; error_message?: string | null }> | undefined,
+  waitMs = 0,
+): Promise<Response> {
+  await saveDeskSnapshot(env, installationId, desk);
+  await touchHeartbeat(env, installationId, {
+    armed: typeof heartbeat.armed === "boolean" ? heartbeat.armed : undefined,
+    blackout: typeof heartbeat.blackout === "boolean" ? heartbeat.blackout : undefined,
+    transport: typeof heartbeat.transport === "string" ? heartbeat.transport : undefined,
+    current_scene_id: typeof heartbeat.current_scene_id === "string" ? heartbeat.current_scene_id : undefined,
+    app_version: typeof heartbeat.app_version === "string" ? heartbeat.app_version : undefined,
+    build_id: typeof heartbeat.build_id === "string" ? heartbeat.build_id : undefined,
+    arch: typeof heartbeat.arch === "string" ? heartbeat.arch : undefined,
+  }).catch((err) => {
+    if (!isDatabaseReadLimit(err)) throw err;
+  });
+  await ackDeskCommands(env, installationId, acks ?? []).catch(() => undefined);
+  const commands = await pollQueuedCommands(
+    async () => {
+      try {
+        return await takeFreshQueuedCommands(env, installationId);
+      } catch (err) {
+        if (!isDatabaseReadLimit(err)) throw err;
+        return [];
+      }
+    },
+    waitMs,
+  );
+  return json({
+    ok: true,
+    installation_id: installationId,
+    commands,
+    relay: "database",
+  });
+}
+
+function num(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function bool(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function str(value: unknown): string | undefined {
+  return typeof value === "string" && value ? value : undefined;
 }

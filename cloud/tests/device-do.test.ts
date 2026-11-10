@@ -53,7 +53,7 @@ class MemoryDOState {
 const hasWebSocketPair = typeof WebSocketPair !== "undefined";
 
 describe("DeviceDO offline + desired state", () => {
-  it("HTTP command while offline returns device_offline (no fake pending)", async () => {
+  it("HTTP command while offline waits in the mailbox (no fake pending)", async () => {
     const env = createMemoryEnv();
     await seedCredential(env, "do-1", "tokentokentokentoken77");
     const state = new MemoryDOState();
@@ -70,13 +70,33 @@ describe("DeviceDO offline + desired state", () => {
         }),
       }),
     );
-    expect(res.status).toBe(409);
+    expect(res.status).toBe(200);
     const body = (await res.json()) as { error?: string; status: string };
-    expect(body.error).toBe("device_offline");
-    expect(body.status).toBe("failed");
-    // No pending left in storage
+    expect(body.status).toBe("queued");
     const meta = await state.storage.get<{ pending: unknown[] }>("meta");
     expect(meta?.pending?.length ?? 0).toBe(0);
+    const queued = await state.storage.get<Array<{ type: string }>>("mailbox_queue");
+    expect(queued?.map((cmd) => cmd.type)).toEqual(["blackout"]);
+  });
+
+  it("refuses to queue a short press while the device is offline", async () => {
+    const env = createMemoryEnv();
+    const state = new MemoryDOState();
+    const dob = new DeviceDO(state as unknown as DurableObjectState, env);
+    const res = await dob.fetch(
+      new Request("https://device-do/mailbox/enqueue", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          command_id: "press-1",
+          type: "strobe_press",
+          payload: { hold_id: "h1" },
+        }),
+      }),
+    );
+    expect(res.status).toBe(409);
+    const queued = await state.storage.get<unknown[]>("mailbox_queue");
+    expect(queued ?? []).toEqual([]);
   });
 
   it("status online is false without device socket", async () => {

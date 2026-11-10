@@ -516,6 +516,17 @@ export function adminListAppEvents(
   return jsonFetch(`${baseUrl(opts)}/admin/app/events${suffix}`, undefined, opts);
 }
 
+export function adminDeviceLive(
+  installationId: string,
+  opts?: AdminClientOptions,
+): Promise<Record<string, unknown>> {
+  return jsonFetch(
+    `${baseUrl(opts)}/admin/devices/${encodeURIComponent(installationId)}/live`,
+    undefined,
+    opts,
+  );
+}
+
 export function adminDeviceCommand(
   installationId: string,
   type: string,

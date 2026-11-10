@@ -167,6 +167,19 @@ export function isAllowedCommandType(type: string): type is AllowedCommandType {
   return (ALLOWED_COMMAND_TYPES as readonly string[]).includes(type);
 }
 
+/** A press, a key, or a calibration step. Replaying it after reconnect fires it again. */
+export function isEphemeralCommand(type: string): boolean {
+  return (
+    MOMENTARY_PRESS_TYPES.has(type) ||
+    MOMENTARY_RELEASE_TYPES.has(type) ||
+    CALIBRATION_COMMAND_TYPES.has(type) ||
+    type === "keyboard" ||
+    type === "hold_keepalive" ||
+    type === "face_toggle" ||
+    type === "release_source"
+  );
+}
+
 /** A location desk must not drive updates, restart, or output arming. */
 export const DESK_SERVICE_COMMANDS: ReadonlySet<string> = new Set([
   "arm",

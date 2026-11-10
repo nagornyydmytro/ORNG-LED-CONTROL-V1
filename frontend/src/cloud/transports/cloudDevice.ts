@@ -1,9 +1,10 @@
-import { adminDeviceCommand, adminWsUrl } from "../../api/adminCloud";
+import { adminDeviceCommand, adminDeviceLive, adminWsUrl } from "../../api/adminCloud";
 import { defaultAccessEmail, defaultAdminBase } from "../mode";
 import { getCloudWebSessionSourceId } from "../sessionSourceId";
 import type { CloudControlTransport, CloudDeviceLiveState } from "../transport";
 import type { SimulatorView } from "../../vite-env";
 import { bindCalibrationChannel, clearCalibrationChannel } from "../../runtime/calibrationChannel";
+import { acceptPreview, REMOTE_PREVIEW_LIVE_MS, type PreviewStamp } from "../../lib/previewFreshness";
 
 function readStage(value: unknown): SimulatorView | null {
   if (!value || typeof value !== "object") return null;
@@ -15,6 +16,8 @@ function readStage(value: unknown): SimulatorView | null {
 }
 
 const KEEPALIVE_MS = 3_500;
+const LINK_POLL_MS = 20_000;
+const LINK_SOCKET_RETRY_MS = 90_000;
 const RECONNECT_BASE_MS = 500;
 const RECONNECT_MAX_MS = 15_000;
 const COMMAND_TIMEOUT_MS = 12_000;
@@ -52,6 +55,9 @@ export function createCloudDeviceTransport(opts: {
   let socket: WebSocket | null = null;
   let connectPromise: Promise<void> | null = null;
   let disposed = false;
+  let linkMode = false;
+  let linkSocketTimer: number | null = null;
+  let linkTimer: number | null = null;
   let reconnectTimer: number | null = null;
   let reconnectAttempt = 0;
   let controlStatus: ControlChannelStatus = "closed";
@@ -81,6 +87,7 @@ export function createCloudDeviceTransport(opts: {
     blackout: true,
   };
   let lastStateAt: number | null = null;
+  let shownPreview: PreviewStamp | null = null;
   let optimisticPreset: { id: string; at: number } | null = null;
   let optimisticBlackout: { value: boolean; at: number } | null = null;
   let optimisticFace: { value: boolean; at: number } | null = null;
@@ -95,6 +102,12 @@ export function createCloudDeviceTransport(opts: {
       return { hold: null, value: incoming };
     }
     return { hold, value: hold.value };
+  }
+
+  function snapshotStale(): boolean {
+    const at = shownPreview?.at ?? lastStateAt;
+    if (at == null) return false;
+    return Date.now() - at > REMOTE_PREVIEW_LIVE_MS;
   }
 
   function emitLive(partial: Partial<CloudDeviceLiveState>) {
@@ -116,7 +129,7 @@ export function createCloudDeviceTransport(opts: {
     const out: CloudDeviceLiveState = {
       ...lastLive,
       control_status: controlStatus,
-      state_stale: controlStatus === "reconnecting" || controlStatus === "connecting",
+      state_stale: snapshotStale(),
       last_state_at: lastStateAt,
     };
     for (const cb of liveListeners) cb(out);
@@ -130,6 +143,21 @@ export function createCloudDeviceTransport(opts: {
 
   function emitAck(ack: { command_id: string; status: string; type?: string; error?: string }) {
     for (const cb of ackListeners) cb(ack);
+  }
+
+  function applyCurrentEffect(payload: Record<string, unknown>) {
+    let bpm: CloudDeviceLiveState["bpm"] = lastLive.bpm;
+    const program = payload.program === "beat" || payload.program === "smooth" ? payload.program : null;
+    const look = typeof payload.look === "string" ? payload.look : null;
+    if (bpm && (program || look)) {
+      bpm = { ...bpm, ...(program ? { program } : {}), ...(look ? { look } : {}) };
+    }
+    shownPreview = acceptPreview(shownPreview, payload);
+    emitLive({
+      preview_at: shownPreview ? shownPreview.at : null,
+      ...(typeof payload.preset_id === "string" ? { preset_id: payload.preset_id } : {}),
+      ...(bpm ? { bpm } : {}),
+    });
   }
 
   function stopHold(effect: string) {
@@ -158,6 +186,10 @@ export function createCloudDeviceTransport(opts: {
     const track = holds.get(effect);
     if (!track || track.holdId !== holdId || track.timer !== null) return;
     const timer = window.setInterval(() => {
+      if (linkMode) {
+        void httpCommand("hold_keepalive", { hold_id: holdId }).catch(() => undefined);
+        return;
+      }
       if (!socket || socket.readyState !== WebSocket.OPEN) return;
       socket.send(
         JSON.stringify({
@@ -176,8 +208,84 @@ export function createCloudDeviceTransport(opts: {
     }
   }
 
+  function stopLinkPoll() {
+    if (linkTimer !== null) {
+      window.clearInterval(linkTimer);
+      linkTimer = null;
+    }
+  }
+
+  async function pollLink() {
+    if (disposed) return;
+    try {
+      const live = await adminDeviceLive(opts.installationId, clientOpts);
+      // A frame that confirmed the executor while this request was in flight wins.
+      if (disposed || !linkMode) return;
+      // A stored row is not the device socket. Last-seen must not mark the hall present.
+      applyAuthoritativeDeviceState({ ...live, online: false, device_channel: "stored" });
+      const effect = live.effect;
+      if (effect && typeof effect === "object") {
+        applyCurrentEffect(effect as Record<string, unknown>);
+      }
+      setControlStatus("open");
+    } catch {
+      if (socket && socket.readyState === WebSocket.OPEN) return;
+      if (disposed || !linkMode) return;
+      setControlStatus("reconnecting");
+    }
+  }
+
+  function noteDevicePresent() {
+    if (!linkMode) return;
+    linkMode = false;
+    clearLinkSocketRetry();
+    stopLinkPoll();
+    setControlStatus("open");
+  }
+
+  function clearLinkSocketRetry() {
+    if (linkSocketTimer !== null) {
+      window.clearTimeout(linkSocketTimer);
+      linkSocketTimer = null;
+    }
+  }
+
+  function scheduleLinkSocketRetry() {
+    if (linkSocketTimer !== null || disposed || !linkMode) return;
+    linkSocketTimer = window.setTimeout(() => {
+      linkSocketTimer = null;
+      if (disposed || !linkMode) return;
+      if (socket && socket.readyState === WebSocket.OPEN) {
+        // The browser channel is still up. That is not the executor.
+        return;
+      }
+      void ensureSocket()
+        .then(() => {
+          if (disposed || !linkMode) return;
+          if (!(socket && socket.readyState === WebSocket.OPEN)) scheduleLinkSocketRetry();
+        })
+        .catch(() => {
+          if (!disposed && linkMode) scheduleLinkSocketRetry();
+        });
+    }, LINK_SOCKET_RETRY_MS);
+  }
+
+  function startLinkPoll() {
+    linkMode = true;
+    scheduleLinkSocketRetry();
+    if (linkTimer !== null) return;
+    void pollLink();
+    linkTimer = window.setInterval(() => {
+      void pollLink();
+    }, LINK_POLL_MS);
+  }
+
   function scheduleReconnect() {
     if (disposed) return;
+    if (linkMode) {
+      startLinkPoll();
+      return;
+    }
     clearReconnectTimer();
     setControlStatus("reconnecting");
     const delay = jitter(
@@ -193,7 +301,7 @@ export function createCloudDeviceTransport(opts: {
   }
 
   async function httpCommand(type: string, payload: Record<string, unknown> = {}) {
-    await ensureSocket();
+    if (!linkMode) await ensureSocket();
     const commandId =
       typeof payload.command_id === "string" && payload.command_id
         ? payload.command_id
@@ -212,7 +320,7 @@ export function createCloudDeviceTransport(opts: {
       data = (await adminDeviceCommand(
         opts.installationId,
         type,
-        { ...payload, command_id: commandId },
+        { ...payload, command_id: commandId, source: sourceId },
         clientOpts,
       )) as typeof data;
     } catch (err) {
@@ -245,6 +353,7 @@ export function createCloudDeviceTransport(opts: {
       }
       return data;
     }
+    // queued and accepted are not applied. Wait for the device ack.
     return applied;
   }
 
@@ -295,8 +404,9 @@ export function createCloudDeviceTransport(opts: {
       typeof payload.episode_index === "number" ? payload.episode_index : lastLive.episode_index ?? 0;
     const episodeHold = keepHold(optimisticEpisode, episodeIncoming);
     optimisticEpisode = episodeHold.hold;
+    const stored = payload.device_channel === "stored";
     emitLive({
-      online: payload.online === undefined ? true : Boolean(payload.online),
+      online: stored ? lastLive.online : payload.online === undefined ? true : Boolean(payload.online),
       armed: Boolean(payload.armed),
       blackout: blackoutHold.value,
       transport: payload.transport != null ? String(payload.transport) : null,
@@ -345,7 +455,7 @@ export function createCloudDeviceTransport(opts: {
       udp_active: typeof payload.udp_active === "boolean" ? payload.udp_active : undefined,
       strobe_speed: typeof payload.strobe_speed === "number" ? payload.strobe_speed : undefined,
       sweep_speed: typeof payload.sweep_speed === "number" ? payload.sweep_speed : undefined,
-      stage: readStage(payload.stage),
+      ...(readStage(payload.stage) ? { stage: readStage(payload.stage) } : {}),
       ...(payload.beam_calibration && typeof payload.beam_calibration === "object"
         ? {
             beam_calibration: payload.beam_calibration as CloudDeviceLiveState["beam_calibration"],
@@ -479,34 +589,26 @@ export function createCloudDeviceTransport(opts: {
               blackout: lastLive.blackout,
             });
           }
+          if (deviceOnline) noteDevicePresent();
+          else if (!disposed) startLinkPoll();
           return;
         }
 
         if (type === "device_heartbeat" || type === "device_state") {
           const payload = (msg.payload ?? {}) as Record<string, unknown>;
+          noteDevicePresent();
           applyAuthoritativeDeviceState(payload);
           return;
         }
 
         if (type === "device_preview") {
-          const payload = (msg.payload ?? {}) as Record<string, unknown>;
-          const stage = readStage(payload.stage);
-          let bpm: CloudDeviceLiveState["bpm"] = lastLive.bpm;
-          if (
-            (payload.program === "beat" || payload.program === "smooth") &&
-            lastLive.bpm
-          ) {
-            bpm = { ...lastLive.bpm, program: payload.program };
-          }
-          emitLive({
-            stage,
-            preview_at: Date.now(),
-            ...(bpm ? { bpm } : {}),
-          });
+          noteDevicePresent();
+          applyCurrentEffect((msg.payload ?? {}) as Record<string, unknown>);
           return;
         }
 
         if (type === "device_offline") {
+          shownPreview = null;
           emitLive({
             online: false,
             armed: lastLive.armed,
@@ -514,6 +616,7 @@ export function createCloudDeviceTransport(opts: {
             stage: null,
             preview_at: null,
           });
+          if (!disposed) startLinkPoll();
           return;
         }
 
@@ -599,6 +702,11 @@ export function createCloudDeviceTransport(opts: {
         socket = null;
         connectPromise = null;
         clearCalibrationChannel(sendCalibration);
+        if (linkMode) {
+          if (!settled) onFail(new Error("admin websocket closed before open"));
+          if (!disposed) startLinkPoll();
+          return;
+        }
         releaseLocalHoldsOnDisconnect();
         rejectAllPending("admin websocket closed");
         // Control channel down ≠ device offline. Keep lastLive.online/armed/blackout.
@@ -656,6 +764,7 @@ export function createCloudDeviceTransport(opts: {
     payload: Record<string, unknown> = {},
     settle: "result" | "applied" = "result",
   ): Promise<Record<string, unknown>> {
+    if (linkMode) return httpCommand(type, payload);
     await ensureSocket();
     if (!socket || socket.readyState !== WebSocket.OPEN) {
       throw new Error("admin websocket not open");
@@ -754,11 +863,33 @@ export function createCloudDeviceTransport(opts: {
     installationId: opts.installationId,
     sourceId,
     async connect() {
-      await ensureSocket();
+      startLinkPoll();
+      const opened = await Promise.race([
+        ensureSocket().then(() => true).catch(() => false),
+        new Promise<boolean>((resolve) => {
+          window.setTimeout(() => resolve(false), 2500);
+        }),
+      ]);
+      if (opened && socket && socket.readyState === WebSocket.OPEN) {
+        // admin_hello decides whether the executor fallback stays.
+        return;
+      }
+      linkMode = true;
+      clearReconnectTimer();
+      try {
+        socket?.close();
+      } catch {
+        /* ignore */
+      }
+      socket = null;
+      connectPromise = null;
+      startLinkPoll();
     },
     dispose() {
       disposed = true;
       clearReconnectTimer();
+      clearLinkSocketRetry();
+      stopLinkPoll();
       for (const effect of [...holds.keys()]) stopHold(effect);
       connectPromise = null;
       setControlStatus("closed");
@@ -775,7 +906,7 @@ export function createCloudDeviceTransport(opts: {
       cb({
         ...lastLive,
         control_status: controlStatus,
-        state_stale: controlStatus === "reconnecting" || controlStatus === "connecting",
+        state_stale: snapshotStale(),
         last_state_at: lastStateAt,
       });
       return () => liveListeners.delete(cb);

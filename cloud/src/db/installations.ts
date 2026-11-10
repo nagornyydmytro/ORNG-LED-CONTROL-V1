@@ -171,9 +171,9 @@ export function publicInstallation(
   };
 }
 
-function isRecentlySeen(lastSeen: string | null): boolean {
+export function isRecentlySeen(lastSeen: string | null): boolean {
   if (!lastSeen) return false;
-  return Date.now() - Date.parse(lastSeen) < 45_000;
+  return Date.now() - Date.parse(lastSeen) < 180_000;
 }
 
 function safeJson(raw: string): unknown {

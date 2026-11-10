@@ -3,6 +3,7 @@ import { mount } from "@vue/test-utils";
 import { createMemoryHistory, createRouter } from "vue-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fetchAutoPreview } from "../api/auto";
+import { REMOTE_PREVIEW_LIVE_MS } from "../lib/previewFreshness";
 import { APP_STATE_KEY } from "../composables/appStateKey";
 import ControlView from "./ControlView.vue";
 
@@ -105,7 +106,7 @@ function mountDesk(
       stubs: { StageSimulator: true, LiveFxPanel: true, BpmModePicker: true },
     },
   });
-  return { wrapper, router, state, engine };
+  return { wrapper, router, state, engine, connection: api.connection };
 }
 
 describe("ControlView accepted BPM", () => {
@@ -262,11 +263,29 @@ describe("ControlView accepted BPM", () => {
       { enabled: true, scope: "auto", look: "vertical_wave", program: "beat", sync: "locked", locked: true, bpm: 120 },
       "raspberry",
     );
-    state.value = { ...state.value, preview_at: Date.now() - 2000 };
+    state.value = { ...state.value, preview_at: Date.now() - 6_000 };
+    await router.isReady();
+    await nextTick();
+    expect(wrapper.get("[data-stage-note]").text()).toContain("бітова програма");
+    state.value = { ...state.value, preview_at: Date.now() - (REMOTE_PREVIEW_LIVE_MS + 1_000) };
     await router.isReady();
     await nextTick();
     expect(wrapper.get("[data-stage-note]").text()).toContain("Немає живого кадру");
     expect(fetchAutoPreview).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+
+  it("keeps a missing executor apart from a missing backend", async () => {
+    const { wrapper, router, state, connection } = mountDesk({}, "raspberry");
+    state.value = { ...state.value, executor_online: false, preview_at: null };
+    await router.isReady();
+    await nextTick();
+    expect(wrapper.text()).toContain("Виконавець не на зв'язку");
+    expect(wrapper.text()).not.toContain("Немає зв'язку з backend");
+    connection.value = "offline";
+    await nextTick();
+    expect(wrapper.text()).toContain("Немає зв'язку з backend");
+    expect(wrapper.text()).not.toContain("Виконавець не на зв'язку");
     wrapper.unmount();
   });
 });

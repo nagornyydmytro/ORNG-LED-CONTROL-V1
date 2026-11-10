@@ -1,5 +1,6 @@
 /** Assigned scene release as text files — same bundle format, not a second model. */
 
+import { isDatabaseReadLimit, readLimitedLocation } from "../auth/device";
 import type { Env } from "../env";
 import { deviceStub } from "../devices";
 import {
@@ -132,6 +133,17 @@ export async function publishAssignedWorkspace(
 
 /** Canonical scene for a location. The executor may be offline or absent. */
 export async function loadLocationWorkspace(env: Env, locationId: string) {
+  try {
+    return await loadIndexedLocationWorkspace(env, locationId);
+  } catch (err) {
+    if (!isDatabaseReadLimit(err)) throw err;
+    const known = readLimitedLocation();
+    if (locationId !== known.id) throw err;
+    return loadSceneWorkspaceFromBucket(env, known.id, known.name, known.scene_id);
+  }
+}
+
+async function loadIndexedLocationWorkspace(env: Env, locationId: string) {
   const location = await env.DB.prepare(
     `SELECT id, name, scene_id FROM locations WHERE id = ?`,
   )
@@ -161,6 +173,53 @@ export async function loadLocationWorkspace(env: Env, locationId: string) {
     scene_id: location.scene_id,
     scene_name: location.name,
     version,
+    content_hash: unpacked.contentHash,
+    track_latest: true,
+    files: unpacked.files.map((file) => ({
+      path: file.path,
+      text: new TextDecoder().decode(file.data),
+    })),
+  };
+}
+
+/** The published bundle, when the release index will not answer a read. */
+async function loadSceneWorkspaceFromBucket(
+  env: Env,
+  locationId: string,
+  locationName: string,
+  sceneId: string,
+) {
+  let cursor: string | undefined;
+  let best: { key: string; version: number } | null = null;
+  do {
+    const page = await env.SCENE_RELEASES.list({
+      prefix: `scenes/${sceneId}/`,
+      cursor,
+      limit: 200,
+    });
+    for (const object of page.objects) {
+      const match = /^scenes\/[^/]+\/v(\d+)\//.exec(object.key);
+      if (!match) continue;
+      const version = Number(match[1]);
+      if (!best || version > best.version) best = { key: object.key, version };
+    }
+    cursor = page.truncated ? page.cursor : undefined;
+  } while (cursor);
+  if (!best) {
+    throw new ReleaseError(404, "no_release", "Location scene has no published release");
+  }
+  const body = await env.SCENE_RELEASES.get(best.key);
+  if (!body) {
+    throw new ReleaseError(404, "not_found", "Location release bundle is missing");
+  }
+  const bytes = new Uint8Array(await body.arrayBuffer());
+  const unpacked = await unpackBundle(bytes, sceneId);
+  return {
+    installation_id: null,
+    location_id: locationId,
+    scene_id: sceneId,
+    scene_name: locationName,
+    version: best.version,
     content_hash: unpacked.contentHash,
     track_latest: true,
     files: unpacked.files.map((file) => ({

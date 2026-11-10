@@ -37,8 +37,10 @@ export type CloudDeviceLiveState = {
   blackout: boolean;
   /** Admin WSS channel — independent of device online. */
   control_status?: "idle" | "connecting" | "open" | "reconnecting" | "closed";
-  /** True when last device snapshot is older than reconnect window. */
+  /** True when the last device snapshot is too old to treat as live. */
   state_stale?: boolean;
+  /** Queued is still waiting. It is not an applied result. */
+  command_status?: "idle" | "queued" | "applied" | "failed";
   /** Epoch ms of last authoritative armed/blackout/preset snapshot. */
   last_state_at?: number | null;
   transport?: string | null;

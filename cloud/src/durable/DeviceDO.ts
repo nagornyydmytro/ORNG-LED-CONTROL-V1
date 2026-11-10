@@ -4,9 +4,18 @@
  */
 import { appUpdateCommandId, planAppDelivery } from "../app/nudge";
 import { getAppAssignment, reportAppUpdateResult } from "../app/releases";
+import { isDatabaseReadLimit } from "../auth/device";
 import { ackCommand, getCommand, logCommand } from "../db/commands";
+import { stampDeskSnapshot, type DeskSnapshot } from "../db/deskLink";
 import { getAssignment } from "../scenes/releases";
 import { touchHeartbeat } from "../db/installations";
+import {
+  deliverMailbox,
+  rememberCommand,
+  withoutAckedOrExpired,
+  type MailboxCommand,
+} from "./mailboxQueue";
+import { previewRelayPayload } from "./previewRelay";
 import type { Env } from "../env";
 import { nowIso, uuid } from "../env";
 import {
@@ -15,6 +24,7 @@ import {
   CALIBRATION_COMMAND_TYPES,
   CALIBRATION_LEASE_MS,
   DEFAULT_COMMAND_TTL_MS,
+  isEphemeralCommand,
   HOLD_LEASE_MS,
   MOMENTARY_PRESS_TYPES,
   MOMENTARY_RELEASE_TYPES,
@@ -25,6 +35,9 @@ import {
   type CommandEnvelope,
 } from "../protocol/types";
 
+/** Unchanged show state is written at most this often. */
+const PRESENCE_WRITE_MS = 120_000;
+
 const APP_UPDATE_COMMAND_TYPES: ReadonlySet<string> = new Set([
   "check_app_update",
   "stage_app_update",
@@ -32,10 +45,6 @@ const APP_UPDATE_COMMAND_TYPES: ReadonlySet<string> = new Set([
   "rollback_app_update",
   "restart_runtime",
 ]);
-
-/** Unchanged show state is written at most this often. */
-const PRESENCE_WRITE_MS = 120_000;
-
 interface Attachment {
   role: "device" | "admin";
   installationId: string;
@@ -99,9 +108,9 @@ export class DeviceDO implements DurableObject {
   private heartbeatSignature = "";
   private lastArch = "";
   private lastPresenceWrite = 0;
-  private lastNudgeAt = 0;
   /** One stage/apply push per desired build while this socket stays up. */
   private nudgedStageBuild: string | null = null;
+  private lastNudgeAt = 0;
   private nudgedApplyBuild: string | null = null;
   constructor(state: DurableObjectState, env: Env) {
     this.state = state;
@@ -176,6 +185,16 @@ export class DeviceDO implements DurableObject {
       }
       return Response.json({ ok: true, cleared: Boolean(commandId) });
     }
+    if (path === "/mailbox" && request.method === "GET") {
+      const desk = (await this.state.storage.get<Record<string, unknown>>("mailbox_desk")) ?? null;
+      return Response.json({ desk });
+    }
+    if (path === "/mailbox" && request.method === "POST") {
+      return this.acceptMailbox(request);
+    }
+    if (path === "/mailbox/enqueue" && request.method === "POST") {
+      return this.enqueueMailbox(request);
+    }
     if (path === "/status") {
       return Response.json({
         online: Boolean(this.deviceSocket),
@@ -211,12 +230,12 @@ export class DeviceDO implements DurableObject {
     this.deviceSocket = server;
     this.deviceSessionId = sessionId;
     this.installationId = installationId;
-    // Do NOT replay momentary presses after reconnect вЂ” drop them.
+    void this.flushMailboxToDevice();
+    // A press, a key, or a calibration step must not fire again after reconnect.
     for (const [id, cmd] of [...this.pending.entries()]) {
-      if (cmd.momentary_press) {
-        this.pending.delete(id);
-      }
+      if (cmd.momentary_press || isEphemeralCommand(cmd.type)) this.pending.delete(id);
     }
+    void this.redeliverPending(server);
     void this.persistMeta();
     // Desired scene + app state lives in D1; push on reconnect until applied ACK.
     void this.pushDesiredAssignment(installationId);
@@ -284,6 +303,161 @@ export class DeviceDO implements DurableObject {
     this.tellSubscribers();
     return new Response(null, { status: 101, webSocket: client });
   }
+  private async readMailboxQueue(): Promise<MailboxCommand[]> {
+    const stored = (await this.state.storage.get<MailboxCommand[]>("mailbox_queue")) ?? [];
+    return stored.map((cmd) => ({
+      command_id: String(cmd.command_id ?? ""),
+      type: String(cmd.type ?? ""),
+      payload: cmd.payload ?? {},
+      enqueued_at: Number(cmd.enqueued_at ?? 0),
+      ttl_ms: Number(cmd.ttl_ms ?? 0),
+    }));
+  }
+
+  private async acceptMailbox(request: Request): Promise<Response> {
+    const body = (await request.json()) as {
+      installation_id?: string;
+      desk?: Record<string, unknown>;
+      heartbeat?: Record<string, unknown>;
+      acks?: Array<{ command_id?: string }>;
+    };
+    if (body.installation_id) this.installationId = body.installation_id;
+    const acked = new Set(
+      (body.acks ?? []).map((ack) => ack.command_id).filter((id): id is string => Boolean(id)),
+    );
+    const waiting = withoutAckedOrExpired(await this.readMailboxQueue(), acked);
+    await this.state.storage.put("mailbox_queue", waiting);
+    if (body.desk) {
+      const previous = (await this.state.storage.get<DeskSnapshot>("mailbox_desk")) ?? null;
+      await this.state.storage.put(
+        "mailbox_desk",
+        stampDeskSnapshot(previous, body.desk as DeskSnapshot),
+      );
+    }
+    if (body.installation_id && body.heartbeat) {
+      await this.persistPresence(body.installation_id, body.heartbeat);
+    }
+    return Response.json({ commands: waiting.slice(0, 20) });
+  }
+
+  /** One installation row, at most every two minutes. Never the command history. */
+  private async persistPresence(installationId: string, beat: Record<string, unknown>): Promise<void> {
+    const last = (await this.state.storage.get<number>("presence_at")) ?? 0;
+    if (Date.now() - last < 120_000) return;
+    await this.state.storage.put("presence_at", Date.now());
+    try {
+      await touchHeartbeat(this.env, installationId, {
+        uptime_s: num(beat.uptime_s),
+        armed: bool(beat.armed),
+        blackout: bool(beat.blackout),
+        transport: str(beat.transport),
+        udp_active: bool(beat.udp_active),
+        current_scene_id: str(beat.current_scene_id),
+        current_release_version: num(beat.current_release_version),
+        current_content_hash: str(beat.current_content_hash),
+        last_synced_hash: str(beat.last_synced_hash),
+        last_error: beat.last_error === null ? null : str(beat.last_error),
+        app_version: str(beat.app_version),
+        build_id: str(beat.build_id),
+        arch: str(beat.arch),
+        install_mode: str(beat.install_mode),
+        updater_protocol_version: num(beat.updater_protocol_version),
+      });
+    } catch (err) {
+      if (!isDatabaseReadLimit(err)) console.error("presence persist", err);
+    }
+  }
+
+  private async rememberMailboxCommand(
+    commandId: string,
+    type: string,
+    payload: Record<string, unknown>,
+    enqueuedAt = Date.now(),
+  ): Promise<boolean> {
+    if (isEphemeralCommand(type)) return false;
+    const ttl = Number(payload.ttl_ms ?? DEFAULT_COMMAND_TTL_MS);
+    const queue = await this.readMailboxQueue();
+    const kept = queue.find((cmd) => cmd.command_id === commandId);
+    const next = rememberCommand(queue, {
+      command_id: commandId,
+      type,
+      payload,
+      enqueued_at: kept?.enqueued_at ?? enqueuedAt,
+      ttl_ms: Number.isFinite(ttl) && ttl > 0 ? ttl : DEFAULT_COMMAND_TTL_MS,
+    });
+    if (!next) return false;
+    await this.state.storage.put("mailbox_queue", next);
+    return true;
+  }
+
+  private redeliverPending(socket: WebSocket): void {
+    for (const cmd of this.pending.values()) {
+      if (cmd.momentary_press || isEphemeralCommand(cmd.type)) continue;
+      try {
+        socket.send(
+          JSON.stringify({
+            protocol_version: PROTOCOL_VERSION,
+            message_id: uuid(),
+            type: cmd.type,
+            device_id: this.installationId ?? "",
+            sent_at: new Date(cmd.created_at).toISOString(),
+            payload: cmd.payload,
+          }),
+        );
+      } catch {
+        /* it stays pending with its original time */
+      }
+    }
+  }
+  private async flushMailboxToDevice(): Promise<void> {
+    const socket = this.deviceSocket;
+    if (!socket) return;
+    const waiting = withoutAckedOrExpired(await this.readMailboxQueue(), new Set());
+    const kept = deliverMailbox(waiting, (cmd) => {
+      socket.send(
+        JSON.stringify({
+          protocol_version: PROTOCOL_VERSION,
+          message_id: uuid(),
+          type: cmd.type,
+          device_id: this.installationId ?? "",
+          sent_at: new Date(cmd.enqueued_at).toISOString(),
+          payload: cmd.payload,
+        }),
+      );
+    });
+    await this.state.storage.put("mailbox_queue", kept);
+  }
+
+  private async readKnownCommand(commandId: string) {
+    try {
+      return await getCommand(this.env, commandId);
+    } catch (err) {
+      if (!isDatabaseReadLimit(err)) throw err;
+      return null;
+    }
+  }
+
+  private async enqueueMailbox(request: Request): Promise<Response> {
+    const body = (await request.json()) as {
+      command_id?: string;
+      type?: string;
+      payload?: Record<string, unknown>;
+    };
+    const commandId = String(body.command_id ?? "");
+    const type = String(body.type ?? "");
+    if (!commandId || !type) {
+      return Response.json({ ok: false }, { status: 400 });
+    }
+    const stored = await this.rememberMailboxCommand(commandId, type, body.payload ?? {});
+    if (!stored) {
+      return Response.json(
+        { ok: false, status: "failed", error: "device_offline", command_id: commandId },
+        { status: 409 },
+      );
+    }
+    return Response.json({ ok: true, status: "queued", command_id: commandId });
+  }
+
   private async handleHttpCommand(request: Request): Promise<Response> {
     const body = (await request.json()) as {
       type: string;
@@ -462,7 +636,7 @@ export class DeviceDO implements DurableObject {
           this.lastPresenceWrite = Date.now();
           await this.persistMeta();
         } catch (err) {
-          console.error("heartbeat persist", err);
+          if (!isDatabaseReadLimit(err)) console.error("heartbeat persist", err);
         }
       }
       this.lastHeartbeat = { ...payload };
@@ -495,12 +669,7 @@ export class DeviceDO implements DurableObject {
         type: "device_preview",
         device_id: att.installationId,
         sent_at: nowIso(),
-        payload: {
-          stage: payload.stage ?? null,
-          program: payload.program ?? null,
-          look: payload.look ?? null,
-          captured_at: payload.captured_at ?? null,
-        },
+        payload: previewRelayPayload(payload),
       });
       return;
     }
@@ -558,8 +727,32 @@ export class DeviceDO implements DurableObject {
         return;
       }
       if (commandId) {
-        const existing = await getCommand(this.env, commandId);
+        let existing: Awaited<ReturnType<typeof getCommand>> = null;
+        let historyBlocked = false;
+        try {
+          existing = await getCommand(this.env, commandId);
+        } catch (err) {
+          if (!isDatabaseReadLimit(err)) throw err;
+          historyBlocked = true;
+        }
         const pending = this.pending.get(commandId);
+        if (historyBlocked) {
+          const owns = pending != null || this.installationId === att.installationId;
+          if (owns && pending) {
+            if (!(status === "accepted" && pending.desired_sync === true)) {
+              this.pending.delete(commandId);
+              if (status === "failed" || status === "rejected") this.dropHoldsForCommand(commandId);
+              await this.persistMeta();
+            }
+          }
+          if (owns) {
+            this.broadcastAdmins(msg);
+          }
+          return;
+        }
+        if (existing && existing.installation_id !== att.installationId) {
+          return;
+        }
         // ACK scoped to this installation (+ type when known) — cannot ACK another install's command.
         if (
           existing &&
@@ -826,9 +1019,8 @@ export class DeviceDO implements DurableObject {
       opts.desiredSync === true ||
       (type === "sync_scene_release" && commandId.startsWith("desired:")) ||
       (APP_UPDATE_COMMAND_TYPES.has(type) && commandId.startsWith("desired-app"));
-    const existing = await getCommand(this.env, commandId);
+    const existing = await this.readKnownCommand(commandId);
     if (existing) {
-      // Applied в†’ permanent idempotent success (no re-send).
       if (existing.status === "applied") {
         return {
           ok: true,
@@ -837,9 +1029,10 @@ export class DeviceDO implements DurableObject {
           idempotent_replay: true,
         };
       }
-      // Momentary / ordinary: accepted or failed blocks re-issue of same command_id.
-      // Desired sync: accepted must NOT permanently block re-send until applied ACK.
-      if (!desiredSync) {
+      // queued is still waiting. accepted on a desired sync is still waiting.
+      // Anything else already has a terminal result and is not applied again.
+      const stillOpen = existing.status === "queued" || (desiredSync && existing.status === "accepted");
+      if (!stillOpen) {
         return {
           ok: true,
           command_id: commandId,
@@ -847,7 +1040,6 @@ export class DeviceDO implements DurableObject {
           idempotent_replay: true,
         };
       }
-      // Desired sync still pending (accepted) or previously failed в†’ fall through to redeliver.
     }
     const ttl = Number(opts.payload.ttl_ms ?? DEFAULT_COMMAND_TTL_MS);
     const envelope: CommandEnvelope = {
@@ -858,7 +1050,7 @@ export class DeviceDO implements DurableObject {
         opts.installationId ||
         this.installationId ||
         (this.sessions.values().next().value?.installationId ?? ""),
-      sent_at: nowIso(),
+      sent_at: existing?.created_at ?? nowIso(),
       payload: {
         ...opts.payload,
         command_id: commandId,
@@ -867,30 +1059,49 @@ export class DeviceDO implements DurableObject {
         source: opts.source,
       },
     };
-    // Offline: transient commands fail immediately вЂ” no fake pending that never sends.
-    // Desired scene state is tracked in D1 separately (picked up on reconnect).
+    // A press that missed the socket must not fire later. A look, blackout or
+    // preset waits in object storage and rides the next check-in. The command
+    // table is not scanned to find it.
     if (!this.deviceSocket) {
-      if (!existing) {
+      const transient =
+        MOMENTARY_PRESS_TYPES.has(type) ||
+        MOMENTARY_RELEASE_TYPES.has(type) ||
+        type === "keyboard" ||
+        type === "hold_keepalive" ||
+        CALIBRATION_COMMAND_TYPES.has(type);
+      if (transient) {
+        if (!existing) {
+          try {
+            await logCommand(this.env, {
+              command_id: commandId,
+              installation_id: envelope.device_id,
+              type,
+              payload: envelope.payload,
+              status: "failed",
+              error_code: "device_offline",
+              error_message: "Device offline",
+            });
+          } catch (err) {
+            if (!isDatabaseReadLimit(err)) console.error("command log", err);
+          }
+        }
+        return { ok: false, command_id: commandId, status: "failed", error: "device_offline" };
+      }
+      await this.rememberMailboxCommand(commandId, type, envelope.payload);
+      return { ok: true, command_id: commandId, status: "queued" };
+    }
+    if (!existing) {
+      try {
         await logCommand(this.env, {
           command_id: commandId,
           installation_id: envelope.device_id,
           type,
           payload: envelope.payload,
-          status: "failed",
-          error_code: "device_offline",
-          error_message: "Device offline",
+          status: "accepted",
         });
+      } catch (err) {
+        if (!isDatabaseReadLimit(err)) console.error("command log", err);
       }
-      return { ok: false, command_id: commandId, status: "failed", error: "device_offline" };
-    }
-    if (!existing) {
-      await logCommand(this.env, {
-        command_id: commandId,
-        installation_id: envelope.device_id,
-        type,
-        payload: envelope.payload,
-        status: "accepted",
-      });
     } else if (existing.status === "failed" && desiredSync) {
       // Reset to accepted so reconnect redelivery is tracked until applied.
       await ackCommand(this.env, commandId, "accepted", null, null, {
@@ -898,10 +1109,12 @@ export class DeviceDO implements DurableObject {
         type,
       });
     }
+    const prior = this.pending.get(commandId);
+    const loggedAt = existing?.created_at ? Date.parse(existing.created_at) : NaN;
     this.pending.set(commandId, {
       command_id: commandId,
       type,
-      created_at: Date.now(),
+      created_at: prior?.created_at ?? (Number.isFinite(loggedAt) ? loggedAt : Date.now()),
       ttl_ms: ttl,
       momentary_press:
         MOMENTARY_PRESS_TYPES.has(type) ||
@@ -916,14 +1129,24 @@ export class DeviceDO implements DurableObject {
     try {
       this.deviceSocket.send(JSON.stringify(envelope));
     } catch {
+      const born = this.pending.get(commandId)?.created_at ?? Date.now();
       this.pending.delete(commandId);
       this.dropHoldsForCommand(commandId);
-      await ackCommand(this.env, commandId, "failed", "send_failed", "Send failed", {
+      if (isEphemeralCommand(type)) {
+        await ackCommand(this.env, commandId, "failed", "send_failed", "Send failed", {
+          installationId: envelope.device_id,
+          type,
+        }).catch(() => undefined);
+        await this.persistMeta();
+        return { ok: false, command_id: commandId, status: "failed", error: "send_failed" };
+      }
+      await this.rememberMailboxCommand(commandId, type, envelope.payload, born);
+      await ackCommand(this.env, commandId, "queued", null, null, {
         installationId: envelope.device_id,
         type,
-      });
+      }).catch(() => undefined);
       await this.persistMeta();
-      return { ok: false, command_id: commandId, status: "failed", error: "send_failed" };
+      return { ok: true, command_id: commandId, status: "queued" };
     }
     return { ok: true, command_id: commandId, status: "accepted" };
   }

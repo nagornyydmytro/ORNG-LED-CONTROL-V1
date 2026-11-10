@@ -83,7 +83,8 @@ def test_socket_carries_the_snapshot_and_http_waits_until_it_drops(monkeypatch) 
             first = asyncio.create_task(remote_desk.watch_executor(runtime))
             second = asyncio.create_task(remote_desk.watch_executor(runtime))
             await asyncio.wait_for(started.wait(), 2)
-            await asyncio.sleep(0.05)
+            # Longer than the removed 2s cloud poll. A live socket must stay quiet.
+            await asyncio.sleep(2.2)
             assert runtime.executor_online is False
             assert runtime.executor_view["blackout"] is False
             assert runtime.executor_view["preset_id"] == "look-a"

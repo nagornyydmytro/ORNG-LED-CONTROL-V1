@@ -22,7 +22,7 @@ describe("venue LAN session", () => {
   });
 
   it("posts the password in the body and not in the address", async () => {
-    const fetchMock = vi.fn(async (url: string) => Response.json({ ok: true, role: "operator" }));
+    const fetchMock = vi.fn(async () => Response.json({ ok: true, role: "operator" }));
     vi.stubGlobal("fetch", fetchMock);
     await loginLanDesk("hall-secret");
     expect(String(fetchMock.mock.calls[0]?.[0])).toBe("/api/lan/login");

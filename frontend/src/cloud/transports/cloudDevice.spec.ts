@@ -120,6 +120,19 @@ describe("cloud desk recovery", () => {
     expect(states.at(-1)?.control_status).toBe("open");
   });
 
+  it("keeps polling across three 90-second retry windows", async () => {
+    const { states } = await boot(false);
+    const added: number[] = [];
+    for (let cycle = 0; cycle < 3; cycle += 1) {
+      const before = live.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(90_000);
+      added.push(live.mock.calls.length - before);
+    }
+    expect(added.every((count) => count >= 3)).toBe(true);
+    expect(FakeSocket.instances.filter((item) => item.readyState === FakeSocket.OPEN)).toHaveLength(1);
+    expect(states.at(-1)?.online).toBe(false);
+  });
+
   it("keeps the fallback when only the device socket drops", async () => {
     const { sock } = await boot(true);
     const settled = live.mock.calls.length;

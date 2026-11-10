@@ -1223,6 +1223,8 @@ export class DeviceDO implements DurableObject {
     desiredBuild: string | null,
     desiredVersion: string | null,
   ): void {
+    // No assignment is not a replacement. A restored apply stays until its own result.
+    if (!desiredBuild) return;
     for (const [id, cmd] of [...this.pending.entries()]) {
       if (!APP_UPDATE_COMMAND_TYPES.has(cmd.type) || cmd.type === "restart_runtime") continue;
       const build = str(cmd.payload?.build_id);

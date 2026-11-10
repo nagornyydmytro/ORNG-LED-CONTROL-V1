@@ -23,6 +23,12 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from orng_led.api.runtime import CommandConflictError
+from orng_led.cloud.budget import (
+    PREVIEW_INTERVAL_S,
+    heartbeat_interval_s,
+    preview_key,
+    should_publish_preview,
+)
 from orng_led.cloud.credentials import credential_status, load_device_token
 from orng_led.cloud.hold_lease import CloudHoldLeases, CloudLease
 from orng_led.cloud.preview import PreviewOutbox
@@ -176,6 +182,8 @@ class CloudDeviceAgent:
         self._leases = CloudHoldLeases()
         self._preview = PreviewOutbox()
         self._key_profile: dict[str, str] = {}
+        self._subscribers = 0
+        self._preview_key: tuple[object, ...] | None = None
 
     @property
     def status(self) -> dict[str, Any]:
@@ -278,6 +286,7 @@ class CloudDeviceAgent:
             await self._flush_pending_update_result(ws)
             heartbeat = asyncio.create_task(self._heartbeat(ws))
             preview = asyncio.create_task(self._preview_loop(ws))
+            leases = asyncio.create_task(self._lease_watch())
             try:
                 async for raw in ws:
                     if self._stop.is_set():
@@ -292,21 +301,53 @@ class CloudDeviceAgent:
             finally:
                 heartbeat.cancel()
                 preview.cancel()
+                leases.cancel()
                 self.connected = False
                 self._drop_all_cloud_holds()
 
-    async def _preview_loop(self, ws: Any) -> None:
-        """Ten pictures a second. A stuck socket drops the old one."""
+    async def _lease_watch(self) -> None:
+        """Release a cloud hold on the lease clock, not on the heartbeat."""
         while not self._stop.is_set():
+            for lease in self._leases.expired():
+                self._release_cloud_lease(lease)
             try:
-                packet = await asyncio.to_thread(self.runtime.desk_preview)
-            except Exception:  # noqa: BLE001 — a preview must not stop the session
-                packet = None
-            if isinstance(packet, dict):
-                self._preview.offer(packet)
+                await asyncio.wait_for(self._stop.wait(), timeout=1.0)
+                return
+            except TimeoutError:
+                continue
+
+    async def _note_subscribers(self, ws: Any, count: int) -> None:
+        """A desk just opened. Send the current effect once, then only changes."""
+        opened = self._subscribers <= 0 < count
+        self._subscribers = max(0, count)
+        if not opened:
+            return
+        self._preview_key = None
+        try:
+            packet = await asyncio.to_thread(self.runtime.desk_preview)
+        except Exception:  # noqa: BLE001
+            return
+        if isinstance(packet, dict) and should_publish_preview(1, None, packet):
+            self._preview_key = preview_key(packet)
+            self._preview.offer(packet)
             await self._send_preview(ws)
+
+    async def _preview_loop(self, ws: Any) -> None:
+        """The current effect, when a desk is open and it changed."""
+        while not self._stop.is_set():
+            if self._subscribers > 0:
+                try:
+                    packet = await asyncio.to_thread(self.runtime.desk_preview)
+                except Exception:  # noqa: BLE001 — a preview must not stop the session
+                    packet = None
+                if isinstance(packet, dict) and should_publish_preview(
+                    self._subscribers, self._preview_key, packet
+                ):
+                    self._preview_key = preview_key(packet)
+                    self._preview.offer(packet)
+                    await self._send_preview(ws)
             try:
-                await asyncio.wait_for(self._stop.wait(), timeout=0.1)
+                await asyncio.wait_for(self._stop.wait(), timeout=PREVIEW_INTERVAL_S)
                 return
             except TimeoutError:
                 continue
@@ -353,7 +394,14 @@ class CloudDeviceAgent:
     async def _heartbeat(self, ws: Any) -> None:
         while not self._stop.is_set():
             await self._heartbeat_once(ws)
-            await asyncio.sleep(2)
+            try:
+                await asyncio.wait_for(
+                    self._stop.wait(),
+                    timeout=heartbeat_interval_s(self._subscribers),
+                )
+                return
+            except TimeoutError:
+                continue
 
     def _heartbeat_disk(self, scene_id: str) -> tuple[Any, dict[str, Any], dict[str, Any]]:
         """Files, thermal and venue probe. Never on the frame loop."""
@@ -467,11 +515,18 @@ class CloudDeviceAgent:
 
     async def _handle_message(self, ws: Any, msg: dict[str, Any]) -> None:
         msg_type = str(msg.get("type", ""))
+        if msg_type == "subscribers":
+            raw = msg.get("payload") if isinstance(msg.get("payload"), dict) else {}
+            await self._note_subscribers(ws, int(raw.get("count") or 0))
+            return
         if msg_type not in ALLOWED and msg_type not in {"session_hello"}:
             await self._ack(ws, msg, "failed", "not_allowlisted", msg_type)
             return
         if msg_type == "session_hello":
             self.installation_id = str(msg.get("device_id") or self.installation_id)
+            raw = msg.get("payload") if isinstance(msg.get("payload"), dict) else {}
+            if "subscribers" in raw:
+                await self._note_subscribers(ws, int(raw.get("subscribers") or 0))
             return
 
         payload = dict(msg.get("payload") or {})
@@ -486,6 +541,8 @@ class CloudDeviceAgent:
 
         try:
             outcome = await self._dispatch(msg_type, payload, command_id=command_id)
+            if msg_type == "hold_keepalive":
+                return
             if outcome == "deferred" or (
                 isinstance(outcome, CloudOutcome) and outcome.status == "deferred"
             ):

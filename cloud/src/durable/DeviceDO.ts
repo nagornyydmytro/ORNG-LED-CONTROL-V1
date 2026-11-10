@@ -32,6 +32,10 @@ const APP_UPDATE_COMMAND_TYPES: ReadonlySet<string> = new Set([
   "rollback_app_update",
   "restart_runtime",
 ]);
+
+/** Unchanged show state is written at most this often. */
+const PRESENCE_WRITE_MS = 120_000;
+
 interface Attachment {
   role: "device" | "admin";
   installationId: string;
@@ -92,6 +96,10 @@ export class DeviceDO implements DurableObject {
   private calibrationLeaseUntil = 0;
   private lastHeartbeat: Record<string, unknown> | null = null;
   private lastHeartbeatAt: string | null = null;
+  private heartbeatSignature = "";
+  private lastArch = "";
+  private lastPresenceWrite = 0;
+  private lastNudgeAt = 0;
   /** One stage/apply push per desired build while this socket stays up. */
   private nudgedStageBuild: string | null = null;
   private nudgedApplyBuild: string | null = null;
@@ -224,9 +232,11 @@ export class DeviceDO implements DurableObject {
           session_id: sessionId,
           reconnect: RECONNECT_GUIDANCE,
           allowed_commands: ALLOWED_COMMAND_TYPES,
+          subscribers: this.adminCount(),
         },
       }),
     );
+    this.tellSubscribers();
     return new Response(null, { status: 101, webSocket: client });
   }
   private acceptAdmin(request: Request): Response {
@@ -271,6 +281,7 @@ export class DeviceDO implements DurableObject {
         },
       }),
     );
+    this.tellSubscribers();
     return new Response(null, { status: 101, webSocket: client });
   }
   private async handleHttpCommand(request: Request): Promise<Response> {
@@ -332,6 +343,7 @@ export class DeviceDO implements DurableObject {
       const source = att.source ?? `cloud:web:${att.sessionId}`;
       await this.releaseSourceHolds(source, att.sessionId);
       await this.endCalibrationIfOwner(source, att.installationId);
+      this.tellSubscribers();
     }
   }
   async webSocketError(ws: WebSocket, _error: unknown): Promise<void> {
@@ -341,6 +353,7 @@ export class DeviceDO implements DurableObject {
       const source = att.source ?? `cloud:web:${att.sessionId}`;
       await this.releaseSourceHolds(source, att.sessionId);
       await this.endCalibrationIfOwner(source, att.installationId);
+      this.tellSubscribers();
     }
     if (att?.role === "device" && this.deviceSessionId === att.sessionId) {
       this.deviceSocket = null;
@@ -420,27 +433,41 @@ export class DeviceDO implements DurableObject {
     const type = String(msg.type ?? "");
     if (type === "heartbeat") {
       const payload = (msg.payload ?? {}) as Record<string, unknown>;
-      await touchHeartbeat(this.env, att.installationId, {
-        uptime_s: num(payload.uptime_s),
-        armed: bool(payload.armed),
-        blackout: bool(payload.blackout),
-        transport: str(payload.transport),
-        udp_active: bool(payload.udp_active),
-        current_scene_id: str(payload.current_scene_id),
-        current_release_version: num(payload.current_release_version),
-        current_content_hash: str(payload.current_content_hash),
-        last_synced_hash: str(payload.last_synced_hash),
-        last_error: payload.last_error === null ? null : str(payload.last_error),
-        app_version: str(payload.app_version),
-        build_id: str(payload.build_id),
-        arch: str(payload.arch),
-        install_mode: str(payload.install_mode),
-        updater_protocol_version: num(payload.updater_protocol_version),
-      });
+      const signature = this.showSignature(payload);
+      const changed = signature !== this.heartbeatSignature;
+      const presenceDue = Date.now() - this.lastPresenceWrite >= PRESENCE_WRITE_MS;
+      if (changed || presenceDue) {
+        const arch = str(payload.arch);
+        const reportArch = changed && arch && arch !== this.lastArch ? arch : undefined;
+        try {
+          await touchHeartbeat(this.env, att.installationId, {
+            uptime_s: num(payload.uptime_s),
+            armed: bool(payload.armed),
+            blackout: bool(payload.blackout),
+            transport: str(payload.transport),
+            udp_active: bool(payload.udp_active),
+            current_scene_id: str(payload.current_scene_id),
+            current_release_version: num(payload.current_release_version),
+            current_content_hash: str(payload.current_content_hash),
+            last_synced_hash: str(payload.last_synced_hash),
+            last_error: payload.last_error === null ? null : str(payload.last_error),
+            app_version: str(payload.app_version),
+            build_id: str(payload.build_id),
+            arch: reportArch,
+            install_mode: str(payload.install_mode),
+            updater_protocol_version: num(payload.updater_protocol_version),
+          });
+          this.heartbeatSignature = signature;
+          if (arch) this.lastArch = arch;
+          this.lastPresenceWrite = Date.now();
+          await this.persistMeta();
+        } catch (err) {
+          console.error("heartbeat persist", err);
+        }
+      }
       this.lastHeartbeat = { ...payload };
       this.lastHeartbeatAt = nowIso();
-      await this.persistMeta();
-      this.broadcastAdmins({
+      if (this.adminCount() > 0) this.broadcastAdmins({
         protocol_version: PROTOCOL_VERSION,
         message_id: uuid(),
         type: "device_heartbeat",
@@ -454,7 +481,10 @@ export class DeviceDO implements DurableObject {
           staged_build_id: payload.staged_build_id ?? null,
         },
       });
-      void this.nudgeAppUpdate(att.installationId, payload);
+      if (Date.now() - this.lastNudgeAt >= 10 * 60 * 1000) {
+        this.lastNudgeAt = Date.now();
+        void this.nudgeAppUpdate(att.installationId, payload);
+      }
       return;
     }
     if (type === "preview") {
@@ -600,22 +630,27 @@ export class DeviceDO implements DurableObject {
           this.keyboardLeases.set(leaseKey, lease);
         }
       }
-      await this.persistMeta();
-      await this.scheduleAlarm();
-      if (this.deviceSocket) {
+      if (this.deviceSocket && (hold || code)) {
         const source = att.source ?? `cloud:web:${att.sessionId}`;
-        await this.dispatchCommand({
-          type: "hold_keepalive",
-          installationId: att.installationId,
-          payload: {
-            hold_id: holdId || undefined,
-            code: code || undefined,
-            profile_id: body.profile_id,
-            source,
-          },
-          source,
-          adminSessionId: att.sessionId,
-        });
+        try {
+          this.deviceSocket.send(
+            JSON.stringify({
+              protocol_version: PROTOCOL_VERSION,
+              message_id: uuid(),
+              type: "hold_keepalive",
+              device_id: att.installationId,
+              sent_at: nowIso(),
+              payload: {
+                hold_id: holdId || undefined,
+                code: code || undefined,
+                profile_id: body.profile_id,
+                source,
+              },
+            }),
+          );
+        } catch {
+          /* the device watchdog releases the lease on its own clock */
+        }
       }
       return;
     }
@@ -1046,6 +1081,48 @@ export class DeviceDO implements DurableObject {
       adminSessionId: null,
       desiredSync: true,
     });
+  }
+  private adminCount(): number {
+    let count = 0;
+    for (const att of this.sessions.values()) {
+      if (att.role === "admin") count += 1;
+    }
+    return count;
+  }
+  private tellSubscribers(): void {
+    if (!this.deviceSocket) return;
+    try {
+      this.deviceSocket.send(
+        JSON.stringify({
+          protocol_version: PROTOCOL_VERSION,
+          message_id: uuid(),
+          type: "subscribers",
+          device_id: this.installationId,
+          sent_at: nowIso(),
+          payload: { count: this.adminCount() },
+        }),
+      );
+    } catch {
+      /* the next session_hello carries the same count */
+    }
+  }
+  private showSignature(payload: Record<string, unknown>): string {
+    return JSON.stringify([
+      payload.armed,
+      payload.blackout,
+      payload.transport,
+      payload.udp_active,
+      payload.current_scene_id,
+      payload.current_release_version,
+      payload.current_content_hash,
+      payload.last_synced_hash,
+      payload.last_error,
+      payload.app_version,
+      payload.build_id,
+      payload.arch,
+      payload.install_mode,
+      payload.updater_protocol_version,
+    ]);
   }
   private broadcastAdmins(msg: unknown): void {
     const data = JSON.stringify(msg);

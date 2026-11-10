@@ -674,6 +674,121 @@ describe("DeviceDO transport alarm", () => {
   });
 });
 
+describe("telemetry and hold refresh", () => {
+  it("does not journal a hold refresh or arm a new alarm", async () => {
+    const env = createMemoryEnv();
+    await seedCredential(env, "do-1", "tokentokentokentoken77");
+    const state = new MemoryDOState();
+    const alarms: number[] = [];
+    const setAlarm = state.storage.setAlarm.bind(state.storage);
+    state.storage.setAlarm = async (at: number) => {
+      alarms.push(at);
+      return setAlarm(at);
+    };
+    let puts = 0;
+    const put = state.storage.put.bind(state.storage);
+    state.storage.put = async (key: string, value: unknown) => {
+      puts += 1;
+      return put(key, value);
+    };
+    const dob = new DeviceDO(state as unknown as DurableObjectState, env);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    alarms.length = 0;
+    const sent: string[] = [];
+    const otherUntil = 50;
+    const view = dob as unknown as {
+      deviceSocket: { send: (data: string) => void };
+      holds: Map<string, { lease_until: number; adminSessionId: string }>;
+      onAdminMessage: (ws: object, att: object, msg: object) => Promise<void>;
+    };
+    view.deviceSocket = { send: (data) => sent.push(data) };
+    view.holds.set("sess::h1", {
+      hold_id: "h1",
+      adminSessionId: "sess",
+      lease_until: 1_000,
+      source: "cloud:web:sess",
+      effect: "strobe",
+      command_id: "c1",
+      installationId: "do-1",
+    } as never);
+    view.holds.set("other::h2", {
+      hold_id: "h2",
+      adminSessionId: "other",
+      lease_until: otherUntil,
+      source: "cloud:web:other",
+      effect: "strobe",
+      command_id: "c2",
+      installationId: "do-1",
+    } as never);
+    const putsBefore = puts;
+    await view.onAdminMessage(
+      { send() {} },
+      { role: "admin", installationId: "do-1", sessionId: "sess", source: "cloud:web:sess" },
+      { type: "hold_keepalive", payload: { hold_id: "h1" } },
+    );
+    expect(sent).toHaveLength(1);
+    const forwarded = JSON.parse(sent[0]) as { type: string; payload: { command_id?: string } };
+    expect(forwarded.type).toBe("hold_keepalive");
+    expect(forwarded.payload.command_id).toBeUndefined();
+    expect(alarms).toEqual([]);
+    expect(puts).toBe(putsBefore);
+    expect(env.__db.tables.command_log.some((row) => row.type === "hold_keepalive")).toBe(false);
+    expect(view.holds.get("sess::h1")?.lease_until).toBeGreaterThan(1_000);
+    expect(view.holds.get("other::h2")?.lease_until).toBe(otherUntil);
+  });
+
+  it("does not rewrite D1 or meta when the heartbeat is unchanged", async () => {
+    const env = createMemoryEnv();
+    await seedCredential(env, "do-1", "tokentokentokentoken77");
+    const state = new MemoryDOState();
+    let puts = 0;
+    const put = state.storage.put.bind(state.storage);
+    state.storage.put = async (key: string, value: unknown) => {
+      puts += 1;
+      return put(key, value);
+    };
+    let prepares = 0;
+    const prepare = env.DB.prepare.bind(env.DB);
+    env.DB.prepare = ((sql: string) => {
+      prepares += 1;
+      return prepare(sql);
+    }) as typeof env.DB.prepare;
+    const dob = new DeviceDO(state as unknown as DurableObjectState, env);
+    const view = dob as unknown as {
+      onDeviceMessage: (att: object, msg: object) => Promise<void>;
+    };
+    const msg = {
+      type: "heartbeat",
+      payload: { armed: false, blackout: true, transport: "mock", build_id: "b", arch: "arm64", uptime_s: 1 },
+    };
+    const att = { role: "device", installationId: "do-1", sessionId: "s" };
+    await view.onDeviceMessage(att, msg);
+    const afterFirst = prepares;
+    const putsFirst = puts;
+    expect(afterFirst).toBeGreaterThan(0);
+    await view.onDeviceMessage(att, { ...msg, payload: { ...msg.payload, uptime_s: 90 } });
+    expect(prepares).toBe(afterFirst);
+    expect(puts).toBe(putsFirst);
+  });
+
+  it("tells the hall how many desks are open", () => {
+    const env = createMemoryEnv();
+    const state = new MemoryDOState();
+    const dob = new DeviceDO(state as unknown as DurableObjectState, env);
+    const sent: string[] = [];
+    const view = dob as unknown as {
+      deviceSocket: { send: (data: string) => void };
+      sessions: Map<object, { role: string }>;
+      tellSubscribers: () => void;
+    };
+    view.deviceSocket = { send: (data) => sent.push(data) };
+    view.sessions.set({}, { role: "admin" });
+    view.sessions.set({}, { role: "admin" });
+    view.tellSubscribers();
+    expect(JSON.parse(sent[0]).payload.count).toBe(2);
+  });
+});
+
 describe("Workers integration blocker", () => {
   it("documents that unit suite is not full workerd e2e", () => {
     expect(hasWebSocketPair || !hasWebSocketPair).toBe(true);

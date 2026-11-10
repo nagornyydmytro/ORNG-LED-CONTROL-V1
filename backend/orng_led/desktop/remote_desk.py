@@ -15,6 +15,7 @@ from typing import Any
 import httpx
 from websockets.asyncio.client import connect
 
+from orng_led.cloud.budget import EXECUTOR_FALLBACK_S
 from orng_led.cloud.credentials import load_device_token
 from orng_led.cloud.sync_service import SceneSyncError, cloud_http_base
 from orng_led.desktop.desk_role import desk_role
@@ -552,22 +553,102 @@ async def forward_operator_command(command_type: str, payload: dict[str, Any]) -
     return await link.command(command_type, payload, wait=wait)
 
 
+# Local wait when this computer is not a remote desk. No Cloudflare call.
+EXECUTOR_IDLE_S = 5.0
+_watch_owner: asyncio.Task[None] | None = None
+_fallback_busy = False
+
+
+def apply_executor_message(runtime: Any, msg: dict[str, Any]) -> None:
+    """Initial snapshot and later changes from the executor socket."""
+    payload = msg.get("payload") if isinstance(msg.get("payload"), dict) else {}
+    kind = str(msg.get("type") or "")
+    if kind == "admin_hello":
+        state = payload.get("last_state") if isinstance(payload.get("last_state"), dict) else {}
+        online = bool(payload.get("online") or payload.get("device_online"))
+        view = dict(state)
+        view["online"] = online
+        if msg.get("device_id") and "installation_id" not in view:
+            view["installation_id"] = msg.get("device_id")
+        runtime.executor_view = view
+        runtime.executor_online = online
+        return
+    if kind in {"device_heartbeat", "device_preview", "device_state", "state", "heartbeat", "preview"}:
+        view = dict(getattr(runtime, "executor_view", None) or {})
+        view.update(payload)
+        view["online"] = True
+        runtime.executor_view = view
+        runtime.executor_online = True
+        return
+    if kind == "device_offline":
+        runtime.executor_online = False
+        view = getattr(runtime, "executor_view", None)
+        if isinstance(view, dict):
+            runtime.executor_view = {**view, "online": False}
+
+
 async def watch_executor(runtime: Any) -> None:
-    """Refresh the executor snapshot. Errors leave the saved role alone."""
-    while not getattr(runtime, "_shutting_down", False):
-        if desk_role(runtime.config_root) != "raspberry":
-            runtime.executor_online = None
-            await asyncio.sleep(2)
-            continue
+    """One executor socket. HTTP runs only after that socket drops."""
+    global _watch_owner
+    current = asyncio.current_task()
+    if _watch_owner is not None and not _watch_owner.done() and _watch_owner is not current:
+        return
+    _watch_owner = current
+    try:
+        while not getattr(runtime, "_shutting_down", False):
+            if desk_role(runtime.config_root) != "raspberry":
+                runtime.executor_online = None
+                await asyncio.sleep(EXECUTOR_IDLE_S)
+                continue
+            if not load_device_token():
+                runtime.executor_online = None
+                await asyncio.sleep(EXECUTOR_IDLE_S)
+                continue
+            try:
+                await _follow_executor(runtime)
+            except RemoteDeskError:
+                runtime.executor_online = False
+            except Exception:  # noqa: BLE001
+                logger.debug("executor socket failed", exc_info=True)
+                runtime.executor_online = False
+            await _fallback_executor_once(runtime)
+            await asyncio.sleep(EXECUTOR_FALLBACK_S)
+    finally:
+        if _watch_owner is current:
+            _watch_owner = None
+
+
+async def _follow_executor(runtime: Any) -> None:
+    ws = await open_executor_socket()
+    try:
+        async for raw in ws:
+            if isinstance(raw, bytes):
+                raw = raw.decode()
+            apply_executor_message(runtime, json.loads(raw))
+    finally:
+        runtime.executor_online = False
         try:
-            runtime.executor_view = await fetch_executor_state()
-            runtime.executor_online = bool((runtime.executor_view or {}).get("online"))
-        except RemoteDeskError:
-            runtime.executor_online = False
+            await ws.close()
         except Exception:  # noqa: BLE001
-            logger.debug("executor watch failed", exc_info=True)
-            runtime.executor_online = False
-        await asyncio.sleep(2)
+            logger.debug("executor socket close failed", exc_info=True)
+
+
+async def _fallback_executor_once(runtime: Any) -> None:
+    """Single HTTP read. A second caller does not send another."""
+    global _fallback_busy
+    if _fallback_busy or not load_device_token():
+        return
+    _fallback_busy = True
+    try:
+        runtime.executor_view = await fetch_executor_state()
+        runtime.executor_online = bool((runtime.executor_view or {}).get("online"))
+    except RemoteDeskError:
+        runtime.executor_online = False
+    except Exception:  # noqa: BLE001
+        logger.debug("executor fallback failed", exc_info=True)
+        runtime.executor_online = False
+    finally:
+        _fallback_busy = False
 
 
 async def fetch_executor_state() -> dict[str, Any]:

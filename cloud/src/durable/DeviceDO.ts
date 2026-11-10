@@ -164,6 +164,7 @@ export class DeviceDO implements DurableObject {
       if (commandId && this.pending.has(commandId)) {
         this.pending.delete(commandId);
         await this.persistMeta();
+        await this.scheduleAlarm();
       }
       return Response.json({ ok: true, cleared: Boolean(commandId) });
     }
@@ -402,11 +403,8 @@ export class DeviceDO implements DurableObject {
       });
     }
     for (const [id, cmd] of [...this.pending.entries()]) {
-      if (now - cmd.created_at > cmd.ttl_ms) {
-        if (APP_UPDATE_COMMAND_TYPES.has(cmd.type)) {
-          // A long apply outlives the socket wait. ttl_expired is not its result.
-          continue;
-        }
+      if (!this.usesTransportTtl(cmd.type)) continue;
+      if (now - cmd.created_at >= cmd.ttl_ms) {
         this.pending.delete(id);
         // Stale transient can fail; desired sync stays redeliverable via D1 on reconnect.
         await ackCommand(this.env, id, "failed", "ttl_expired", "Command TTL expired", {
@@ -510,6 +508,7 @@ export class DeviceDO implements DurableObject {
       if (result.terminal && commandId) {
         this.pending.delete(commandId);
         await this.persistMeta();
+        await this.scheduleAlarm();
       }
       this.broadcastAdmins({
         ...msg,
@@ -1079,13 +1078,18 @@ export class DeviceDO implements DurableObject {
       lastHeartbeatAt: this.lastHeartbeatAt ?? undefined,
     } satisfies StoredMeta);
   }
-  /** Schedule alarm only when holds or TTL pending exist вЂ” no perpetual 60s alarm. */
+  /** A staged apply waits for update_result. Its socket TTL is not a timer. */
+  private usesTransportTtl(type: string): boolean {
+    return !APP_UPDATE_COMMAND_TYPES.has(type);
+  }
+  /** Schedule alarm only when holds or a transport TTL exist. No perpetual timer. */
   private async scheduleAlarm(): Promise<void> {
     const deadlines: number[] = [];
     for (const hold of this.holds.values()) deadlines.push(hold.lease_until);
     for (const lease of this.keyboardLeases.values()) deadlines.push(lease.leaseUntil);
     if (this.calibrationLeaseUntil > 0) deadlines.push(this.calibrationLeaseUntil);
     for (const cmd of this.pending.values()) {
+      if (!this.usesTransportTtl(cmd.type)) continue;
       deadlines.push(cmd.created_at + cmd.ttl_ms);
     }
     if (deadlines.length === 0) {

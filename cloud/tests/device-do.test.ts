@@ -3,7 +3,7 @@
  * WebSocketPair cases are skipped on plain Node — see tests/INTEGRATION.md.
  */
 
-import { describe, expect, it, beforeEach } from "vitest";
+import { describe, expect, it, beforeEach, vi } from "vitest";
 import { DeviceDO } from "../src/durable/DeviceDO";
 import { HOLD_LEASE_MS, MOMENTARY_PRESS_TYPES } from "../src/protocol/types";
 import { createMemoryEnv, seedCredential } from "./helpers/memoryEnv";
@@ -514,6 +514,163 @@ describe.runIf(hasWebSocketPair)("DeviceDO WebSocket holds (workerd/WebSocketPai
     expect((err.payload as { command_id?: string }).command_id).toBe("restart-1");
     await new Promise((r) => setTimeout(r, 30));
     expect(inbox.filter((m) => m.type === "restart_runtime")).toHaveLength(0);
+  });
+});
+
+const APP_UPDATE_TYPES = [
+  "check_app_update",
+  "stage_app_update",
+  "apply_app_update",
+  "rollback_app_update",
+  "restart_runtime",
+] as const;
+
+async function bootStored(meta: Record<string, unknown>) {
+  const env = createMemoryEnv();
+  const state = new MemoryDOState();
+  const sets: number[] = [];
+  const setAlarm = state.storage.setAlarm.bind(state.storage);
+  const deleteAlarm = state.storage.deleteAlarm.bind(state.storage);
+  state.storage.setAlarm = async (at: number) => {
+    sets.push(at);
+    await setAlarm(at);
+  };
+  state.storage.deleteAlarm = async () => {
+    await deleteAlarm();
+  };
+  await state.storage.put("meta", meta);
+  const dob = new DeviceDO(state as unknown as DurableObjectState, env);
+  await new Promise((r) => setTimeout(r, 20));
+  return { env, state, dob, sets };
+}
+
+describe("DeviceDO transport alarm", () => {
+  it("does not keep arming a past timer for an expired app update", async () => {
+    const now = Date.now();
+    const { state, dob, sets } = await bootStored({
+      installationId: "inst-alarm",
+      pending: APP_UPDATE_TYPES.map((type) => ({
+        command_id: `upd-${type}`,
+        type,
+        created_at: now - 120_000,
+        ttl_ms: 30_000,
+        momentary_press: false,
+        desired_sync: true,
+        payload: { build_id: "build-keep", version: "1.2.3" },
+      })),
+    });
+    expect(sets.filter((at) => at <= now)).toEqual([]);
+    expect(await state.storage.getAlarm()).toBeNull();
+    await dob.alarm();
+    await dob.alarm();
+    await dob.alarm();
+    expect(sets.filter((at) => at <= now)).toEqual([]);
+    expect(await state.storage.getAlarm()).toBeNull();
+    const meta = await state.storage.get<{ pending: Array<{ command_id: string; type: string }> }>("meta");
+    expect(meta?.pending.map((cmd) => cmd.type).sort()).toEqual([...APP_UPDATE_TYPES].sort());
+  });
+
+  it("keeps a long update pending until a real terminal result", async () => {
+    const now = Date.now();
+    const { env, state, dob } = await bootStored({
+      installationId: "inst-alarm",
+      pending: [
+        {
+          command_id: "upd-apply",
+          type: "apply_app_update",
+          created_at: now - 120_000,
+          ttl_ms: 30_000,
+          momentary_press: false,
+          desired_sync: true,
+          payload: { build_id: "build-keep", version: "1.2.3" },
+        },
+      ],
+    });
+    await dob.alarm();
+    const still = await state.storage.get<{ pending: Array<{ command_id: string }> }>("meta");
+    expect(still?.pending.map((cmd) => cmd.command_id)).toEqual(["upd-apply"]);
+    const logged = await getCommand(env, "upd-apply");
+    expect(logged?.error_code ?? null).not.toBe("ttl_expired");
+    const res = await dob.fetch(
+      new Request("https://device-do/update-result", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ command_id: "upd-apply", event_type: "applied" }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    const after = await state.storage.get<{ pending: unknown[] }>("meta");
+    expect(after?.pending ?? []).toEqual([]);
+    expect(await state.storage.getAlarm()).toBeNull();
+  });
+
+  it("expires an ordinary command exactly at its ttl and leaves the update alone", async () => {
+    const now = 1_700_000_000_000;
+    vi.spyOn(Date, "now").mockReturnValue(now);
+    try {
+      const { env, state, dob } = await bootStored({
+        installationId: "inst-alarm",
+        pending: [
+          {
+            command_id: "edge",
+            type: "blackout",
+            created_at: now - 30_000,
+            ttl_ms: 30_000,
+            momentary_press: false,
+            desired_sync: false,
+            payload: {},
+          },
+          {
+            command_id: "later",
+            type: "select_preset",
+            created_at: now - 1_000,
+            ttl_ms: 30_000,
+            momentary_press: false,
+            desired_sync: false,
+            payload: {},
+          },
+          {
+            command_id: "upd-check",
+            type: "check_app_update",
+            created_at: now - 120_000,
+            ttl_ms: 30_000,
+            momentary_press: false,
+            desired_sync: true,
+            payload: { build_id: "build-keep" },
+          },
+        ],
+        holds: [
+          {
+            hold_id: "h1",
+            source: "cloud:web:s",
+            effect: "strobe",
+            lease_until: now - 5,
+            adminSessionId: "s",
+            command_id: "hold-cmd",
+          },
+        ],
+      });
+      await logCommand(env, {
+        command_id: "edge",
+        installation_id: "inst-alarm",
+        type: "blackout",
+        payload: {},
+        status: "accepted",
+      });
+      expect(await state.storage.getAlarm()).toBe(now - 5);
+      await dob.alarm();
+      expect((await getCommand(env, "edge"))?.error_code).toBe("ttl_expired");
+      expect((await getCommand(env, "later"))?.status ?? "accepted").not.toBe("failed");
+      const meta = await state.storage.get<{
+        pending: Array<{ command_id: string }>;
+        holds: unknown[];
+      }>("meta");
+      expect(meta?.pending.map((cmd) => cmd.command_id).sort()).toEqual(["later", "upd-check"]);
+      expect(meta?.holds ?? []).toEqual([]);
+      expect(await state.storage.getAlarm()).toBe(now + 29_000);
+    } finally {
+      vi.restoreAllMocks();
+    }
   });
 });
 

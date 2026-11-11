@@ -8,8 +8,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
+import time
 
 import pytest
+
+from orng_led.cloud.budget import HEARTBEAT_INTERVAL_S, PREVIEW_INTERVAL_S
 
 from orng_led.api.runtime import AppRuntime, CommandConflictError
 from orng_led.cloud.agent import CloudDeviceAgent
@@ -291,3 +295,54 @@ def test_local_macropad_survives_cloud_drop_and_windows_desk_cannot_open_artnet(
     assert local_artnet_allowed() is False
     with pytest.raises(OutputError, match="Raspberry"):
         runtime.activate_artnet_network(confirmed=True, allow_real_udp=True)
+
+
+def _rank(samples: list[float], fraction: float) -> float:
+    ordered = sorted(samples)
+    return ordered[max(0, math.ceil(fraction * len(ordered)) - 1)]
+
+
+def test_a_live_socket_acks_the_apply_without_waiting_for_telemetry() -> None:
+    runtime = _runtime()
+    agent, ws = _agent(runtime)
+    agent._subscribers = 1
+
+    async def run() -> list[float]:
+        beat = asyncio.create_task(agent._heartbeat(ws))
+        samples: list[float] = []
+        try:
+            for index in range(40):
+                enabled = index % 2 == 0
+                started = time.perf_counter()
+                await agent._handle_message(
+                    ws,
+                    {
+                        "type": "blackout",
+                        "message_id": f"live-{index}",
+                        "payload": {"command_id": f"live-{index}", "enabled": enabled},
+                    },
+                )
+                samples.append(time.perf_counter() - started)
+                ack = ws.last_ack()
+                assert ack["status"] == "applied"
+                assert ack["blackout"] is enabled
+                assert runtime.engine.overlays.blackout is enabled
+        finally:
+            agent._stop.set()
+            beat.cancel()
+            await asyncio.gather(beat, return_exceptions=True)
+        return samples
+
+    samples = asyncio.run(run())
+    heartbeats = [item for item in ws.sent if item.get("type") == "heartbeat"]
+    p50 = _rank(samples, 0.50)
+    p95 = _rank(samples, 0.95)
+    slowest = max(samples)
+    print(
+        f"socket apply ACK n={len(samples)} "
+        f"p50={p50 * 1000:.2f}ms p95={p95 * 1000:.2f}ms max={slowest * 1000:.2f}ms"
+    )
+    assert len(heartbeats) < 40
+    assert p95 < HEARTBEAT_INTERVAL_S
+    assert p95 < PREVIEW_INTERVAL_S
+    assert p95 < 0.1

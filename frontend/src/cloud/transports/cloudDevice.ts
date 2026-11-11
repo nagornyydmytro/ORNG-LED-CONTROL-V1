@@ -748,7 +748,7 @@ export function createCloudDeviceTransport(opts: {
         const next = fxQueued;
         fxQueued = null;
         try {
-          await httpCommand("set_live_fx_speed", next);
+          await wsCommand("set_live_fx_speed", next, "applied");
         } catch (err) {
           if (!fxQueued) throw err;
         }
@@ -863,7 +863,6 @@ export function createCloudDeviceTransport(opts: {
     installationId: opts.installationId,
     sourceId,
     async connect() {
-      startLinkPoll();
       const opened = await Promise.race([
         ensureSocket().then(() => true).catch(() => false),
         new Promise<boolean>((resolve) => {
@@ -920,7 +919,7 @@ export function createCloudDeviceTransport(opts: {
       optimisticBlackout = { value: enabled, at: Date.now() };
       emitLive({ blackout: enabled });
       try {
-        await httpCommand("blackout", { enabled });
+        await wsCommand("blackout", { enabled }, "applied");
       } catch (err) {
         optimisticBlackout = null;
         emitLive({ blackout: previous });
@@ -928,17 +927,17 @@ export function createCloudDeviceTransport(opts: {
       }
     },
     async arm() {
-      await httpCommand("arm");
+      await wsCommand("arm", {}, "applied");
     },
     async disarm() {
-      await httpCommand("disarm");
+      await wsCommand("disarm", {}, "applied");
     },
     async selectPreset(presetId) {
       const previous = lastLive.preset_id ?? null;
       optimisticPreset = { id: presetId, at: Date.now() };
       emitLive({ preset_id: presetId });
       try {
-        await httpCommand("select_preset", { preset_id: presetId });
+        await wsCommand("select_preset", { preset_id: presetId }, "applied");
       } catch (err) {
         optimisticPreset = null;
         emitLive({ preset_id: previous });
@@ -989,7 +988,7 @@ export function createCloudDeviceTransport(opts: {
       }
     },
     async setProgramSpeed(value: number) {
-      await httpCommand("set_program_speed", { value });
+      await wsCommand("set_program_speed", { value }, "applied");
     },
     async setBpmSync(
       enabled: boolean,
@@ -1007,7 +1006,7 @@ export function createCloudDeviceTransport(opts: {
         accent?: number;
       },
     ) {
-      await httpCommand("bpm_sync", {
+      await wsCommand("bpm_sync", {
         enabled,
         ...(patch?.mode ? { mode: patch.mode } : {}),
         ...(patch?.scope ? { scope: patch.scope } : {}),
@@ -1020,10 +1019,10 @@ export function createCloudDeviceTransport(opts: {
         ...(patch?.period != null ? { period: patch.period } : {}),
         ...(patch?.parRhythm != null ? { par_rhythm: patch.parRhythm } : {}),
         ...(patch?.accent != null ? { accent: patch.accent } : {}),
-      });
+      }, "applied");
     },
     async nextAutoLook() {
-      await httpCommand("auto_next_look", {});
+      await wsCommand("auto_next_look", {}, "applied");
     },
     async face(enabled: boolean, brightness?: number) {
       const previous = lastLive.face_on;
@@ -1033,10 +1032,10 @@ export function createCloudDeviceTransport(opts: {
         ...(brightness !== undefined ? { face_brightness: brightness } : {}),
       });
       try {
-        await httpCommand("face", {
+        await wsCommand("face", {
           enabled,
           ...(brightness !== undefined ? { brightness } : {}),
-        });
+        }, "applied");
       } catch (err) {
         optimisticFace = null;
         emitLive({ face_on: previous });
@@ -1047,7 +1046,7 @@ export function createCloudDeviceTransport(opts: {
       await wsCommand("release_source", {}, "applied");
     },
     async selectPad(slot) {
-      await httpCommand("select_pad", { pad_slot: slot });
+      await wsCommand("select_pad", { pad_slot: slot }, "applied");
     },
     strobe: (edge) => momentary("strobe_press", "strobe_release", "strobe", edge),
     sweep: (edge, mode = "horizontal") => {
@@ -1062,7 +1061,7 @@ export function createCloudDeviceTransport(opts: {
       return momentary("sweep_press", "sweep_release", "sweep", edge);
     },
     async faceToggle() {
-      await httpCommand("face_toggle");
+      await wsCommand("face_toggle", {}, "applied");
     },
     async episodeNudge(delta) {
       const current = lastLive.episode_index ?? 0;
@@ -1072,7 +1071,7 @@ export function createCloudDeviceTransport(opts: {
       optimisticEpisode = { value: next, at: Date.now() };
       emitLive({ episode_index: next });
       try {
-        await httpCommand("episode_nudge", { delta });
+        await wsCommand("episode_nudge", { delta }, "applied");
       } catch (err) {
         optimisticEpisode = null;
         emitLive({ episode_index: previous });
@@ -1080,18 +1079,18 @@ export function createCloudDeviceTransport(opts: {
       }
     },
     async seekEpisode(index: number) {
-      await httpCommand("seek_episode", { episode_index: index });
+      await wsCommand("seek_episode", { episode_index: index }, "applied");
     },
     async speed(kind, delta) {
-      await httpCommand("speed", { kind, delta });
+      await wsCommand("speed", { kind, delta }, "applied");
     },
     async activateScene(sceneId) {
-      await httpCommand("activate_scene", { scene_id: sceneId });
+      await wsCommand("activate_scene", { scene_id: sceneId }, "applied");
     },
     async syncSceneRelease(sceneId: string, version?: number | null) {
       const payload: Record<string, unknown> = { scene_id: sceneId };
       if (version != null) payload.version = version;
-      await httpCommand("sync_scene_release", payload);
+      await wsCommand("sync_scene_release", payload, "applied");
     },
   };
 }

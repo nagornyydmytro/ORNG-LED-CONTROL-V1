@@ -199,10 +199,28 @@ describe("cloud desk recovery", () => {
     expect(FakeSocket.instances.length).toBe(sockets);
   });
 
-  it("does not treat a queued command as applied", async () => {
-    const { transport, acks } = await boot(true);
+  it("sends a button on the open socket and leaves the HTTP poll for an offline executor", async () => {
+    const online = await boot(true);
+    const sent: string[] = [];
+    online.sock.send = (data: string) => {
+      sent.push(String(data));
+    };
+    const pending = online.transport.blackout(false);
+    await Promise.resolve();
+    expect(command).not.toHaveBeenCalled();
+    const raw = sent.find((item) => item.includes("blackout"));
+    expect(raw).toBeTruthy();
+    const message = JSON.parse(raw ?? "{}") as { payload?: { command_id?: string } };
+    online.sock.push({
+      type: "ack",
+      payload: { command_id: message.payload?.command_id, status: "applied" },
+    });
+    await pending;
+
+    command.mockClear();
+    const offline = await boot(false);
     let settled = "";
-    const pending = transport.blackout(true).then(
+    const queued = offline.transport.blackout(true).then(
       () => {
         settled = "applied";
       },
@@ -212,11 +230,37 @@ describe("cloud desk recovery", () => {
     );
     await Promise.resolve();
     await vi.advanceTimersByTimeAsync(11_000);
+    expect(command).toHaveBeenCalled();
     expect(settled).toBe("");
-    expect(acks.map((ack) => ack.status)).toContain("queued");
-    expect(acks.map((ack) => ack.status)).not.toContain("applied");
+    expect(offline.acks.map((ack) => ack.status)).toContain("queued");
+    expect(offline.acks.map((ack) => ack.status)).not.toContain("applied");
     await vi.advanceTimersByTimeAsync(1_500);
-    await pending;
+    await queued;
     expect(settled).toBe("timeout");
+  });
+
+  it("settles the button on the applied ack and does not wait out telemetry", async () => {
+    const online = await boot(true);
+    const sent: string[] = [];
+    online.sock.send = (data: string) => {
+      sent.push(String(data));
+    };
+    let applied = false;
+    const pending = online.transport.blackout(false).then(() => {
+      applied = true;
+    });
+    await Promise.resolve();
+    expect(command).not.toHaveBeenCalled();
+    expect(applied).toBe(false);
+    expect(online.states.at(-1)?.blackout).toBe(false);
+    expect(sent.some((item) => item.includes("blackout"))).toBe(true);
+    const raw = sent.find((item) => item.includes("blackout"));
+    const message = JSON.parse(raw ?? "{}") as { payload?: { command_id?: string } };
+    online.sock.push({
+      type: "ack",
+      payload: { command_id: message.payload?.command_id, status: "applied" },
+    });
+    await pending;
+    expect(applied).toBe(true);
   });
 });

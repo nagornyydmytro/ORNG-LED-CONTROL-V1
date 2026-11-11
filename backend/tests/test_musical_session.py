@@ -5,6 +5,7 @@ click_track and injected worker payloads are synthetic. Not a venue feed.
 
 from __future__ import annotations
 
+import queue
 import time
 from pathlib import Path
 from queue import Empty
@@ -29,6 +30,18 @@ RATE = 44100
 
 def _stop(service: BpmService) -> None:
     service._stop_worker()
+
+
+def _queue_without_a_live_writer(service: BpmService) -> None:
+    """The results queue has one slot. A live worker can replace the snapshot under test."""
+    service._start_worker()
+    abandoned = service._results
+    service._results = queue.Queue(maxsize=1)
+    if abandoned is not None:
+        try:
+            abandoned.cancel_join_thread()
+        except (AttributeError, OSError, ValueError):
+            pass
 
 
 def _ok_payload(
@@ -210,7 +223,7 @@ def test_live_usb_stale_capture_does_not_lock_even_if_computed_now(tmp_path: Pat
     """captured_at ten seconds ago plus computed_at now is not a lock."""
     service = BpmService(tmp_path, "lab")
     service.configure(enabled=True)
-    service._start_worker()
+    _queue_without_a_live_writer(service)
     try:
         captured = time.monotonic() - 10.0
         payload = _ok_payload(
@@ -236,7 +249,7 @@ def test_usb_latest_snapshot_is_not_refused_for_compute_time(tmp_path: Path) -> 
     """Live USB capture-to-drain includes inspect+pickle. That is not a leftover slot."""
     service = BpmService(tmp_path, "lab")
     service.configure(enabled=True)
-    service._start_worker()
+    _queue_without_a_live_writer(service)
     try:
         payload = _ok_payload(
             service,
@@ -244,7 +257,8 @@ def test_usb_latest_snapshot_is_not_refused_for_compute_time(tmp_path: Path) -> 
             sample_now=None,
             enqueue_mono=time.monotonic(),
         )
-        captured = time.monotonic() - 0.85
+        # Stay under the 1.50 s ceiling even when the suite stalls between these lines.
+        captured = time.monotonic() - 0.40
         computed = time.monotonic()
         payload = (
             payload[:4]

@@ -209,6 +209,20 @@ class BpmService:
             if worker.is_alive():
                 worker.terminate()
                 worker.join(timeout=0.5)
+        # The feeder thread blocks when the pipe buffer is full and the reader
+        # handle is still open here. Queue's shutdown finalizer joins that
+        # thread, so a stopped service would keep pytest from exiting.
+        for pipe in (jobs, self._results):
+            if pipe is None:
+                continue
+            try:
+                pipe.close()
+            except (AttributeError, OSError, ValueError):
+                pass
+            try:
+                pipe.cancel_join_thread()
+            except (AttributeError, OSError, ValueError):
+                pass
         self._worker = None
         self._jobs = None
         self._results = None

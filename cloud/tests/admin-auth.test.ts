@@ -195,4 +195,51 @@ describe("admin login API", () => {
     // Device host must not expose admin login — 404 from device router or unknown admin.
     expect([404, 400, 405]).toContain(res.status);
   });
+
+  it("still logs in when the lockout counter is over its request quota", async () => {
+    const encoded = await hashPassword(PASS);
+    const env = createMemoryEnv({
+      ENVIRONMENT: "production",
+      DEV_BYPASS_ACCESS: "",
+      ADMIN_USERNAME: USER,
+      ADMIN_PASSWORD_HASH: encoded,
+      ADMIN_SESSION_SECRET: "unit-admin-session-secret",
+      ADMIN_HOST: "light.orng.wtf",
+    });
+    env.ADMIN_LOGIN_GUARD_DO = {
+      idFromName: () => ({ name: "exhausted" }) as DurableObjectId,
+      get: () =>
+        ({
+          fetch: async () => {
+            throw new Error(
+              "Exceeded allowed volume of requests in Durable Objects free tier.",
+            );
+          },
+        }) as unknown as DurableObjectStub,
+    } as unknown as DurableObjectNamespace;
+
+    const wrong = await worker.fetch(
+      new Request("https://light.orng.wtf/admin/auth/login", {
+        method: "POST",
+        headers: { host: "light.orng.wtf", "content-type": "application/json" },
+        body: JSON.stringify({ username: USER, password: "nope" }),
+      }),
+      env,
+      {} as ExecutionContext,
+    );
+    expect(wrong.status).toBe(401);
+    expect(await wrong.text()).not.toContain("<!DOCTYPE");
+
+    const login = await worker.fetch(
+      new Request("https://light.orng.wtf/admin/auth/login", {
+        method: "POST",
+        headers: { host: "light.orng.wtf", "content-type": "application/json" },
+        body: JSON.stringify({ username: USER, password: PASS }),
+      }),
+      env,
+      {} as ExecutionContext,
+    );
+    expect(login.status).toBe(200);
+    expect(cookiePairs(login.headers)).toContain(SESSION_COOKIE);
+  });
 });

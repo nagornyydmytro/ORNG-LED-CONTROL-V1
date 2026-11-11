@@ -33,6 +33,16 @@ function guardStub(env: Env, ip: string) {
   return env.ADMIN_LOGIN_GUARD_DO.get(id);
 }
 
+/** Lockout storage is best-effort. A quota failure must not replace the login form with a worker crash. */
+async function guardCall(stub: DurableObjectStub, path: "/check" | "/failure" | "/success"): Promise<Response | null> {
+  try {
+    return await stub.fetch(`https://admin-login-guard${path}`, { method: "POST" });
+  } catch (err) {
+    console.error("admin login guard unavailable", err);
+    return null;
+  }
+}
+
 export async function handleAdminLogin(request: Request, env: Env): Promise<Response> {
   if (request.method !== "POST") {
     return errorJson(405, "method_not_allowed", "POST required");
@@ -50,8 +60,8 @@ export async function handleAdminLogin(request: Request, env: Env): Promise<Resp
 
   const ip = clientIp(request);
   const stub = guardStub(env, ip);
-  const checkRes = await stub.fetch("https://admin-login-guard/check", { method: "POST" });
-  if (checkRes.status === 429) {
+  const checkRes = await guardCall(stub, "/check");
+  if (checkRes?.status === 429) {
     return errorJson(429, "locked", "Too many failed login attempts; try again later");
   }
 
@@ -69,11 +79,11 @@ export async function handleAdminLogin(request: Request, env: Env): Promise<Resp
   const userOk = timingSafeUsername(username, usernameCfg);
   const passOk = await verifyPassword(password, hash);
   if (!userOk || !passOk) {
-    await stub.fetch("https://admin-login-guard/failure", { method: "POST" });
+    await guardCall(stub, "/failure");
     return errorJson(401, "invalid_credentials", "Invalid username or password");
   }
 
-  await stub.fetch("https://admin-login-guard/success", { method: "POST" });
+  await guardCall(stub, "/success");
 
   const sessionTok = await createSessionToken(sessionSecret, usernameCfg, DEFAULT_SESSION_TTL_S);
   const csrfTok = randomToken(32);

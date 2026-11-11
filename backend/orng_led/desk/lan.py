@@ -437,7 +437,9 @@ async def start_from_env(runtime: AppRuntime) -> _LanServer | None:
         return None
     import uvicorn
 
-    app = create_lan_desk_app(runtime, config)
+    from orng_led.main import resolve_frontend_dist
+
+    app = create_lan_desk_app(runtime, config, frontend_dist=resolve_frontend_dist())
     server = uvicorn.Server(
         uvicorn.Config(
             app,

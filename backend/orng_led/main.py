@@ -21,21 +21,32 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 FRONTEND_DIST = REPO_ROOT / "frontend" / "dist"
 
 
-def resolve_frontend_dist() -> Path:
-    """Release-relative frontend first, then env, then developer checkout."""
+def frontend_dist_for(package_dir: Path) -> Path:
+    """Directory of the built desk next to this package, not the process cwd.
+
+    A packaged release keeps ``frontend_dist`` beside ``orng_led``. A checkout
+    keeps it at ``frontend/dist``. ``ORNG_FRONTEND_DIST`` wins even when that
+    directory is missing, so a lost release does not silently pick another tree.
+    A relative override is resolved beside the package.
+    """
     override = os.environ.get("ORNG_FRONTEND_DIST", "").strip()
     if override:
-        return Path(override)
-    # Packaged release: orng_led lives next to frontend_dist/
-    pkg_root = Path(__file__).resolve().parents[1]
-    release_dist = pkg_root.parent / "frontend_dist"
+        chosen = Path(override)
+        if not chosen.is_absolute():
+            chosen = package_dir.parent / chosen
+        return chosen
+    release_dist = package_dir.parent / "frontend_dist"
     if release_dist.is_dir():
         return release_dist
-    # Same directory layout when cwd is the release root.
-    cwd_dist = Path.cwd() / "frontend_dist"
-    if cwd_dist.is_dir():
-        return cwd_dist
-    return REPO_ROOT / "frontend" / "dist"
+    checkout_dist = package_dir.parent.parent / "frontend" / "dist"
+    if checkout_dist.is_dir():
+        return checkout_dist
+    return release_dist
+
+
+def resolve_frontend_dist() -> Path:
+    """Frontend for this installation. Independent of the current directory."""
+    return frontend_dist_for(Path(__file__).resolve().parent)
 
 
 def create_app(

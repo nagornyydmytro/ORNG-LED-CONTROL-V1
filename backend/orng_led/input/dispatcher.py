@@ -129,7 +129,25 @@ class InputDispatcher:
     clock: Callable[[], float] = time.monotonic
     _auto_latched: set[str] = field(default_factory=set)
 
+    def _replayed_hold(self, event: InputEvent) -> DispatchResult | None:
+        """A retried press or release keeps its first result."""
+        if not event.client_command_id:
+            return None
+        if event.action not in _HOLD_PRESS and event.action not in _HOLD_RELEASE:
+            return None
+        cached = self.runtime._idempotent(event.client_command_id, f"hold:{event.action.value}")
+        if cached is None:
+            return None
+        return DispatchResult(accepted=True, state=cached, idempotent_replay=True)
+
+    def _remember_hold(self, event: InputEvent, result: DispatchResult) -> None:
+        if result.accepted and not result.idempotent_replay:
+            self.runtime._remember(event.client_command_id, f"hold:{event.action.value}")
+
     def dispatch(self, event: InputEvent) -> DispatchResult:
+        replayed = self._replayed_hold(event)
+        if replayed is not None:
+            return replayed
         now = float(self.clock())
         source_id = resolve_source_id(event)
         key = self._debounce_key(event, source_id)
@@ -155,9 +173,13 @@ class InputDispatcher:
                 current = self.holds._tokens.get((effect, source_id))  # noqa: SLF001
                 if event.hold_token and current and event.hold_token != current:
                     self.holds.add(effect, source_id, event.hold_token)
-                    return DispatchResult(accepted=True, state=self.runtime.build_state())
+                    result = DispatchResult(accepted=True, state=self.runtime.build_state())
+                    self._remember_hold(event, result)
+                    return result
                 return DispatchResult(accepted=False, reason=f"{event.action.value}_ignored_repeat")
-            return self._apply_hold_press(event, source_id)
+            result = self._apply_hold_press(event, source_id)
+            self._remember_hold(event, result)
+            return result
         if event.action in _HOLD_RELEASE:
             if not self.debouncer.accept_release(key, now):
                 # Debounce thinks we are not held — still try registry cleanup for races.
@@ -168,7 +190,9 @@ class InputDispatcher:
                         return DispatchResult(
                             accepted=False, reason=f"{event.action.value}_ignored"
                         )
-            return self._apply_hold_release(event, source_id)
+            result = self._apply_hold_release(event, source_id)
+            self._remember_hold(event, result)
+            return result
         if event.action in encoder_actions:
             # Encoders tick faster than button debounce; keep a short floor only.
             last = self.debouncer._last_accept.get(key)  # noqa: SLF001

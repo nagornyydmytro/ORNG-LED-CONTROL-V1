@@ -5,8 +5,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import sys
 import threading
 import time
+import uuid
 from collections import OrderedDict, deque
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -68,6 +70,32 @@ class CommandConflictError(Exception):
     code = "command_conflict"
 
 
+def _begin_frame_timer() -> bool:
+    """Windows sleeps in 15.6 ms steps unless the multimedia timer is 1 ms.
+
+    One begin pairs with one end. Other platforms already wake on a fine clock.
+    """
+    if sys.platform != "win32":
+        return False
+    try:
+        import ctypes
+
+        return int(ctypes.windll.winmm.timeBeginPeriod(1)) == 0
+    except (AttributeError, OSError):
+        return False
+
+
+def _end_frame_timer(active: bool) -> None:
+    if not active:
+        return
+    try:
+        import ctypes
+
+        ctypes.windll.winmm.timeEndPeriod(1)
+    except (AttributeError, OSError):
+        return
+
+
 @dataclass
 class AppRuntime:
     """Process-wide lighting runtime.
@@ -96,6 +124,8 @@ class AppRuntime:
     _poll_samples: deque[float] = field(default_factory=lambda: deque(maxlen=4000))
     _state_samples: deque[float] = field(default_factory=lambda: deque(maxlen=2000))
     _lag_samples: deque[float] = field(default_factory=lambda: deque(maxlen=4000))
+    _sleep_samples: deque[float] = field(default_factory=lambda: deque(maxlen=4000))
+    _scheduler_samples: deque[float] = field(default_factory=lambda: deque(maxlen=4000))
     _running: bool = False
     _shutting_down: bool = False
     _frame_cycle_failed: bool = False
@@ -107,6 +137,8 @@ class AppRuntime:
     _ws_broadcast_dt: float = 1.0 / 15.0
     _desk_frame: list[int] | None = None
     _desk_at: float | None = None
+    _desk_session: str = field(default_factory=lambda: uuid.uuid4().hex)
+    _desk_sequence: int = 0
     _desk_program: str = "smooth"
     _desk_look: str | None = None
     max_idempotency_keys: int = 256
@@ -426,6 +458,7 @@ class AppRuntime:
                 pass
 
     async def _tick_loop(self) -> None:
+        timer = _begin_frame_timer()
         try:
             while self._running and not self._shutting_down:
                 loop_start = time.monotonic()
@@ -448,11 +481,18 @@ class AppRuntime:
                         self.request_broadcast()
                 # Sleep only the remainder so work+sleep ≈ FRAME_DT (stable strobe).
                 elapsed = time.monotonic() - loop_start
-                await asyncio.sleep(max(0.0, FRAME_DT - elapsed))
+                requested = max(0.0, FRAME_DT - elapsed)
+                before_sleep = time.perf_counter()
+                await asyncio.sleep(requested)
+                slept = time.perf_counter() - before_sleep
+                self._sleep_samples.append(slept)
+                self._scheduler_samples.append(max(0.0, slept - requested))
         except asyncio.CancelledError:
             raise
         except Exception as exc:
             self._handle_tick_failure(exc)
+        finally:
+            _end_frame_timer(timer)
 
     def _episode_index(self) -> int | None:
         from orng_led.engine.presets import NONE_PRESET_ID
@@ -1736,34 +1776,30 @@ class AppRuntime:
         """Keep the newest picture. The copy is the universe, not a state dump."""
         self._desk_frame = list(frame)
         self._desk_at = time.monotonic()
+        self._desk_sequence += 1
         current = self.bpm.planner.current
         clock = None if current is None else current.clock
         self._desk_program = "beat" if clock == "musical" else "smooth"
         self._desk_look = None if current is None else str(current.look)
 
     def desk_preview(self) -> dict[str, object] | None:
-        """Decode off the frame loop. Returns None until a frame has been published."""
+        """The effect that is playing. Not a picture of the fixtures.
+
+        ``None`` until a frame has been published, so a stopped renderer
+        keeps one sequence and the age grows.
+        """
         frame = self._desk_frame
         captured = self._desk_at
         if frame is None or captured is None:
             return None
-        if self.engine.auto_base is not None:
-            from orng_led.engine.renderer import render_stage
-
-            painted = render_stage(
-                self.show, self.engine.auto_base, self.engine.beam_motion, master=1.0
-            )
-            view = decode_simulator_view(self.show, painted)
-            view = view.model_copy(
-                update={"blackout_visual": bool(self.engine.overlays.blackout)}
-            )
-        else:
-            view = decode_simulator_view(self.show, list(frame))
+        age_ms = max(0.0, (time.monotonic() - float(captured)) * 1000.0)
         return {
-            "captured_at": float(captured),
+            "session": self._desk_session,
+            "sequence": int(self._desk_sequence),
+            "age_ms": round(age_ms, 1),
             "program": self._desk_program,
             "look": self._desk_look,
-            "stage": view.model_dump(mode="json"),
+            "preset_id": self.engine.active_preset_id,
         }
 
     def _control_preview_view(self, wire: list[int]):
@@ -3277,6 +3313,8 @@ class AppRuntime:
             "poll": pack(self._poll_samples),
             "state": pack(self._state_samples),
             "loop_lag": pack(self._lag_samples),
+            "scheduler_wait": pack(self._scheduler_samples),
+            "sleep": pack(self._sleep_samples),
             "calc_interval": pack(calc_intervals),
             "calc_gaps_over_100ms": [
                 round(interval * 1000, 1) for interval in calc_intervals if interval > 0.1

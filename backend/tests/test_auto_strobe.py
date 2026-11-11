@@ -7,10 +7,13 @@ Manual Preset strobe is not in this file.
 from __future__ import annotations
 
 import math
+import time
+from pathlib import Path
 
 from orng_led.audio.auto_show import SectionTracker, analyze_slice, build_auto_stage
 from orng_led.audio.bpm import click_track
 from orng_led.audio.planner import EpisodePlanner
+from orng_led.audio.service import BpmService
 from orng_led.config.io import load_show_config
 from orng_led.engine.beam import BeamMotionState
 from orng_led.engine.clock import FRAME_DT
@@ -341,3 +344,83 @@ def test_confirmed_roll_is_one_series_and_a_drop_extinguishes_it() -> None:
     assert changing and still
     assert any(bits != changing[0] or True for bits in changing)
     assert all(sum(bits) == 0 or sum(bits) == len(bits) for bits in changing + still)
+
+
+def _watch_worker(
+    service: BpmService,
+    samples: list[float],
+    rows: list[dict[str, object]],
+    *,
+    record: bool,
+) -> None:
+    """Feed the spawn worker. BPM, phase and lock stay whatever the worker accepts."""
+    show = load_show_config()
+    fixtures = list(show.patch.fixtures)
+    placements = show.layout.placements
+    pose = _pose(show)
+    hop = HOP_S
+    cursor = 0.0
+    total = len(samples) / RATE
+    while cursor < total - 1e-6:
+        end = min(total, cursor + hop)
+        block = samples[int(cursor * RATE) : int(end * RATE)]
+        if block:
+            service.submit_block(block, RATE, captured_at=time.monotonic())
+        steps = max(1, int(round((end - cursor) / FRAME_DT)))
+        for _ in range(steps):
+            time.sleep(FRAME_DT)
+            service.poll(FRAME_DT)
+            if not record:
+                continue
+            stage = service.look(fixtures, placements, blackout=False)
+            current = service.planner.current
+            level = 1.0 if current is None else float(current.intensity)
+            beat = service.follower.beats_at(service._now)
+            flash = service.planner.flash_gate(beat, wall_s=service._now)
+            frame = render_stage(show, stage, pose)
+            view = decode_simulator_view(show, frame)
+            rows.append(
+                {
+                    "t": round(service._now, 3),
+                    "section": service.section.section,
+                    "flash": flash,
+                    "overlay": _overlay(view, flash, level),
+                    "series": service.planner._series_on,
+                    "beam_strobe": 0.0
+                    if not view.beams
+                    else max(float(item.strobe) for item in view.beams),
+                    "face": any(float(item.intensity) > 0.02 for item in view.faces),
+                }
+            )
+        cursor = end
+
+
+def test_worker_hears_one_roll_and_the_decoded_frame_shows_it(tmp_path: Path) -> None:
+    service = BpmService(tmp_path, "room")
+    service.configure(
+        enabled=True,
+        scope="auto",
+        palette="orange",
+        character="rhythmic",
+        intensity="full",
+    )
+    assert service.follower.locked is False
+    assert service.follower.bpm is None
+    service._start_worker()
+    rows: list[dict[str, object]] = []
+    try:
+        assert service._worker_alive()
+        _watch_worker(service, click_track(120, 6.0, RATE), rows, record=False)
+        assert service.follower.locked is True
+        assert service.follower.bpm is not None
+        roll = _accelerating(4.0) + _hit(0.4) + click_track(120, 2.0, RATE)
+        _watch_worker(service, roll, rows, record=True)
+    finally:
+        service._stop_worker()
+    assert rows
+    assert _series_runs(rows) == 1
+    overlays = {row["overlay"] for row in rows if row["series"] or row["overlay"] in {True, False}}
+    assert True in overlays
+    assert False in overlays
+    assert all(row["beam_strobe"] == 0.0 for row in rows)
+    assert all(row["face"] is False for row in rows)

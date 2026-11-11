@@ -467,6 +467,47 @@ def test_power_loss_before_swap_keeps_current(
     assert (paths.scenes / "show.yaml").read_bytes() == scene_bytes
 
 
+def _previous(paths, build: str, version: str) -> None:
+    folder = paths.releases / f"{version}-{build}"
+    folder.mkdir()
+    (folder / "RELEASE.json").write_text(
+        json.dumps({"version": version, "build_id": build}),
+        encoding="utf-8",
+    )
+    (folder / "marker.txt").write_text(build, encoding="utf-8")
+    write_pointer_atomic(
+        paths.previous_pointer,
+        {"version": version, "build_id": build, "path": str(folder)},
+    )
+
+
+def test_running_release_does_not_roll_its_own_pointer_back(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    paths, _, _ = _managed(tmp_path, monkeypatch)
+    _previous(paths, "build-old", "0.0.9")
+    record = load_update_state(paths)
+    transition(record, UpdateState.RESTARTING, paths=paths, command_id="swap")
+    assert not apply_request_path(paths).is_file()
+    monkeypatch.setenv("ORNG_BUILD_ID", "build-a")
+    out = AppUpdateService(None).recover_after_crash()
+    assert out["action"] == "await_helper"
+    assert read_pointer(paths.current_pointer)["build_id"] == "build-a"
+
+
+def test_a_real_crash_still_restores_the_previous_release(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    paths, _, _ = _managed(tmp_path, monkeypatch)
+    _previous(paths, "build-old", "0.0.9")
+    record = load_update_state(paths)
+    transition(record, UpdateState.RESTARTING, paths=paths, command_id="swap")
+    monkeypatch.delenv("ORNG_BUILD_ID", raising=False)
+    out = AppUpdateService(None).recover_after_crash()
+    assert out["status"] == "rolled_back"
+    assert read_pointer(paths.current_pointer)["build_id"] == "build-old"
+
+
 def test_child_process_build_id_after_apply_and_rollback(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

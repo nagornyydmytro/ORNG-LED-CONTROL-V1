@@ -149,6 +149,32 @@ def test_keepalive_does_not_extend_another_source() -> None:
     assert leases.current_token("cloud:web:two", "sweep") == "h2"
 
 
+def test_expired_hold_releases_without_a_heartbeat() -> None:
+    from orng_led.cloud.budget import HEARTBEAT_INTERVAL_S
+    from orng_led.cloud.hold_lease import CLOUD_HOLD_LEASE_S
+
+    assert HEARTBEAT_INTERVAL_S > CLOUD_HOLD_LEASE_S
+    runtime = MagicMock()
+    runtime.input_dispatcher.dispatch = MagicMock()
+    agent = CloudDeviceAgent(runtime)
+    now = {"t": 0.0}
+    agent._leases = CloudHoldLeases(clock=lambda: now["t"])
+    agent._leases.arm("cloud:web:tab", "strobe", "h1")
+    now["t"] = CLOUD_HOLD_LEASE_S + 0.1
+    agent._expire_cloud_holds()
+    released = runtime.input_dispatcher.dispatch.call_args.args[0]
+    assert released.action.value == "strobe_release"
+    assert released.hold_token == "h1"
+    assert agent._leases.current_token("cloud:web:tab", "strobe") is None
+
+
+def test_a_dropped_socket_does_not_wait_out_a_refused_upgrade() -> None:
+    from orng_led.cloud.agent import _upgrade_refused
+
+    assert _upgrade_refused("server rejected WebSocket connection: HTTP 500") is True
+    assert _upgrade_refused("no close frame received or sent") is False
+
+
 def test_replacing_a_lease_does_not_expire_the_new_hold() -> None:
     now = {"t": 0.0}
     leases = CloudHoldLeases(clock=lambda: now["t"])

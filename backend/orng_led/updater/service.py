@@ -885,6 +885,17 @@ class AppUpdateService:
                     "action": "await_helper",
                     "command_id": req.get("command_id") or record.command_id,
                 }
+            # The process just launched from current.json still carries that
+            # build id. Moving the pointer here is what left a new process
+            # running while current.json pointed at the previous release.
+            running = os.environ.get("ORNG_BUILD_ID", "").strip()
+            current = read_pointer(self.paths.current_pointer) or {}
+            if running and running == str(current.get("build_id") or ""):
+                return {
+                    "status": state,
+                    "action": "await_helper",
+                    "command_id": record.command_id,
+                }
             try:
                 if action == "rollback" and req:
                     restore = None

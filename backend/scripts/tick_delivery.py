@@ -68,6 +68,9 @@ def main() -> None:
     runtime.bpm._start_worker()
     worker = runtime.bpm._worker
     preview_holder: dict[str, object] = {}
+    cloud_preview_costs: list[float] = []
+    cloud_preview_gaps: list[float] = []
+    cloud_preview_sequences: list[int] = []
 
     class _Socket:
         def __init__(self) -> None:
@@ -92,6 +95,24 @@ def main() -> None:
     def preview() -> None:
         clip = preview_clip(runtime.show, "vertical_wave", cycle_beats=4.0, palette="orange", bpm=120.0)
         preview_holder.update(clip)
+
+    def cloud_preview() -> None:
+        """The device preview: read the current effect off the frame thread."""
+        last: float | None = None
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            started = time.perf_counter()
+            packet = runtime.desk_preview()
+            cloud_preview_costs.append(time.perf_counter() - started)
+            if isinstance(packet, dict) and isinstance(packet.get("sequence"), int):
+                cloud_preview_sequences.append(int(packet["sequence"]))
+            now = time.monotonic()
+            if last is not None:
+                cloud_preview_gaps.append(now - last)
+            last = now
+            remain = 0.1 - (time.monotonic() - now)
+            if remain > 0.0:
+                time.sleep(remain)
 
     def operate() -> None:
         time.sleep(1.2)
@@ -127,12 +148,14 @@ def main() -> None:
         runtime.attach_socket(pump2)
         feeder = threading.Thread(target=feed, name="orng-feed", daemon=True)
         painter = threading.Thread(target=preview, name="orng-preview", daemon=True)
+        cloud = threading.Thread(target=cloud_preview, name="orng-cloud-preview", daemon=True)
         desk = threading.Thread(target=operate, name="orng-desk", daemon=True)
         runtime._running = True
         runtime._last_wall = time.monotonic() - FRAME_DT
         tick = asyncio.create_task(runtime._tick_loop())
         feeder.start()
         painter.start()
+        cloud.start()
         desk.start()
         await asyncio.sleep(float(os.environ.get("ORNG_TICK_SECONDS", "8.8")))
         runtime._running = False
@@ -143,6 +166,7 @@ def main() -> None:
             pass
         feeder.join(timeout=2.0)
         painter.join(timeout=8.0)
+        cloud.join(timeout=2.0)
         desk.join(timeout=2.0)
         await pump1.close()
         await pump2.close()
@@ -162,24 +186,54 @@ def main() -> None:
         for index, gap in enumerate(gaps, start=1)
         if gap > 0.1
     ]
+    timing = runtime.frame_timing()
     report = {
         "transport": "mock",
         "armed": bool(runtime.output.armed),
         "frame_dt_s": FRAME_DT,
+        "timer": "winmm-1ms" if __import__("sys").platform == "win32" else "native",
         "deliveries": len(stamps),
         "clients": {"a": clients[0], "b": clients[1]},
         "preview_frames": len(preview_holder.get("frames") or []),
+        "tick_compute_ms": timing["tick"],
+        "scheduler_wait_ms": timing["scheduler_wait"],
+        "sleep_ms": timing["sleep"],
+        "background_poll_ms": timing["poll"],
+        "background_engine_ms": timing["engine"],
+        "background_send_cost_ms": timing["send"],
+        "cloud_preview": {
+            "samples": len(cloud_preview_costs),
+            "decode_s": _stats(cloud_preview_costs),
+            "interval_s": _stats(cloud_preview_gaps),
+            "sequences": len(cloud_preview_sequences),
+            "sequence_advanced": len(set(cloud_preview_sequences)) > 1,
+        },
         "startup_gaps_s": [round(item, 4) for item in startup],
         "startup": _stats(startup),
         "warmed": _stats(warmed),
         "all_gaps": _stats(gaps),
+        "send_intervals_s": _stats(warmed),
         "pauses_over_100ms": pauses,
         "worker_alive_after_stop": alive,
         "marks": [{"name": name, "at_s": round(stamp - origin, 3)} for name, stamp in marks],
     }
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / "delivery.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
-    print(json.dumps({key: report[key] for key in ("deliveries", "startup", "warmed", "all_gaps", "pauses_over_100ms", "worker_alive_after_stop", "armed")}, ensure_ascii=False))
+    print(json.dumps({
+        key: report[key]
+        for key in (
+            "deliveries",
+            "tick_compute_ms",
+            "scheduler_wait_ms",
+            "cloud_preview",
+            "startup",
+            "warmed",
+            "send_intervals_s",
+            "pauses_over_100ms",
+            "worker_alive_after_stop",
+            "armed",
+        )
+    }, ensure_ascii=False))
 
 
 if __name__ == "__main__":

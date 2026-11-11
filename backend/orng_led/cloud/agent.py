@@ -13,6 +13,7 @@ shared SceneSyncService and ACKs ``applied`` only after a real apply.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -24,7 +25,10 @@ from typing import TYPE_CHECKING, Any
 
 from orng_led.api.runtime import CommandConflictError
 from orng_led.cloud.budget import (
+    LINK_INTERVAL_S,
+    LINK_SOCKET_RETRY_S,
     PREVIEW_INTERVAL_S,
+    PREVIEW_SEND_TIMEOUT_S,
     heartbeat_interval_s,
     preview_key,
     should_publish_preview,
@@ -165,6 +169,16 @@ def cloud_device_url() -> str:
     return os.environ.get("ORNG_CLOUD_DEVICE_URL", "").strip()
 
 
+class _LinkSink:
+    """Collects ack frames when there is no websocket to send them on."""
+
+    def __init__(self) -> None:
+        self.sent: list[str] = []
+
+    async def send(self, text: str) -> None:
+        self.sent.append(text)
+
+
 class CloudDeviceAgent:
     """Minimal asyncio WebSocket client for the Cloudflare device host."""
 
@@ -177,6 +191,8 @@ class CloudDeviceAgent:
         self.connected = False
         self.last_error: str | None = None
         self._seen_commands: dict[str, str] = {}
+        self._link_acks: list[dict[str, Any]] = []
+        self._preview_owner: int | None = None
         self._sync = SceneSyncService(runtime)
         self._calibration_until = 0.0
         self._leases = CloudHoldLeases()
@@ -219,7 +235,16 @@ class CloudDeviceAgent:
         self.connected = False
 
     async def _run_loop(self) -> None:
+        watch = asyncio.create_task(self._lease_watch(), name="orng-cloud-lease-watch")
         attempt = 0
+        try:
+            await self._connect_loop(attempt)
+        finally:
+            watch.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await watch
+
+    async def _connect_loop(self, attempt: int) -> None:
         while not self._stop.is_set():
             token = load_device_token()
             url = cloud_device_url()
@@ -253,6 +278,25 @@ class CloudDeviceAgent:
                 self.last_error = safe
                 self.connected = False
                 logger.warning("cloud agent disconnected: %s", safe)
+                # A refused upgrade stays on the slow link. A dropped socket
+                # posts once and tries the socket again, so the desk is not
+                # dark for the whole refusal interval.
+                if _upgrade_refused(safe):
+                    await self._link_round()
+                else:
+                    fresh = load_device_token()
+                    if fresh:
+                        try:
+                            await self._link_once(fresh)
+                        except Exception as link_exc:  # noqa: BLE001
+                            logger.warning("cloud link: %s", str(link_exc)[:200])
+                    try:
+                        await asyncio.wait_for(self._stop.wait(), timeout=2.0)
+                        break
+                    except TimeoutError:
+                        pass
+                attempt += 1
+                continue
             delay = min(30.0, 0.5 * (2**attempt))
             jitter = delay * 0.2 * (random.random() * 2 - 1)
             attempt += 1
@@ -261,6 +305,81 @@ class CloudDeviceAgent:
                 break
             except TimeoutError:
                 continue
+
+    async def _link_round(self) -> None:
+        """Post the current effect and pull queued commands until the next socket try."""
+        deadline = time.monotonic() + LINK_SOCKET_RETRY_S
+        while not self._stop.is_set() and time.monotonic() < deadline:
+            token = load_device_token()
+            if token:
+                try:
+                    await self._link_once(token)
+                except Exception as exc:  # noqa: BLE001
+                    self.connected = False
+                    self.last_error = str(exc)[:200]
+                    logger.warning("cloud link: %s", self.last_error)
+            try:
+                await asyncio.wait_for(self._stop.wait(), timeout=LINK_INTERVAL_S)
+                return
+            except TimeoutError:
+                continue
+
+    async def _link_once(self, token: str) -> None:
+        import httpx
+
+        from orng_led.cloud.sync_service import cloud_http_base
+
+        beat = json.loads(self._heartbeat_message())
+        effect = self.runtime.desk_preview() or {}
+        pending = list(self._link_acks)
+        self._link_acks = []
+        body = {
+            "heartbeat": beat.get("payload") or {},
+            "effect": effect,
+            "acks": pending,
+            "wait_ms": 0,
+        }
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                res = await client.post(
+                    cloud_http_base().rstrip("/") + "/device/link",
+                    json=body,
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+                res.raise_for_status()
+                data = res.json()
+        except Exception:
+            self._link_acks = pending + self._link_acks
+            raise
+        installation = data.get("installation_id")
+        if installation:
+            self.installation_id = str(installation)
+        self.connected = True
+        self.last_error = None
+        sink = _LinkSink()
+        for cmd in data.get("commands") or []:
+            payload = cmd.get("payload") if isinstance(cmd.get("payload"), dict) else {}
+            await self._handle_message(
+                sink,
+                {
+                    "type": str(cmd.get("type") or ""),
+                    "message_id": str(cmd.get("command_id") or ""),
+                    "payload": payload,
+                },
+            )
+        for raw in sink.sent:
+            parsed = json.loads(raw)
+            if parsed.get("type") != "ack":
+                continue
+            ack = parsed.get("payload") or {}
+            self._link_acks.append(
+                {
+                    "command_id": ack.get("command_id"),
+                    "status": ack.get("status"),
+                    "error_code": ack.get("error_code"),
+                    "error_message": ack.get("error_message"),
+                }
+            )
 
     async def _session(self, url: str, token: str) -> None:
         try:
@@ -286,7 +405,6 @@ class CloudDeviceAgent:
             await self._flush_pending_update_result(ws)
             heartbeat = asyncio.create_task(self._heartbeat(ws))
             preview = asyncio.create_task(self._preview_loop(ws))
-            leases = asyncio.create_task(self._lease_watch())
             try:
                 async for raw in ws:
                     if self._stop.is_set():
@@ -301,39 +419,20 @@ class CloudDeviceAgent:
             finally:
                 heartbeat.cancel()
                 preview.cancel()
-                leases.cancel()
+                owner = self._preview_owner
+                if owner is None:
+                    self._preview.drop()
+                else:
+                    self._preview.drop(owner)
                 self.connected = False
                 self._drop_all_cloud_holds()
 
-    async def _lease_watch(self) -> None:
-        """Release a cloud hold on the lease clock, not on the heartbeat."""
-        while not self._stop.is_set():
-            for lease in self._leases.expired():
-                self._release_cloud_lease(lease)
-            try:
-                await asyncio.wait_for(self._stop.wait(), timeout=1.0)
-                return
-            except TimeoutError:
-                continue
-
-    async def _note_subscribers(self, ws: Any, count: int) -> None:
-        """A desk just opened. Send the current effect once, then only changes."""
-        opened = self._subscribers <= 0 < count
-        self._subscribers = max(0, count)
-        if not opened:
-            return
-        self._preview_key = None
-        try:
-            packet = await asyncio.to_thread(self.runtime.desk_preview)
-        except Exception:  # noqa: BLE001
-            return
-        if isinstance(packet, dict) and should_publish_preview(1, None, packet):
-            self._preview_key = preview_key(packet)
-            self._preview.offer(packet)
-            await self._send_preview(ws)
-
     async def _preview_loop(self, ws: Any) -> None:
-        """The current effect, when a desk is open and it changed."""
+        """The current effect, once per interval.
+
+        Each message spends a free-tier Durable Object request. The payload
+        is the effect that is playing, not a fixture picture.
+        """
         while not self._stop.is_set():
             if self._subscribers > 0:
                 try:
@@ -353,43 +452,39 @@ class CloudDeviceAgent:
                 continue
 
     async def _send_preview(self, ws: Any) -> None:
-        packet = self._preview.start()
-        if packet is None:
+        opened = self._preview.start()
+        if opened is None:
             return
-        text = json.dumps(
-            {
-                "protocol_version": PROTOCOL_VERSION,
-                "message_id": str(uuid.uuid4()),
-                "type": "preview",
-                "device_id": self.installation_id or "unknown",
-                "sent_at": _now(),
-                "payload": packet,
-            }
-        )
+        packet, epoch = opened
+        self._preview_owner = epoch
         try:
-            await asyncio.wait_for(ws.send(text), timeout=0.05)
-            size = len(text)
-        except Exception:  # noqa: BLE001
-            size = 0
-        while True:
-            nxt = self._preview.finish(size)
-            if nxt is None:
-                return
-            text = json.dumps(
-                {
-                    "protocol_version": PROTOCOL_VERSION,
-                    "message_id": str(uuid.uuid4()),
-                    "type": "preview",
-                    "device_id": self.installation_id or "unknown",
-                    "sent_at": _now(),
-                    "payload": nxt,
-                }
-            )
-            try:
-                await asyncio.wait_for(ws.send(text), timeout=0.05)
-                size = len(text)
-            except Exception:  # noqa: BLE001
-                size = 0
+            while True:
+                text = json.dumps(
+                    {
+                        "protocol_version": PROTOCOL_VERSION,
+                        "message_id": str(uuid.uuid4()),
+                        "type": "preview",
+                        "device_id": self.installation_id or "unknown",
+                        "sent_at": _now(),
+                        "payload": packet,
+                    }
+                )
+                try:
+                    await asyncio.wait_for(ws.send(text), timeout=PREVIEW_SEND_TIMEOUT_S)
+                    size = len(text)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:  # noqa: BLE001
+                    size = 0
+                opened = self._preview.finish(size, epoch)
+                if opened is None:
+                    return
+                packet, epoch = opened
+        except asyncio.CancelledError:
+            self._preview.release(epoch)
+            if self._preview_owner == epoch:
+                self._preview_owner = None
+            raise
 
     async def _heartbeat(self, ws: Any) -> None:
         while not self._stop.is_set():
@@ -440,7 +535,6 @@ class CloudDeviceAgent:
                 "bpm": state.bpm,
                 "strobe_speed": state.engine.strobe_speed,
                 "sweep_speed": state.engine.sweep_speed,
-                "stage": state.simulator.model_dump(mode="json"),
                 "face_on": bool(state.engine.face_on),
                 "strobe_held": bool(state.engine.strobe_held),
                 "sweep_active": bool(state.engine.sweep_active),
@@ -498,11 +592,39 @@ class CloudDeviceAgent:
             }
         )
 
-    async def _heartbeat_once(self, ws: Any) -> None:
-        self._expire_calibration_lease()
-        # Expire before the send. A stuck socket must not keep a cloud hold alive.
+    async def _lease_watch(self) -> None:
+        """Release a cloud hold on the lease clock, not on the 45s heartbeat."""
+        while not self._stop.is_set():
+            self._expire_cloud_holds()
+            try:
+                await asyncio.wait_for(self._stop.wait(), timeout=1.0)
+                return
+            except TimeoutError:
+                continue
+
+    def _expire_cloud_holds(self) -> None:
         for lease in self._leases.expired():
             self._release_cloud_lease(lease)
+
+    async def _note_subscribers(self, ws: Any, count: int) -> None:
+        """A desk just opened. Send the current effect once, then only changes."""
+        opened = self._subscribers <= 0 < count
+        self._subscribers = max(0, count)
+        if not opened:
+            return
+        self._preview_key = None
+        try:
+            packet = await asyncio.to_thread(self.runtime.desk_preview)
+        except Exception:  # noqa: BLE001
+            return
+        if isinstance(packet, dict) and should_publish_preview(1, None, packet):
+            self._preview_key = preview_key(packet)
+            self._preview.offer(packet)
+            await self._send_preview(ws)
+
+    async def _heartbeat_once(self, ws: Any) -> None:
+        self._expire_calibration_lease()
+        self._expire_cloud_holds()
         try:
             text = await asyncio.to_thread(self._heartbeat_message)
         except Exception:  # noqa: BLE001
@@ -1110,6 +1232,11 @@ def _pad_presets(runtime: Any) -> list[str]:
     if not pads:
         return []
     return [str(x) for x in list(pads)[:9]]
+
+
+def _upgrade_refused(message: str) -> bool:
+    """True when the socket was never accepted. A later TCP drop is not a refusal."""
+    return any(code in message for code in ("HTTP 401", "HTTP 403", "HTTP 429", "HTTP 500"))
 
 
 def _now() -> str:

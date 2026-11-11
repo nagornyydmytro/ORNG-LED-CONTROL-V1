@@ -1394,12 +1394,13 @@ export class DeviceDO implements DurableObject {
       if (!this.usesTransportTtl(cmd.type)) continue;
       deadlines.push(cmd.created_at + cmd.ttl_ms);
     }
-    if (deadlines.length === 0) {
+    const now = Date.now();
+    const future = deadlines.filter((at) => at > now);
+    if (future.length === 0) {
       await this.state.storage.deleteAlarm();
       return;
     }
-    const next = Math.min(...deadlines);
-    await this.state.storage.setAlarm(next);
+    await this.state.storage.setAlarm(Math.min(...future));
   }
 }
 function releaseTypeForEffect(effect: string): AllowedCommandType {

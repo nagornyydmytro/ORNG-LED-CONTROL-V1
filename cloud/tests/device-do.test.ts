@@ -590,6 +590,40 @@ describe("DeviceDO transport alarm", () => {
     expect(meta?.pending.map((cmd) => cmd.type).sort()).toEqual([...APP_UPDATE_TYPES].sort());
   });
 
+  it("does not arm a past hold and does not drop a pending apply", async () => {
+    const now = Date.now();
+    const { state, sets } = await bootStored({
+      installationId: "inst-alarm",
+      holds: [
+        {
+          hold_id: "h-old",
+          source: "cloud:web:tab",
+          effect: "strobe",
+          lease_until: now - 1_000,
+          adminSessionId: "tab",
+        },
+      ],
+      pending: [
+        {
+          command_id: "upd-apply",
+          type: "apply_app_update",
+          created_at: now - 120_000,
+          ttl_ms: 30_000,
+          momentary_press: false,
+          desired_sync: true,
+          payload: { build_id: "build-keep" },
+        },
+      ],
+    });
+    expect(sets.filter((at) => at <= now)).toEqual([]);
+    const meta = await state.storage.get<{
+      pending: Array<{ command_id: string }>;
+      holds: Array<{ hold_id: string }>;
+    }>("meta");
+    expect(meta?.pending.map((cmd) => cmd.command_id)).toContain("upd-apply");
+    expect(meta?.holds.map((hold) => hold.hold_id)).toContain("h-old");
+  });
+
   it("keeps a long update pending until a real terminal result", async () => {
     const now = Date.now();
     const { env, state, dob } = await bootStored({
@@ -677,7 +711,7 @@ describe("DeviceDO transport alarm", () => {
         payload: {},
         status: "accepted",
       });
-      expect(await state.storage.getAlarm()).toBe(now - 5);
+      expect(await state.storage.getAlarm()).toBe(now + 29_000);
       await dob.alarm();
       expect((await getCommand(env, "edge"))?.error_code).toBe("ttl_expired");
       expect((await getCommand(env, "later"))?.status ?? "accepted").not.toBe("failed");

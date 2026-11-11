@@ -3,8 +3,10 @@
 Raw WebSocket messages are Durable Object requests. The paid 20:1 ratio is
 reported beside them and is not the free-plan ceiling. D1 figures follow the
 schema: a primary-key lookup is one row read, and a write that changes an
-indexed column also writes the index. This is not a production meta sample
-and it does not open a socket to Cloudflare.
+indexed column also writes the index. The walk is a calculation. It is not a
+trace of handler invocations and it does not open a socket to Cloudflare.
+Handler duration is not estimated: a hibernating object has no measured
+active time here, and a resident object is charged the whole day at 128 MB.
 
 Official limits checked 2026-11-10:
 https://developers.cloudflare.com/workers/platform/limits/
@@ -28,8 +30,8 @@ from orng_led.cloud.budget import (
 )
 
 DAY_MS = 86_400_000
-# Handler wall time used only for the hibernating duration estimate.
-HANDLER_S = 0.05
+# DeviceDO hold lease. A keepalive extends the in-memory lease and does not call setAlarm.
+HOLD_LEASE_MS = 8_000
 # installations.last_seen_at is indexed. The row plus that index.
 PRESENCE_ROWS_READ = 1
 PRESENCE_ROWS_WRITTEN = 2
@@ -53,7 +55,11 @@ class ExchangeDay:
     do_ws_incoming: int
     do_ws_accept: int
     do_alarm: int
-    do_duration_gb_s: float
+    set_alarm_writes: int
+    # None when the object hibernates: handler time was not measured.
+    # A resident day is the documented 128 MB ceiling, not a measured sample.
+    duration_basis: str
+    do_duration_gb_s: float | None
     do_sqlite_rows_read: int
     do_sqlite_rows_written: int
     d1_rows_read: int
@@ -76,7 +82,7 @@ def simulate_day(
     subscribers: int = 0,
     windows_watch: bool = False,
     has_token: bool = False,
-    effect_change_s: float | None = None,
+    frames_advance: bool = True,
     outage_s: float = 0.0,
     outage_at_s: float = 3_600.0,
     hold_tabs: int = 0,
@@ -88,9 +94,16 @@ def simulate_day(
     """Walk one day in 500 ms steps.
 
     subscribers is open browser tabs plus any Windows watch. The hall sends
-    one telemetry stream for all of them. Commands and keepalive forwards are
-    immediate and are not merged. Without a device token the Windows desk
-    does not call Cloudflare at all.
+    one telemetry stream for all of them. A running renderer publishes a
+    preview on every slot, because sequence changes even when the effect name
+    does not. A stopped renderer publishes one frame and then ages. Commands
+    and keepalive forwards are immediate and are not merged. Without a device
+    token the Windows desk does not call Cloudflare at all.
+
+    do_requests, row counts and setAlarm writes are calculated from the
+    protocol. They are not handler traces and not production counters.
+    Duration is omitted while hibernating. A resident object uses the full
+    day at 128 MB, which is a ceiling, not a measurement.
     """
     # A Windows desk without a token never opens the executor socket.
     watching = windows_watch and has_token
@@ -105,13 +118,12 @@ def simulate_day(
     hold_ms = int(hold_s * 1000)
     outage_start = int(outage_at_s * 1000)
     outage_end = outage_start + int(outage_s * 1000)
-    effect_ms = None if effect_change_s is None else int(effect_change_s * 1000)
-
     worker = 1  # the hall opens its socket once
     do_http = 0
     do_ws = 0
     do_accept = 1
     do_alarm = 0
+    set_alarm_writes = 0
     sqlite_read = 1  # constructor reads meta
     sqlite_write = 0
     d1_read = 0
@@ -139,29 +151,20 @@ def simulate_day(
             beat = live_beat if listeners else idle_beat
             if t % beat == 0:
                 do_ws += 1
-                if hibernate_between:
-                    sqlite_read += 1
-                    sqlite_write += 1  # deleteAlarm when nothing is held
                 if t - last_presence >= presence_ms:
                     d1_read += PRESENCE_ROWS_READ
                     d1_write += PRESENCE_ROWS_WRITTEN
                     sqlite_write += 1
                     last_presence = t
             if listeners and t % preview_ms == 0:
-                key = 0 if effect_ms is None else t // effect_ms
-                if key != last_preview:
+                # Sequence advances with each published frame. The effect name
+                # staying put is not a reason to skip the sample.
+                if frames_advance or last_preview is None:
                     do_ws += 1
-                    if hibernate_between:
-                        sqlite_read += 1
-                        sqlite_write += 1
-                    last_preview = key
-            if hold_tabs and t < hold_ms:
-                if t % keepalive_ms == 0:
-                    do_ws += hold_tabs
-                    keepalives += hold_tabs
-                if t % 8_000 == 0:
-                    do_alarm += 1
-                    sqlite_write += 2  # persist the extended lease, arm the next one
+                    last_preview = t
+            if hold_tabs and t < hold_ms and t % keepalive_ms == 0:
+                do_ws += hold_tabs
+                keepalives += hold_tabs
         elif windows_watch and has_token and (t - outage_start) % fallback_ms == 0:
             executor_http += 1
             worker += 1
@@ -181,13 +184,31 @@ def simulate_day(
         do_ws += 2
         d1_read += COMMAND_INSERT_ROWS_READ + ACK_ROWS_READ
         d1_write += COMMAND_INSERT_ROWS_WRITTEN + ACK_ROWS_WRITTEN
+        # The press writes one future alarm. Keepalive does not.
+        set_alarm_writes += 1
+        sqlite_write += 1
+        if hibernate_between:
+            # Storage still has the original lease. One alarm expires it.
+            do_alarm += 1
+            sqlite_write += 1
+        else:
+            # The resident object sees the extended lease and reschedules.
+            fires = hold_ms // HOLD_LEASE_MS
+            do_alarm += fires
+            set_alarm_writes += fires
+            sqlite_write += fires
 
     do_requests = do_http + do_ws + do_accept + do_alarm
     # Paid ratio only. Incoming WebSocket messages are divided. HTTP, accepts
     # and alarms stay one for one. The free cap uses do_requests.
     ws_units = (do_ws + 19) // 20
     billing_units = do_http + do_accept + do_alarm + ws_units
-    active_s = do_requests * HANDLER_S
+    if hibernate_between:
+        duration_basis = "unmeasured"
+        duration = None
+    else:
+        duration_basis = "resident_day"
+        duration = (DAY_MS / 1000) * DO_GB_PER_SECOND
     return ExchangeDay(
         worker_requests=worker,
         do_requests=do_requests,
@@ -196,7 +217,9 @@ def simulate_day(
         do_ws_incoming=do_ws,
         do_ws_accept=do_accept,
         do_alarm=do_alarm,
-        do_duration_gb_s=active_s * DO_GB_PER_SECOND,
+        set_alarm_writes=set_alarm_writes,
+        duration_basis=duration_basis,
+        do_duration_gb_s=duration,
         do_sqlite_rows_read=sqlite_read,
         do_sqlite_rows_written=sqlite_write,
         d1_rows_read=d1_read,

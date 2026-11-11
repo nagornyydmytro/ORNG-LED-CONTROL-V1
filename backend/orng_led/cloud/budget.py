@@ -7,9 +7,11 @@ Three daily ceilings reset at 00:00 UTC and stop the product when crossed:
 and protocol pings are free. The paid 20:1 ratio does not raise these caps.
 
 Automatic traffic for a hall that stays up all day, plus one open desk,
-stays under a third of every ceiling. Presses, holds and reconnects use
-the rest. The hall names the current effect. It does not send a fixture
-picture, and it does not re-read the command history on a timer.
+stays under a third of every ceiling when the preview is one message per
+slot. Presses, holds and reconnects use the rest. Sequence advances with
+each published frame, so a stable effect name is still a new preview.
+The hall does not send a fixture picture, and it does not re-read the
+command history on a timer.
 """
 
 from __future__ import annotations
@@ -20,10 +22,8 @@ import math
 PREVIEW_INTERVAL_S = 5.0
 PREVIEW_SEND_TIMEOUT_S = 1.0
 HEARTBEAT_INTERVAL_S = 45.0
-# Used only while the live socket is refused. The hall holds one request
-# open; a press is seen on the next check inside that request, not on the
-# next time the hall happens to call. A whole day of held requests stays
-# under the Worker cap.
+# Not the live reserve. A refused socket posts on LINK_INTERVAL_S with
+# wait_ms 0. These three numbers are the rejected held-request experiment.
 LINK_WAIT_S = 2.0
 LINK_POLL_STEP_S = 0.25
 LINK_GAP_S = 0.05
@@ -57,7 +57,7 @@ def messages_per_day(interval_s: float) -> int:
 
 
 def device_socket_messages_per_day() -> int:
-    """Ceiling if the effect changes on every preview slot and a desk is open."""
+    """A running renderer publishes every preview slot while a desk is open."""
     return messages_per_day(PREVIEW_INTERVAL_S) + messages_per_day(HEARTBEAT_INTERVAL_S)
 
 
@@ -83,7 +83,7 @@ def should_publish_preview(
     previous: tuple[object, ...] | None,
     packet: dict[str, object],
 ) -> bool:
-    """Telemetry goes out when a desk is listening and the effect changed."""
+    """A listening desk gets a frame when session, sequence or the effect changed."""
     if subscribers <= 0:
         return False
     return preview_key(packet) != previous

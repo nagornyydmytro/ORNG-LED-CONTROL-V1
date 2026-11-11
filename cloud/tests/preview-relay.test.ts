@@ -23,4 +23,26 @@ describe("preview relay", () => {
       preset_id: "P01",
     });
   });
+
+  it("keeps a new sequence when the effect name is unchanged", () => {
+    const first = previewRelayPayload({
+      session: "render-1",
+      sequence: 4,
+      age_ms: 20,
+      program: "smooth",
+      look: "bars",
+      preset_id: "P01",
+    });
+    const next = previewRelayPayload({
+      session: "render-1",
+      sequence: 5,
+      age_ms: 15,
+      program: "smooth",
+      look: "bars",
+      preset_id: "P01",
+    });
+    expect(next.sequence).toBe(5);
+    expect(next.look).toBe(first.look);
+    expect(next.program).toBe(first.program);
+  });
 });

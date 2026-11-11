@@ -1,6 +1,7 @@
 """One virtual day of the cloud exchange. Nothing here contacts Cloudflare."""
 
 from orng_led.cloud.budget import (
+    DO_GB_PER_SECOND,
     FREE_D1_ROWS_READ_PER_DAY,
     FREE_D1_ROW_WRITES_PER_DAY,
     FREE_DO_DURATION_GB_S_PER_DAY,
@@ -11,15 +12,23 @@ from orng_led.cloud.budget import (
 )
 from orng_led.cloud.exchange import legacy_executor_http_per_day, simulate_day
 
+RESIDENT_DAY_GB_S = 86_400 * DO_GB_PER_SECOND
+
 
 def _under_free(day) -> None:
+    assert day.do_requests > 0
     assert day.do_requests < FREE_DO_REQUESTS_PER_DAY
     assert day.worker_requests < FREE_WORKER_REQUESTS_PER_DAY
     assert day.d1_rows_read < FREE_D1_ROWS_READ_PER_DAY
     assert day.d1_rows_written < FREE_D1_ROW_WRITES_PER_DAY
     assert day.do_sqlite_rows_read < FREE_DO_SQLITE_ROWS_READ_PER_DAY
     assert day.do_sqlite_rows_written < FREE_DO_SQLITE_ROWS_WRITTEN_PER_DAY
-    assert day.do_duration_gb_s < FREE_DO_DURATION_GB_S_PER_DAY
+    if day.do_duration_gb_s is None:
+        assert day.duration_basis == "unmeasured"
+    else:
+        assert day.duration_basis == "resident_day"
+        assert day.do_duration_gb_s == RESIDENT_DAY_GB_S
+        assert day.do_duration_gb_s < FREE_DO_DURATION_GB_S_PER_DAY
     assert day.r2_reads == 0
     assert day.r2_writes == 0
     assert day.log_events == 0
@@ -38,26 +47,49 @@ def test_no_desk_sends_presence_only() -> None:
     _under_free(day)
 
 
-def test_one_desk_skips_repeated_preview_and_the_old_poll() -> None:
-    quiet = simulate_day(subscribers=1, windows_watch=True, has_token=True)
-    busy = simulate_day(
+def test_one_desk_publishes_every_frame_and_a_stopped_renderer_does_not() -> None:
+    running = simulate_day(subscribers=1, windows_watch=True, has_token=True)
+    stopped = simulate_day(
         subscribers=1,
         windows_watch=True,
         has_token=True,
-        effect_change_s=5,
+        frames_advance=False,
     )
-    assert quiet.executor_http == 0
-    assert busy.executor_http == 0
-    assert quiet.executor_http < legacy_executor_http_per_day()
-    assert quiet.do_ws_incoming < busy.do_ws_incoming
-    assert busy.do_requests < FREE_DO_REQUESTS_PER_DAY
-    _under_free(quiet)
-    _under_free(busy)
+    assert running.executor_http == 0
+    assert stopped.executor_http == 0
+    assert running.executor_http < legacy_executor_http_per_day()
+    # 5s sequence samples, not one preview for a stable effect name.
+    assert running.do_ws_incoming - stopped.do_ws_incoming == (86_400 // 5) - 1
+    _under_free(running)
+    _under_free(stopped)
+
+
+def test_resident_day_is_a_ceiling_and_hibernating_duration_is_not_invented() -> None:
+    asleep = simulate_day(subscribers=1)
+    awake = simulate_day(subscribers=1, hibernate_between=False)
+    assert asleep.duration_basis == "unmeasured"
+    assert asleep.do_duration_gb_s is None
+    assert awake.duration_basis == "resident_day"
+    assert awake.do_duration_gb_s == RESIDENT_DAY_GB_S
+    assert awake.do_requests == asleep.do_requests
+    _under_free(awake)
+
+
+def test_a_hold_counts_alarm_requests_and_set_alarm_writes() -> None:
+    stored = simulate_day(subscribers=1, hold_tabs=1, hold_s=60)
+    resident = simulate_day(subscribers=1, hold_tabs=1, hold_s=60, hibernate_between=False)
+    assert stored.do_alarm == 1
+    assert stored.set_alarm_writes == 1
+    assert stored.keepalive_forwards > stored.set_alarm_writes
+    assert resident.do_alarm == 60_000 // 8_000
+    assert resident.set_alarm_writes == 1 + resident.do_alarm
+    _under_free(stored)
+    _under_free(resident)
 
 
 def test_several_desks_share_one_telemetry_stream() -> None:
-    one = simulate_day(subscribers=1, effect_change_s=5)
-    three = simulate_day(subscribers=3, effect_change_s=5, hold_tabs=2, hold_s=3_600)
+    one = simulate_day(subscribers=1)
+    three = simulate_day(subscribers=3, hold_tabs=2, hold_s=3_600)
     assert three.do_ws_accept == one.do_ws_accept + 2
     # Two holding tabs add their own refreshes. They do not each open a preview.
     assert three.keepalive_forwards > 0

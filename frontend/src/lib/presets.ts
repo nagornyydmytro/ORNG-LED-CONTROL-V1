@@ -29,6 +29,7 @@ export const PALETTE_CSS: Record<string, string> = {
   rose: "rgb(255, 36, 26)",
   deep_blue: "rgb(13, 46, 255)",
   violet: "rgb(140, 20, 255)",
+  cyan: "rgb(0, 242, 242)",
 };
 
 export function paletteCss(name: string): string {

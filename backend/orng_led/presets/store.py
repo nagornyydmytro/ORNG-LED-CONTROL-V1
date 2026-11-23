@@ -172,7 +172,7 @@ class PresetStore:
                 id=f"ep{index + 1}",
                 duration_s=18.0,
                 groups=["all_rear"],
-                palette="warm_orange" if index % 2 == 0 else "amber",
+                palette="deep_red" if index % 2 == 0 else "rose",
                 effect="pulse" if index % 2 == 0 else "wave",
                 speed=0.4 + (index % 5) * 0.1,
                 intensity=0.55 + (index % 4) * 0.08,

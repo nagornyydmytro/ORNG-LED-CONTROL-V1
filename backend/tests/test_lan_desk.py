@@ -149,6 +149,16 @@ def test_desk_without_wan_authenticates_commands_and_keeps_one_output(
         ):
             blocked = client.post(path, json={}, headers=ORIGIN)
             assert blocked.status_code == 404, path
+        listed = client.get("/api/scene-draft/presets")
+        assert listed.status_code == 200
+        assert client.post("/api/scene-draft/presets", json={}, headers=ORIGIN).status_code == 404
+        head = client.post(
+            "/api/commands/head-desk",
+            json={"enabled": False, "light": False, "scene": True, "color": "red", "x": 0, "y": 0.5},
+            headers=ORIGIN,
+        )
+        assert head.status_code == 200, head.text
+        assert client.post("/api/setup/reload", json={}, headers=ORIGIN).status_code == 404
 
         for index in range(40):
             ack = client.post(

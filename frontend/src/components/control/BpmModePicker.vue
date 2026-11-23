@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, inject, ref, watch } from "vue";
+import { computed, inject, onBeforeUnmount, ref, watch } from "vue";
 import { APP_STATE_KEY } from "../../composables/appStateKey";
+import { beginBpmChange, bpmDesk, choiceKeyFor, finishBpmChange } from "../../lib/bpmIntent";
 import {
-  BPM_CASTS,
   BPM_GROUPS,
   BPM_CHARACTERS,
   BPM_INTENSITIES,
@@ -11,16 +11,10 @@ import {
   BPM_PERIODS,
   BPM_PRESET_MODES,
   PERIODS_FOR_CHARACTER,
-  bpmChoiceKey,
-  bpmChoiceRevision,
   hasAutoDirector,
-  normalizeGroups,
-  readBpmChoice,
-  writeBpmChoice,
   type BpmCastId,
   type BpmGroupId,
   type BpmCharacterId,
-  type BpmChoice,
   type BpmIntensityId,
   type BpmPaletteId,
   type BpmPeriodId,
@@ -45,59 +39,14 @@ watch(
   },
 );
 const choiceKey = computed(() =>
-  bpmChoiceKey({
+  choiceKeyFor({
     locationId: api?.state.value?.location_id,
     sceneId: api?.state.value?.scene_id,
   }),
 );
 const director = computed(() => hasAutoDirector(api?.state.value?.capabilities));
-const saved = computed(() => {
-  bpmChoiceRevision.value;
-  return readBpmChoice(choiceKey.value);
-});
-const draft = ref<BpmChoice | null>(null);
-const applied = computed<BpmChoice | null>(() => {
-  const bpm = api?.state.value?.bpm;
-  if (!bpm?.enabled || (bpm.scope !== "auto" && bpm.scope !== "preset")) return null;
-  const nextMode = BPM_PRESET_MODES.find((item) => item.id === bpm.mode)?.id ?? saved.value.mode;
-  const knownPalette = BPM_PALETTES.find((item) => item.id === bpm.palette)?.id;
-  const nextPalette =
-    knownPalette ??
-    (bpm.palette === "heads" ? "white" : bpm.palette === "bars" ? "orange" : null);
-  if (!nextMode || !nextPalette || !bpm.scope) return null;
-  const nextCast =
-    BPM_CASTS.find((item) => item.id === bpm.cast)?.id ??
-    (bpm.palette === "bars" || bpm.palette === "heads" ? bpm.palette : saved.value.cast);
-  const nextCharacter =
-    BPM_CHARACTERS.find((item) => item.id === bpm.character)?.id ?? saved.value.character;
-  const nextIntensity =
-    BPM_INTENSITIES.find((item) => item.id === bpm.intensity)?.id ?? saved.value.intensity;
-  const allowed = PERIODS_FOR_CHARACTER[nextCharacter];
-  const rawPeriod = bpm.period;
-  const parsed =
-    rawPeriod === "auto" || rawPeriod == null
-      ? "auto"
-      : BPM_PERIODS.some((item) => item.id !== "auto" && Number(item.id) === Number(rawPeriod))
-        ? (Number(rawPeriod) as BpmPeriodId)
-        : saved.value.period;
-  const nextPeriod = allowed.includes(parsed) ? parsed : "auto";
-  return {
-    scope: bpm.scope,
-    mode: nextMode,
-    palette: nextPalette,
-    cast: nextCast,
-    character: nextCharacter,
-    intensity: nextIntensity,
-    period: nextPeriod,
-    groups: normalizeGroups(bpm.groups, nextCast),
-    excluded: Array.isArray(bpm.excluded)
-      ? bpm.excluded.filter((item: unknown): item is string => typeof item === "string")
-      : saved.value.excluded,
-    parRhythm: bpm.par_rhythm === true,
-    accent: typeof bpm.accent === "number" ? bpm.accent : saved.value.accent,
-  };
-});
-const shown = computed(() => draft.value ?? applied.value ?? saved.value);
+const desk = computed(() => bpmDesk(choiceKey.value, api?.state.value?.bpm));
+const shown = computed(() => desk.value.choice);
 const scope = computed(() => shown.value.scope);
 const mode = computed(() => shown.value.mode);
 const palette = computed(() => shown.value.palette);
@@ -126,50 +75,56 @@ type SyncPatch = {
   accent?: number;
 };
 
-function sameChoice(left: BpmChoice, right: BpmChoice): boolean {
-  return (
-    left.scope === right.scope &&
-    left.mode === right.mode &&
-    left.palette === right.palette &&
-    left.groups.join() === right.groups.join() &&
-    left.excluded.join() === right.excluded.join() &&
-    left.character === right.character &&
-    left.intensity === right.intensity &&
-    left.period === right.period &&
-    left.parRhythm === right.parRhythm &&
-    left.accent === right.accent
-  );
+let accentSend: number | null = null;
+let accentFlight: { key: string; rev: string } | null = null;
+
+function dropAccent(reason: string) {
+  if (accentSend !== null) {
+    window.clearTimeout(accentSend);
+    accentSend = null;
+  }
+  const flight = accentFlight;
+  accentFlight = null;
+  if (!flight) return;
+  finishBpmChange(flight.key, { accent: flight.rev }, false, reason);
 }
 
-watch(applied, (value) => {
-  if (draft.value && value && sameChoice(draft.value, value)) draft.value = null;
-});
+function seedFromState() {
+  const bpm = api?.state.value?.bpm;
+  return {
+    enabled: bpm?.enabled === true,
+    mode: bpm?.mode,
+    scope: bpm?.scope,
+    palette: bpm?.palette,
+    cast: bpm?.cast,
+    groups: bpm?.groups,
+    excluded: bpm?.excluded,
+    character: bpm?.character,
+    intensity: bpm?.intensity,
+    period: bpm?.period,
+    parRhythm: bpm?.par_rhythm,
+    accent: bpm?.accent,
+    revision: bpm?.revision,
+    session: bpm?.session,
+    epoch: bpm?.epoch,
+  };
+}
 
-async function commit(next: BpmChoice, patch: SyncPatch) {
-  const previous = shown.value;
-  const key = choiceKey.value;
-  draft.value = next;
-  const ok = await api?.setBpmSync(patch);
-  if (!ok) {
-    draft.value = previous;
-    return;
-  }
-  writeBpmChoice(next, key);
+function commit(patch: SyncPatch) {
+  beginBpmChange(choiceKey.value, patch, seedFromState());
+  void api?.setBpmSync(patch);
 }
 
 function setScope(next: BpmSyncScope) {
-  const base = shown.value;
-  void commit({ ...base, scope: next }, { scope: next });
+  commit({ scope: next });
 }
 
 function setMode(next: BpmSyncMode) {
-  const base = shown.value;
-  void commit({ ...base, mode: next }, { mode: next });
+  commit({ mode: next });
 }
 
 function setPalette(next: BpmPaletteId) {
-  const base = shown.value;
-  void commit({ ...base, palette: next }, { palette: next });
+  commit({ palette: next });
 }
 
 function toggleGroup(id: BpmGroupId) {
@@ -177,38 +132,50 @@ function toggleGroup(id: BpmGroupId) {
   const nextGroups = base.groups.includes(id)
     ? base.groups.filter((item) => item !== id)
     : [...base.groups, id];
-  void commit({ ...base, groups: nextGroups }, { groups: nextGroups });
+  commit({ groups: nextGroups });
 }
 
 function setCharacter(next: BpmCharacterId) {
   const base = shown.value;
   const nextPeriod = PERIODS_FOR_CHARACTER[next].includes(base.period) ? base.period : "auto";
-  void commit(
-    { ...base, character: next, period: nextPeriod },
-    nextPeriod === base.period ? { character: next } : { character: next, period: nextPeriod },
-  );
+  commit(nextPeriod === base.period ? { character: next } : { character: next, period: nextPeriod });
 }
 
 function setParRhythm(next: boolean) {
-  const base = shown.value;
-  void commit({ ...base, parRhythm: next }, { parRhythm: next });
+  commit({ parRhythm: next });
 }
 
 function setAccent(next: number) {
-  const base = shown.value;
   const amount = Math.max(0, Math.min(1, next));
-  void commit({ ...base, accent: amount }, { accent: amount });
+  const key = choiceKey.value;
+  const staged = beginBpmChange(key, { accent: amount }, seedFromState());
+  if (accentSend !== null) window.clearTimeout(accentSend);
+  accentFlight = { key, rev: staged.fieldRevs.accent ?? staged.rev };
+  accentSend = window.setTimeout(() => {
+    const flight = accentFlight;
+    accentSend = null;
+    accentFlight = null;
+    if (!flight || flight.key !== choiceKey.value) {
+      if (flight) finishBpmChange(flight.key, { accent: flight.rev }, false, "Локацію змінено до відправки");
+      return;
+    }
+    void api?.setBpmSync({ accent: amount });
+  }, 40);
 }
 
+watch(choiceKey, (next, previous) => {
+  if (previous && next !== previous) dropAccent("Локацію змінено до відправки");
+});
+
+onBeforeUnmount(() => dropAccent("Пульт закрито до відправки"));
+
 function setIntensity(next: BpmIntensityId) {
-  const base = shown.value;
-  void commit({ ...base, intensity: next }, { intensity: next });
+  commit({ intensity: next });
 }
 
 function setPeriod(next: BpmPeriodId) {
   if (!PERIODS_FOR_CHARACTER[character.value].includes(next)) return;
-  const base = shown.value;
-  void commit({ ...base, period: next }, { period: next });
+  commit({ period: next });
 }
 
 function paletteOf(id: string) {
@@ -218,10 +185,17 @@ function paletteOf(id: string) {
 
 <template>
   <div
-    v-if="api && api.state.value?.bpm?.enabled"
+    v-if="api && desk.enabled"
     class="choice-group bpm-picker"
   >
     <span class="choice-group__label">{{ scope === "auto" ? "Авто · вихід у Пресет" : "Робота" }}</span>
+    <p
+      v-if="desk.error || desk.pending"
+      class="hint"
+      role="status"
+    >
+      {{ desk.error || "Ще застосовується" }}
+    </p>
     <div
       class="bpm-modes"
       role="group"
@@ -416,7 +390,7 @@ function paletteOf(id: string) {
                 step="0.05"
                 :value="accent"
                 aria-label="Додаткові акценти"
-                @change="setAccent(Number(($event.target as HTMLInputElement).value))"
+                @input="setAccent(Number(($event.target as HTMLInputElement).value))"
               >
               <span class="hint">{{ accent <= 0 ? "Вимкнено" : "Виразніше" }}</span>
             </label>

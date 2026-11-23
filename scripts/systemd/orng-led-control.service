@@ -22,7 +22,9 @@ Environment=ORNG_INSTALL_MODE=managed
 Environment=ORNG_CLOUD_DEVICE_MODE=raspberry
 Environment=ORNG_LINUX_KEYBOARD=1
 # Helper lives outside replaceable releases; child uses release runtime/.venv.
-ExecStart=/usr/bin/python3 /opt/orng-led-control/bootstrap/updater_helper.py run --host 127.0.0.1 --port 8000
+# Cold boot of a new release measured ~44s before /api/health answered.
+# Keep ready + frame_cycle_alive + build_id + safe output checks; only widen the wait.
+ExecStart=/usr/bin/python3 /opt/orng-led-control/bootstrap/updater_helper.py run --host 127.0.0.1 --port 8000 --health-timeout 90
 ExecStop=/bin/kill -s TERM $MAINPID
 TimeoutStopSec=30
 Restart=on-failure

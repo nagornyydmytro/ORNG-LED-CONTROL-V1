@@ -316,13 +316,6 @@ async function onDelete(id: string, builtin?: boolean) {
   }
 }
 
-/** Virtual-scene only — does not enable Art-Net / Arm / clear Blackout. */
-async function onApplyVisualization(id: string) {
-  selectedId.value = id;
-  await preview.load(id, 12, 15);
-  setStatus(`${id} застосовано до візуалізації (Mock-кліп)`);
-}
-
 async function playEpisodeOnHardware(index: number) {
   if (!editing.value) return;
   const ep = editing.value.episodes[index];
@@ -774,14 +767,6 @@ onBeforeUnmount(() => {
             <button
               type="button"
               class="btn btn--primary"
-              :disabled="offline || !selectedId"
-              @click="selectedId && onApplyVisualization(selectedId)"
-            >
-              На сцену
-            </button>
-            <button
-              type="button"
-              class="btn"
               :disabled="!selectedId"
               @click="selectedId && openEditor(selectedId)"
             >

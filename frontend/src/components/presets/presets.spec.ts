@@ -165,7 +165,8 @@ describe("PresetsView editor", () => {
     expect(wrapper.findAll(".episode-card").length).toBeGreaterThan(0);
     expect(wrapper.text()).toContain("Зберегти для локації");
     expect(wrapper.text()).toContain("Відтворити на обладнанні");
-    expect(wrapper.text()).toContain("На сцену");
+    expect(wrapper.text()).toContain("Редагувати");
+    expect(wrapper.text()).not.toContain("На сцену");
   });
 
   it("can reorder episodes with buttons", async () => {

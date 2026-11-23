@@ -13,7 +13,14 @@ import {
   postInputButton,
 } from "../api/input";
 import { activateScene as postActivateScene, fetchScenes } from "../api/scenes";
-import { bpmChoiceKey, bpmControlsLocked, readBpmChoice } from "../lib/bpmPalettes";
+import {
+  beginBpmChange,
+  bindBpmCommandId,
+  confirmBpmFromTelemetry,
+  finishBpmChange,
+  settlePendingBpmCommands,
+} from "../lib/bpmIntent";
+import { bpmChoiceKey, bpmControlsLocked } from "../lib/bpmPalettes";
 import { getWebSessionSourceId } from "../lib/sessionSourceId";
 import type { AppState, PresetInfo, SceneInfo } from "../vite-env";
 import { useKeyboardPad } from "./useKeyboardPad";
@@ -75,6 +82,21 @@ function controlSignature(state: AppState): string {
     JSON.stringify(state.live_effects?.warnings ?? []),
     state.scene_id,
     state.scene_name,
+    state.bpm?.revision,
+    state.bpm?.session,
+    state.bpm?.epoch,
+    state.bpm?.enabled,
+    state.bpm?.scope,
+    state.bpm?.mode,
+    state.bpm?.palette,
+    state.bpm?.cast,
+    state.bpm?.character,
+    state.bpm?.intensity,
+    state.bpm?.period,
+    state.bpm?.par_rhythm,
+    state.bpm?.accent,
+    JSON.stringify(state.bpm?.groups ?? []),
+    JSON.stringify(state.bpm?.excluded ?? []),
   ].join("|");
 }
 
@@ -109,12 +131,36 @@ export function useAppState(toasts: ToastApi) {
   });
 
   function publish() {
+    if (disposed) return;
     if (publishTimer !== null) {
       window.clearTimeout(publishTimer);
       publishTimer = null;
     }
     lastPublishAt = Date.now();
     state.value = live.state;
+    const bpm = live.state?.bpm;
+    if (bpm) {
+      confirmBpmFromTelemetry(
+        bpmChoiceKey({ locationId: live.state?.location_id, sceneId: live.state?.scene_id }),
+        {
+          enabled: bpm.enabled === true,
+          mode: bpm.mode,
+          scope: bpm.scope,
+          palette: bpm.palette,
+          cast: bpm.cast,
+          groups: bpm.groups,
+          excluded: bpm.excluded,
+          character: bpm.character,
+          intensity: bpm.intensity,
+          period: bpm.period,
+          parRhythm: bpm.par_rhythm,
+          accent: bpm.accent,
+          revision: bpm.revision,
+          session: bpm.session,
+          epoch: bpm.epoch,
+        },
+      );
+    }
     lastError.value = live.state?.output.last_error ?? null;
     if (live.state?.desk_role === "raspberry" && live.state.executor_online === false) {
       connection.value = "offline";
@@ -123,6 +169,7 @@ export function useAppState(toasts: ToastApi) {
   }
 
   function applyState(next: AppState) {
+    if (disposed || !next) return;
     live.state = next;
     const signature = controlSignature(next);
     const changed = signature !== lastSignature;
@@ -227,7 +274,10 @@ export function useAppState(toasts: ToastApi) {
         ...payload,
         source_id:
           typeof payload.source_id === "string" ? payload.source_id : getWebSessionSourceId(),
-        client_command_id: createCommandId(path),
+        client_command_id:
+          typeof payload.client_command_id === "string" && payload.client_command_id
+            ? payload.client_command_id
+            : createCommandId(path),
       });
       applyState(ack.state);
       if (successMessage) toasts.push(successMessage, "success");
@@ -344,6 +394,21 @@ export function useAppState(toasts: ToastApi) {
     await runCommand("master-brightness", { value });
   }
 
+  async function sendHeadDesk(payload: {
+    enabled: boolean;
+    light: boolean;
+    scene: boolean;
+    color: string;
+    x: number;
+    y: number;
+  }) {
+    try {
+      await postCommand("head-desk", payload);
+    } catch {
+      /* the stick keeps the last pose; a missed packet is replaced by the next one */
+    }
+  }
+
   async function setPreviewSpeed(value: number) {
     if (bpmControlsLocked(state.value?.bpm)) return;
     await runCommand("preview-speed", { value });
@@ -367,29 +432,90 @@ export function useAppState(toasts: ToastApi) {
     parRhythm?: boolean;
     accent?: number;
   }): Promise<boolean> {
+    const key = bpmChoiceKey({
+      locationId: state.value?.location_id,
+      sceneId: state.value?.scene_id,
+    });
     const current = state.value?.bpm;
-    const saved = readBpmChoice(
-      bpmChoiceKey({ locationId: state.value?.location_id, sceneId: state.value?.scene_id }),
-    );
+    const staged = beginBpmChange(key, patch, {
+      enabled: current?.enabled === true,
+      mode: current?.mode,
+      scope: current?.scope,
+      palette: current?.palette,
+      cast: current?.cast,
+      groups: current?.groups,
+      excluded: current?.excluded,
+      character: current?.character,
+      intensity: current?.intensity,
+      period: current?.period,
+      parRhythm: current?.par_rhythm,
+      accent: current?.accent,
+      revision: current?.revision,
+      session: current?.session,
+      epoch: current?.epoch,
+    });
+    const commandId = createCommandId("bpm-sync");
+    bindBpmCommandId(key, staged.fieldRevs, commandId);
     try {
-      await runCommand("bpm-sync", {
-        enabled: patch.enabled ?? current?.enabled ?? false,
-        mode: patch.mode ?? current?.mode ?? saved.mode,
-        scope: patch.scope ?? current?.scope ?? saved.scope,
-        palette: patch.palette ?? current?.palette ?? saved.palette,
-        cast: patch.cast ?? current?.cast ?? saved.cast,
-        ...(patch.groups != null ? { groups: patch.groups } : {}),
-        ...(patch.excluded != null ? { excluded: patch.excluded } : {}),
-        character: patch.character ?? current?.character ?? saved.character,
-        intensity: patch.intensity ?? current?.intensity ?? saved.intensity,
-        period: patch.period ?? current?.period ?? saved.period,
-        par_rhythm: patch.parRhythm ?? current?.par_rhythm ?? saved.parRhythm,
-        accent: patch.accent ?? current?.accent ?? saved.accent,
+      const ack = await runCommand("bpm-sync", {
+        enabled: staged.command.enabled,
+        mode: staged.command.mode,
+        scope: staged.command.scope,
+        palette: staged.command.palette,
+        cast: staged.command.cast,
+        groups: staged.command.groups,
+        excluded: staged.command.excluded,
+        character: staged.command.character,
+        intensity: staged.command.intensity,
+        period: staged.command.period,
+        par_rhythm: staged.command.parRhythm,
+        accent: staged.command.accent,
+        intent_ms: staged.intentMs,
+        client_command_id: commandId,
       });
+      finishBpmChange(key, staged.fieldRevs, true, undefined, ack.state?.bpm?.revision, ack.state?.bpm?.epoch);
       return true;
-    } catch {
+    } catch (err) {
+      finishBpmChange(
+        key,
+        staged.fieldRevs,
+        false,
+        err instanceof Error ? err.message : "Не підтверджено",
+      );
       return false;
     }
+  }
+
+  async function settleBpmAfterReload() {
+    const key = bpmChoiceKey({
+      locationId: state.value?.location_id,
+      sceneId: state.value?.scene_id,
+    });
+    await settlePendingBpmCommands(key, async (command) => {
+      const ack = await postCommand("bpm-sync", {
+        enabled: command.body.enabled,
+        mode: command.body.mode,
+        scope: command.body.scope,
+        palette: command.body.palette,
+        cast: command.body.cast,
+        groups: command.body.groups,
+        excluded: command.body.excluded,
+        character: command.body.character,
+        intensity: command.body.intensity,
+        period: command.body.period,
+        par_rhythm: command.body.parRhythm,
+        accent: command.body.accent,
+        intent_ms: command.intentMs,
+        client_command_id: command.commandId,
+        source_id: getWebSessionSourceId(),
+      });
+      return {
+        ok: true,
+        revision: ack.state?.bpm?.revision,
+        epoch: ack.state?.bpm?.epoch,
+        snapshot: ack.state?.bpm ?? null,
+      };
+    });
   }
 
   async function colorHit(rgb?: { r: number; g: number; b: number }) {
@@ -513,6 +639,9 @@ export function useAppState(toasts: ToastApi) {
       window.addEventListener("blur", onBlur);
       document.addEventListener("visibilitychange", onVisibility);
     }
+    if (connection.value === "online") {
+      void settleBpmAfterReload();
+    }
   });
 
   onUnmounted(() => {
@@ -549,6 +678,7 @@ export function useAppState(toasts: ToastApi) {
     toggleBlackout,
     setFace,
     setMasterBrightness,
+    sendHeadDesk,
     setPreviewSpeed,
     nextAutoLook,
     setBpmSync,

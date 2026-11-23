@@ -157,6 +157,8 @@ class BpmSyncCommand(ApiModel):
     accent: float | None = None
     client_command_id: str | None = None
     source_id: str | None = None
+    # Desk clock for this press. An older value from the same desk is not applied.
+    intent_ms: int | None = None
 
 
 class NextLookCommand(ApiModel):
@@ -362,6 +364,17 @@ class FaceCommand(ApiModel):
 
 class MasterBrightnessCommand(ApiModel):
     value: Annotated[float, Field(ge=0.0, le=1.0)]
+    client_command_id: str | None = None
+    source_id: str | None = None
+
+
+class HeadDeskCommand(ApiModel):
+    enabled: bool = False
+    light: bool = False
+    scene: bool = True
+    color: str = "red"
+    x: float = 0.0
+    y: float = 0.0
     client_command_id: str | None = None
     source_id: str | None = None
 

@@ -1,0 +1,482 @@
+schema_version: 1
+id: Mix
+label: Mix
+hardware_tuned: false
+builtin: false
+episodes:
+- id: ep01
+  duration_s: 18.0
+  groups: [bar]
+  palette: deep_red
+  effect: breathe
+  speed: 0.20
+  intensity: 0.92
+  transition: fade
+  look: breathe_bars
+  mix_style: picture
+  notes: Дихання барів
+- id: ep02
+  duration_s: 18.0
+  groups: [all_rear, beam]
+  palette: deep_red
+  effect: pulse
+  speed: 0.24
+  intensity: 0.94
+  transition: soft
+  head: nod
+  mix_style: picture
+  notes: Look 9 — епізод 1
+- id: ep03
+  duration_s: 18.0
+  groups: [bar, beam]
+  palette: deep_red
+  effect: glow_line
+  speed: 0.18
+  intensity: 0.93
+  transition: fade
+  head: rise
+  mix_style: picture
+  notes: Static 1 — епізод 8
+- id: ep04
+  duration_s: 18.0
+  groups: [bar]
+  palette: deep_red
+  effect: wave
+  speed: 0.22
+  intensity: 0.92
+  transition: fade
+  look: fill_down
+  mix_style: picture
+  notes: Заповнення згори
+- id: ep05
+  duration_s: 18.0
+  groups: [outer, bar]
+  palette: deep_red
+  effect: pulse
+  speed: 0.22
+  intensity: 0.93
+  transition: soft
+  mix_style: picture
+  notes: Look 5 — епізод 4
+- id: ep06
+  duration_s: 18.0
+  groups: [beam]
+  palette: deep_red
+  effect: mirror_sweep
+  speed: 0.22
+  intensity: 0.92
+  transition: fade
+  head: sweep
+  mix_style: picture
+  notes: Look 7 — епізод 5
+- id: ep07
+  duration_s: 18.0
+  groups: [bar]
+  palette: magenta
+  effect: wave
+  speed: 0.22
+  intensity: 0.92
+  transition: soft
+  look: band_left
+  mix_style: picture
+  notes: Смуга вліво
+- id: ep08
+  duration_s: 18.0
+  groups: [par, beam]
+  palette: magenta
+  effect: breathe
+  speed: 0.20
+  intensity: 0.92
+  transition: fade
+  look: breathe_pars
+  head: pulse
+  mix_style: picture
+  notes: Дихання PAR
+- id: ep09
+  duration_s: 18.0
+  groups: [bar, beam]
+  palette: magenta
+  effect: chase
+  speed: 0.22
+  intensity: 0.92
+  transition: soft
+  look: bands_2_left
+  head: sweep
+  mix_style: picture
+  notes: Дві смуги вліво
+- id: ep10
+  duration_s: 18.0
+  groups: [bar]
+  palette: magenta
+  effect: chase
+  speed: 0.22
+  intensity: 0.92
+  transition: fade
+  mix_style: picture
+  notes: Look 6 — епізод 1
+- id: ep11
+  duration_s: 18.0
+  groups: [par]
+  palette: warm_orange
+  effect: mirror_sweep
+  speed: 0.22
+  intensity: 0.92
+  transition: fade
+  mix_style: picture
+  notes: Look 1 — епізод 6
+- id: ep16
+  duration_s: 18.0
+  groups: [bar, beam]
+  palette: cyan
+  effect: mirror_sweep
+  speed: 0.22
+  intensity: 0.92
+  transition: soft
+  look: meet_diag
+  head: cross
+  mix_style: picture
+  notes: Зустріч по діагоналі
+- id: ep18
+  duration_s: 18.0
+  groups: [bar]
+  palette: cyan
+  effect: wave
+  speed: 0.22
+  intensity: 0.92
+  transition: soft
+  look: band_right
+  mix_style: picture
+  notes: Смуга вправо
+- id: ep19
+  duration_s: 18.0
+  groups: [bar]
+  palette: cyan
+  effect: glow_eq
+  speed: 0.20
+  intensity: 0.92
+  transition: fade
+  mix_style: picture
+  notes: Static 3 — хвиля
+- id: ep20
+  duration_s: 18.0
+  groups: [bar, beam]
+  palette: cool_blue
+  effect: pulse
+  speed: 0.22
+  intensity: 0.92
+  transition: fade
+  look: pulse_by_bar
+  head: sweep
+  mix_style: picture
+  notes: Пульс по індексу бара
+- id: ep21
+  duration_s: 18.0
+  groups: [bar, beam]
+  palette: cool_blue
+  effect: glow_rise
+  speed: 0.22
+  intensity: 0.92
+  transition: soft
+  look: band_diag_flip
+  head: nod
+  mix_style: picture
+  notes: Зворотна діагональна смуга
+- id: ep22
+  duration_s: 18.0
+  groups: [bar, par]
+  palette: cool_blue
+  effect: chase
+  speed: 0.22
+  intensity: 0.92
+  transition: fade
+  mix_style: picture
+  notes: Look 7 — епізод 7
+- id: ep23
+  duration_s: 18.0
+  groups: [bar]
+  palette: deep_blue
+  effect: chase
+  speed: 0.22
+  intensity: 0.92
+  transition: fade
+  look: bands_2_diag
+  mix_style: picture
+  notes: Дві діагональні смуги
+- id: ep24
+  duration_s: 18.0
+  groups: [left, right, beam]
+  palette: violet
+  effect: pulse
+  speed: 0.24
+  intensity: 0.93
+  transition: soft
+  head: pulse
+  mix_style: picture
+  notes: Look 7 — епізод 6
+- id: ep25
+  duration_s: 18.0
+  groups: [bar, beam]
+  palette: violet
+  effect: pulse
+  speed: 0.24
+  intensity: 0.94
+  transition: fade
+  look: hit_bars
+  head: rise
+  mix_style: picture
+  notes: Удар тільки барів
+- id: ep26
+  duration_s: 18.0
+  groups: [par, beam]
+  palette: violet
+  effect: pulse
+  speed: 0.24
+  intensity: 0.93
+  transition: soft
+  head: nod
+  mix_style: picture
+  notes: Look 9 — епізод 2
+- id: ep27
+  duration_s: 18.0
+  groups: [par]
+  palette: violet
+  effect: pulse
+  speed: 0.24
+  intensity: 0.94
+  transition: fade
+  mix_style: picture
+  notes: Look 3 — епізод 3
+- id: old01
+  duration_s: 18.0
+  groups: [bar, beam]
+  palette: deep_red
+  effect: breathe
+  speed: 0.20
+  intensity: 0.92
+  transition: fade
+  look: breathe_bars
+  head: sweep
+  mix_style: classic
+  notes: Було — Дихання барів
+- id: old02
+  duration_s: 18.0
+  groups: [all_rear, beam]
+  palette: deep_red
+  effect: pulse
+  speed: 0.24
+  intensity: 0.94
+  transition: soft
+  head: nod
+  mix_style: classic
+  notes: Було — Look 9 — епізод 1
+- id: old03
+  duration_s: 18.0
+  groups: [bar, beam]
+  palette: deep_red
+  effect: glow_line
+  speed: 0.18
+  intensity: 0.93
+  transition: fade
+  head: rise
+  mix_style: classic
+  notes: Було — Static 1 — епізод 8
+- id: old04
+  duration_s: 18.0
+  groups: [bar, beam]
+  palette: rose
+  effect: wave
+  speed: 0.22
+  intensity: 0.92
+  transition: soft
+  look: band_left
+  head: cross
+  mix_style: classic
+  notes: Було — Смуга вліво
+- id: old05
+  duration_s: 18.0
+  groups: [par, beam]
+  palette: rose
+  effect: breathe
+  speed: 0.20
+  intensity: 0.92
+  transition: fade
+  look: breathe_pars
+  head: pulse
+  mix_style: classic
+  notes: Було — Дихання PAR
+- id: old06
+  duration_s: 18.0
+  groups: [bar, beam]
+  palette: rose
+  effect: chase
+  speed: 0.22
+  intensity: 0.92
+  transition: soft
+  look: bands_2_left
+  head: sweep
+  mix_style: classic
+  notes: Було — Дві смуги вліво
+- id: old07
+  duration_s: 18.0
+  groups: [par, beam]
+  palette: warm_orange
+  effect: mirror_sweep
+  speed: 0.22
+  intensity: 0.92
+  transition: fade
+  head: nod
+  mix_style: classic
+  notes: Було — Look 1 — епізод 6
+- id: old08
+  duration_s: 18.0
+  groups: [beam]
+  palette: warm_orange
+  effect: mirror_sweep
+  speed: 0.22
+  intensity: 0.92
+  transition: soft
+  head: cross
+  mix_style: classic
+  notes: Було — Look 4 — епізод 5
+- id: old09
+  duration_s: 18.0
+  groups: [par, beam]
+  palette: warm_orange
+  effect: pulse
+  speed: 0.24
+  intensity: 0.94
+  transition: fade
+  look: hit_pars
+  head: rise
+  mix_style: classic
+  notes: Було — Удар PAR
+- id: old10
+  duration_s: 18.0
+  groups: [bar, par, beam]
+  palette: warm_orange
+  effect: glow_pinch
+  speed: 0.22
+  intensity: 0.92
+  transition: soft
+  look: iris
+  head: sweep
+  mix_style: classic
+  notes: Було — Ірис полотна
+- id: old11
+  duration_s: 18.0
+  groups: [bar, beam]
+  palette: cyan
+  effect: glow_eq
+  speed: 0.22
+  intensity: 0.92
+  transition: fade
+  look: band_diag
+  head: nod
+  mix_style: classic
+  notes: Було — Діагональна смуга
+- id: old12
+  duration_s: 18.0
+  groups: [bar, beam]
+  palette: cyan
+  effect: mirror_sweep
+  speed: 0.22
+  intensity: 0.92
+  transition: soft
+  look: meet_diag
+  head: cross
+  mix_style: classic
+  notes: Було — Зустріч по діагоналі
+- id: old13
+  duration_s: 18.0
+  groups: [bar, beam]
+  palette: cyan
+  effect: glow_pinch
+  speed: 0.22
+  intensity: 0.92
+  transition: fade
+  look: negative_pulse_hole
+  head: pulse
+  mix_style: classic
+  notes: Було — Пульсуюча дірка
+- id: old14
+  duration_s: 18.0
+  groups: [bar, beam]
+  palette: cyan
+  effect: wave
+  speed: 0.22
+  intensity: 0.92
+  transition: soft
+  look: band_right
+  head: rise
+  mix_style: classic
+  notes: Було — Смуга вправо
+- id: old15
+  duration_s: 18.0
+  groups: [bar, beam]
+  palette: cool_blue
+  effect: pulse
+  speed: 0.22
+  intensity: 0.92
+  transition: fade
+  look: pulse_by_bar
+  head: sweep
+  mix_style: classic
+  notes: Було — Пульс по індексу бара
+- id: old16
+  duration_s: 18.0
+  groups: [bar, beam]
+  palette: cool_blue
+  effect: glow_rise
+  speed: 0.22
+  intensity: 0.92
+  transition: soft
+  look: band_diag_flip
+  head: nod
+  mix_style: classic
+  notes: Було — Зворотна діагональна смуга
+- id: old17
+  duration_s: 18.0
+  groups: [bar, beam]
+  palette: deep_blue
+  effect: chase
+  speed: 0.22
+  intensity: 0.92
+  transition: fade
+  look: bands_2_diag
+  head: cross
+  mix_style: classic
+  notes: Було — Дві діагональні смуги
+- id: old18
+  duration_s: 18.0
+  groups: [left, right, beam]
+  palette: violet
+  effect: pulse
+  speed: 0.24
+  intensity: 0.93
+  transition: soft
+  head: pulse
+  mix_style: classic
+  notes: Було — Look 7 — епізод 6
+- id: old19
+  duration_s: 18.0
+  groups: [bar, beam]
+  palette: violet
+  effect: pulse
+  speed: 0.24
+  intensity: 0.94
+  transition: fade
+  look: hit_bars
+  head: rise
+  mix_style: classic
+  notes: Було — Удар тільки барів
+- id: old20
+  duration_s: 18.0
+  groups: [par, beam]
+  palette: violet
+  effect: pulse
+  speed: 0.24
+  intensity: 0.93
+  transition: soft
+  head: nod
+  mix_style: classic
+  notes: Було — Look 9 — епізод 2

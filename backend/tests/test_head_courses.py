@@ -142,7 +142,7 @@ def test_courses_are_not_one_sine() -> None:
     assert prescribe("accent", 0.4).lit is True
 
 
-def test_pair_mirrors_about_the_stage_not_each_span_centre() -> None:
+def test_pair_opens_outward_from_each_heads_home() -> None:
     show = load_show_config()
     left = next(fixture for fixture in show.patch.fixtures if fixture.id == "beam_left").model_copy(deep=True)
     right = next(fixture for fixture in show.patch.fixtures if fixture.id == "beam_right").model_copy(deep=True)
@@ -163,7 +163,7 @@ def test_pair_mirrors_about_the_stage_not_each_span_centre() -> None:
         revision="pair",
         spans={
             "beam_left": (0.12, 0.88, 0.2, 0.8),
-            "beam_right": (0.2, 0.7, 0.25, 0.75),
+            "beam_right": (0.2, 0.95, 0.25, 0.75),
         },
     )
     goals = _mirror_goals(
@@ -177,7 +177,9 @@ def test_pair_mirrors_about_the_stage_not_each_span_centre() -> None:
     )
     left_pan, right_pan = goals["beam_left"][0], goals["beam_right"][0]
     assert left_pan is not None and right_pan is not None
-    assert abs((left_pan + right_pan) - 1.0) < 1e-3
+    assert left_pan < 0.3
+    assert right_pan > 0.72
+    assert abs((0.3 - left_pan) - (right_pan - 0.72)) < 0.01
     physical_left = transform_axis(
         left_pan, offset=0.0, invert=False, axis_min=0.0, axis_max=1.0
     )

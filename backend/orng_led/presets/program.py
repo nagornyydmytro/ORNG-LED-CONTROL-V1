@@ -40,6 +40,8 @@ PALETTE_RGBW: dict[str, Rgbw] = {
     "rose": Rgbw(r=1.0, g=0.14, b=0.1),
     "deep_blue": Rgbw(r=0.05, g=0.18, b=1.0),
     "violet": Rgbw(r=0.55, g=0.08, b=1.0),
+    # Bar wheel cyan. Not green: green channel is paired with full blue.
+    "cyan": Rgbw(r=0.0, g=1.0, b=1.0),
 }
 
 # Transition window into the current episode (seconds of show time).
@@ -169,7 +171,10 @@ class YamlPresetProgram:
                 else self.movement_turns(cycle_time_s, rate_scale=effect_rate_scale)
             ),
         )
-        current = _evaluate_episode(episode, pos, clock, show, musical_beats=musical_beats)
+        current_style = _saved_mix_style(episode)
+        current = _evaluate_episode(
+            episode, pos, clock, show, musical_beats=musical_beats, mix_style=current_style
+        )
 
         blend = _transition_blend(episode.transition, pos.episode_time_s, episode.duration_s)
         if blend <= 0.0:
@@ -185,10 +190,101 @@ class YamlPresetProgram:
             episode_time_s=max(0.0, prev_episode.duration_s - 1e-6),
             episode_progress=1.0,
         )
+        prev_style = _saved_mix_style(prev_episode)
         previous = _evaluate_episode(
-            prev_episode, prev_pos, clock, show, musical_beats=musical_beats
+            prev_episode, prev_pos, clock, show, musical_beats=musical_beats, mix_style=prev_style
         )
-        return _blend_stage(previous, current, 1.0 - blend)
+        arrived = 1.0 - blend
+        if current_style is not None or prev_style is not None:
+            return _mix_join(
+                previous,
+                current,
+                arrived,
+                same_color=prev_episode.palette == episode.palette,
+                transition=episode.transition,
+            )
+        return _blend_stage(previous, current, arrived)
+
+
+def _saved_mix_style(episode: EpisodeCard) -> str | None:
+    """Behaviour stored on the card. The document id is not the switch.
+
+    A single-episode test and a duplicated preset keep another id, so the
+    picture/classic choice has to travel with the episode itself.
+    """
+    style = getattr(episode, "mix_style", None)
+    if style in {"picture", "classic"}:
+        return str(style)
+    return None
+
+
+def _mix_join(
+    previous: StageIntent,
+    current: StageIntent,
+    arrived: float,
+    *,
+    same_color: bool,
+    transition: str,
+) -> StageIntent:
+    """Mix-only join. Colours are never averaged.
+
+    A straight mix of warm orange into cyan lands on amber and yellow-green
+    after the bar palette picks a slot. Same-colour episodes hand the picture
+    across or dip the brightness. A new colour goes dark, then opens in that
+    colour alone.
+    """
+    t = max(0.0, min(1.0, arrived))
+    if same_color and transition == "soft":
+        # Picture handoff. Both sides already share a palette slot.
+        prev_level, cur_level = 1.0 - t, t
+    elif same_color:
+        # Brightness falls through the middle, then the same colour returns.
+        prev_level = max(0.0, 1.0 - t * 1.6)
+        cur_level = max(0.0, t * 1.6 - 0.45)
+    elif transition == "soft":
+        # Reveal: the old picture leaves, the new colour opens on its own.
+        prev_level = max(0.0, 1.0 - t * 2.8)
+        cur_level = max(0.0, (t - 0.34) / 0.66)
+    else:
+        # Drop: both sides meet in black, then the new colour comes up.
+        prev_level = max(0.0, 1.0 - t * 2.4)
+        cur_level = max(0.0, t * 2.4 - 1.35)
+    out = StageIntent()
+    keys = set(previous.fixtures) | set(current.fixtures)
+    motion_t = cur_level / max(prev_level + cur_level, 1e-6)
+    for key in keys:
+        older = previous.fixtures.get(key)
+        newer = current.fixtures.get(key)
+        # A fixture the new picture does not use must not keep playing.
+        # Same-colour fades re-sample the previous pulse on the moving clock,
+        # so bars from the episode before a beam picture kept flashing.
+        if newer is None:
+            continue
+        use_new = cur_level >= prev_level
+        source = newer if use_new else older
+        level = cur_level if use_new else prev_level
+        if source is None:
+            source = newer or older
+            level = cur_level if newer is not None else prev_level
+        if source is None or level <= 0.02:
+            continue
+        scaled = _one_sided(source, level)
+        if (
+            isinstance(older, BeamIntent)
+            and isinstance(newer, BeamIntent)
+            and isinstance(scaled, BeamIntent)
+        ):
+            scaled = BeamIntent(
+                pan=_blend_axis(older.pan, newer.pan, motion_t),
+                tilt=_blend_axis(older.tilt, newer.tilt, motion_t),
+                dimmer=scaled.dimmer,
+                color=scaled.color,
+                wheel=scaled.wheel,
+                shutter_open=scaled.shutter_open,
+                strobe=0.0,
+            )
+        out.fixtures[key] = scaled
+    return out
 
 
 def _transition_window(transition: str, episode_duration_s: float) -> float:
@@ -249,15 +345,14 @@ def _one_sided(intent: FixtureIntent, level: float) -> FixtureIntent:
             strobe=intent.strobe * level,
             whole=intent.whole,
         )
-    on = level >= 0.5 and intent.dimmer > 0.02
     return BeamIntent(
         pan=intent.pan,
         tilt=intent.tilt,
-        dimmer=1.0 if on else 0.0,
+        dimmer=max(0.0, min(1.0, intent.dimmer * level)),
         color=intent.color,
         wheel=intent.wheel,
-        shutter_open=intent.shutter_open if on else False,
-        strobe=intent.strobe if on else 0.0,
+        shutter_open=intent.shutter_open and level > 0.02 and intent.dimmer > 0.02,
+        strobe=intent.strobe * level,
     )
 
 
@@ -304,12 +399,11 @@ def _blend_intent(
             whole=b.whole,
         )
     if isinstance(a, BeamIntent) and isinstance(b, BeamIntent):
-        # Beams stay full-bright when either side is on — never fade via dimmer.
-        beam_on = (a.dimmer > 0.02) or (b.dimmer > 0.02)
+        # RGB is the head dimmer. Fade it with the episode instead of snapping full-on.
         return BeamIntent(
             pan=_blend_axis(a.pan, b.pan, t),
             tilt=_blend_axis(a.tilt, b.tilt, t),
-            dimmer=1.0 if beam_on else 0.0,
+            dimmer=_lerp(a.dimmer, b.dimmer, t),
             color=_blend_rgbw(a.color, b.color, t),
             wheel=0.0,
             shutter_open=b.shutter_open if t >= 0.5 else a.shutter_open,
@@ -470,6 +564,174 @@ def _action_turns(
     return clock.effect_turns * (action_hz / reference), False
 
 
+def _evaluate_look(episode: EpisodeCard, clock: EffectPhase, show: ShowConfig) -> StageIntent:
+    """Paint one auto composition in show time. Face stays out. Heads are overlaid later."""
+    from orng_led.audio.canvas import build_canvas
+    from orng_led.audio.library import BY_ID, paint
+
+    item = BY_ID.get(str(episode.look or ""))
+    if item is None:
+        return StageIntent()
+    canvas = build_canvas(list(show.patch.fixtures), show.layout.placements)
+    color = PALETTE_RGBW.get(episode.palette, PALETTE_RGBW["deep_red"])
+    amount = max(0.0, min(1.0, float(episode.intensity)))
+    painted = paint(
+        item,
+        canvas,
+        phase=float(clock.effect_turns) % 1.0,
+        amount=amount,
+        cap=1.0,
+        color=color,
+        strobe=0.0,
+        palette=None,
+    )
+    intent = StageIntent()
+    by_id = {fixture.id: fixture for fixture in show.patch.fixtures}
+    for fixture_id, fixture_intent in painted.items():
+        fixture = by_id.get(fixture_id)
+        if fixture is not None and fixture.kind is FixtureKind.FACE_PAR:
+            continue
+        intent.fixtures[fixture_id] = fixture_intent
+    return intent
+
+
+def _head_motion_turns(episode_time_s: float) -> float:
+    """Head clock, separate from the slow look.
+
+    One target lasts about 3.6 s. That is long enough for the saved pan/tilt
+    limiter to finish a side-to-side or up/down move, then hold the end.
+    """
+    return max(0.0, float(episode_time_s)) * 0.28
+
+
+# Ordinary preset beams use tilt 0.44 ± 0.20. Joystick-up is the high end.
+_MIX_TILT_LO = 0.24
+_MIX_TILT_HI = 0.64
+
+
+def _head_target(style: str, turns: float, *, side: str, index: int, mix: bool = False) -> tuple[float, float]:
+    """Endpoints. The motion limiter runs the head at its saved max speed."""
+    fast = turns
+    flip = int(fast) % 2 == 0
+    left = side == "left"
+    if style == "nod":
+        tilt = (_MIX_TILT_LO + 0.04) if flip else _MIX_TILT_HI
+        if not mix:
+            tilt = 0.16 if flip else 0.84
+        return (0.42 if left else 0.58, tilt)
+    if style == "cross":
+        go_left = (index + int(fast)) % 2 == 0
+        return (0.14 if go_left else 0.86, 0.46 if mix else 0.46)
+    if style == "rise":
+        climb = _MIX_TILT_LO + (_MIX_TILT_HI - _MIX_TILT_LO) * saw(fast)
+        if not mix:
+            climb = saw(fast)
+        return (0.36 if left else 0.64, climb)
+    if style == "pulse":
+        tilt = 0.40 if flip else 0.60
+        if not mix:
+            tilt = 0.62 if flip else 0.38
+        return (0.22 if left else 0.78, tilt)
+    # sweep: full side-to-side, opposite heads so the pair reads as a fan
+    pan = 0.1 if flip else 0.9
+    if left:
+        pan = 1.0 - pan
+    return (pan, 0.48 if mix else 0.5)
+
+
+def _mix_head_lamp(episode: EpisodeCard, episode_time_s: float, index: int) -> float:
+    """Head brightness follows the picture. It may go out. Not one shared blink."""
+    base = max(0.0, min(1.0, float(episode.intensity)))
+    look = str(episode.look or "")
+    effect = str(episode.effect or "")
+    t = max(0.0, float(episode_time_s))
+    if look in {"breathe_bars", "breathe_pars"} or effect == "breathe":
+        return base * (0.04 + 0.96 * unipolar_sine(t * 0.29))
+    if look in {"hit_bars", "hit_pars"} or effect == "pulse":
+        return base * beat_hit(t * 0.85, 9.0)
+    if look in {"band_left", "band_right", "bands_2_left", "bands_2_diag"}:
+        on_left = saw(t * 0.22) < 0.5
+        mine = (index % 2 == 0) == on_left
+        return base * (1.0 if mine else 0.12)
+    if look in {"meet_diag", "band_diag", "band_diag_flip"} or effect == "mirror_sweep":
+        return base * (0.4 + 0.6 * unipolar_sine(t * 0.2 + index * 0.15))
+    if look == "iris":
+        opened = abs(math.sin(math.pi * min(1.0, t / max(episode.duration_s, 1.0))))
+        return base * opened
+    if look == "negative_pulse_hole":
+        return base * (1.0 - beat_hit(t * 0.7, 7.0))
+    if look == "pulse_by_bar":
+        step = int(t * 0.75) % 2
+        return base if step == (index % 2) else base * 0.18
+    if effect in {"glow_line", "glow_eq", "glow_rise"}:
+        return base * (0.62 + 0.38 * unipolar_sine(t * 0.16))
+    return base * (0.5 + 0.5 * unipolar_sine(t * 0.22 + index))
+
+
+def _overlay_heads(
+    intent: StageIntent,
+    episode: EpisodeCard,
+    show: ShowConfig,
+    *,
+    episode_time_s: float,
+    mix_style: str | None = None,
+) -> None:
+    """Replace head pan/tilt/brightness. RGB carries the flash; strobe stays off.
+
+    The beam dimmer channel is a parked fixed value. Brightness is the RGB
+    level. Unmapped locals are not written here. A saved Mix card keeps its
+    own head curve and stays inside the ordinary-preset tilt limit.
+    """
+    style = str(episode.head or "")
+    if not style:
+        return
+    picture = mix_style == "picture"
+    rules = mix_style in {"picture", "classic"}
+    fallback = PALETTE_RGBW.get(episode.palette, PALETTE_RGBW["deep_red"])
+    if rules and episode.palette == "magenta":
+        fallback = PALETTE_RGBW["magenta"]
+    if picture:
+        lamp_for = lambda index: _mix_head_lamp(episode, episode_time_s, index)
+    else:
+        base = max(0.0, min(1.0, float(episode.intensity)))
+        shared = base * (0.28 + 0.72 * beat_hit(float(episode_time_s) * 1.15, 5.5))
+        lamp_for = lambda index: shared
+    turns = _head_motion_turns(episode_time_s)
+    beams = [fixture for fixture in show.patch.fixtures if fixture.kind is FixtureKind.BEAM]
+    for index, fixture in enumerate(beams):
+        side = str(getattr(fixture.spatial.side, "value", fixture.spatial.side))
+        pan, tilt = _head_target(style, turns, side=side, index=index, mix=picture)
+        if rules:
+            tilt = min(_MIX_TILT_HI, max(_MIX_TILT_LO, tilt))
+        lamp = max(0.0, min(1.0, lamp_for(index)))
+        previous = intent.fixtures.get(fixture.id)
+        tint = previous.color if isinstance(previous, BeamIntent) else fallback
+        intent.fixtures[fixture.id] = BeamIntent(
+            pan=max(0.0, min(1.0, pan)),
+            tilt=max(0.0, min(1.0, tilt)),
+            dimmer=lamp,
+            color=tint,
+            shutter_open=lamp > 0.04,
+            strobe=0.0,
+        )
+
+
+def _mix_bar_color(intent: StageIntent, episode: EpisodeCard) -> None:
+    """Pink stays on RGB fixtures. Bars only get a saved red slot."""
+    if episode.palette != "magenta":
+        return
+    red = PALETTE_RGBW["deep_red"]
+    for fixture_id, item in list(intent.fixtures.items()):
+        if isinstance(item, BarIntent):
+            intent.fixtures[fixture_id] = BarIntent(
+                segments=item.segments,
+                dimmer=item.dimmer,
+                color=red,
+                strobe=item.strobe,
+                whole=item.whole,
+            )
+
+
 def _evaluate_episode(
     episode: EpisodeCard,
     pos: CyclePosition,
@@ -477,7 +739,15 @@ def _evaluate_episode(
     show: ShowConfig,
     *,
     musical_beats: float | None = None,
+    mix_style: str | None = None,
 ) -> StageIntent:
+    rules = mix_style in {"picture", "classic"}
+    if episode.look:
+        intent = _evaluate_look(episode, clock, show)
+        if rules:
+            _mix_bar_color(intent, episode)
+        _overlay_heads(intent, episode, show, episode_time_s=pos.episode_time_s, mix_style=mix_style)
+        return intent
     intent = StageIntent()
     # Later actions replace the whole intent of a shared fixture. This is
     # ordered replacement, not a mix of the two looks.
@@ -493,6 +763,9 @@ def _evaluate_episode(
             musical=musical,
         )
         intent.fixtures.update(part.fixtures)
+    if rules:
+        _mix_bar_color(intent, episode)
+    _overlay_heads(intent, episode, show, episode_time_s=pos.episode_time_s, mix_style=mix_style)
     return intent
 
 
@@ -505,7 +778,7 @@ def _evaluate_card(
     musical: bool = False,
 ) -> StageIntent:
     intent = StageIntent()
-    color = PALETTE_RGBW.get(episode.palette, PALETTE_RGBW["warm_orange"])
+    color = PALETTE_RGBW.get(episode.palette, PALETTE_RGBW["deep_red"])
     turns = clock.effect_turns
     mirrored = episode.effect == "mirror_sweep"
     selection = _selected_ids(episode, show)

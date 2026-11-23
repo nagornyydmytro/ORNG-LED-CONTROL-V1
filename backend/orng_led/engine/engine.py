@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from orng_led.config.models import FixtureKind, ShowConfig
 from orng_led.config.schema import DMX_UNIVERSE_SIZE
 from orng_led.engine.beam import BeamMotionLimits, BeamMotionState, step_beam
+from orng_led.engine.head_desk import HeadDesk, apply_head_desk
 from orng_led.engine.clock import FRAME_DT, FakeClock
 from orng_led.engine.frame import assert_frame_bounds
 from orng_led.engine.intents import BarIntent, BeamIntent, ParIntent, Rgbw, StageIntent
@@ -94,6 +95,7 @@ class Engine:
     musical_beats: float | None = None
     strobe_speed_at_press: float | None = None
     sweep_speed_at_press: float | None = None
+    head_desk: HeadDesk = field(default_factory=HeadDesk)
 
     def __post_init__(self) -> None:
         if not self.presets:
@@ -392,6 +394,24 @@ class Engine:
     def set_master_brightness(self, value: float) -> None:
         self.overlays.master_brightness = max(0.0, min(1.0, value))
 
+    def set_head_desk(
+        self,
+        *,
+        enabled: bool,
+        light: bool,
+        scene: bool,
+        color: str,
+        x: float,
+        y: float,
+    ) -> None:
+        desk = self.head_desk
+        desk.enabled = bool(enabled)
+        desk.light = bool(light)
+        desk.scene = bool(scene)
+        desk.color = str(color or "red")
+        desk.x = max(-1.0, min(1.0, float(x)))
+        desk.y = max(0.0, min(1.0, float(y)))
+
     def toggle_blackout(self) -> bool:
         self.overlays.blackout = not self.overlays.blackout
         return self.overlays.blackout
@@ -470,11 +490,19 @@ class Engine:
         Hit and Drop park axes; Strobe/Sweep keep following the episode path.
         """
         freeze = self._live_fx_freezes_beam_motion(time_s, dt_s=dt_s)
+        desk = self.head_desk.enabled
         for fixture in self.show.patch.fixtures:
             if fixture.kind is not FixtureKind.BEAM:
                 continue
             state = self._ensure_beam_motion(fixture)
             state.hold_last_valid()
+            if desk:
+                intent = stage.fixtures.get(fixture.id)
+                if isinstance(intent, BeamIntent) and intent.pan is not None and intent.tilt is not None:
+                    state.pan = float(intent.pan)
+                    state.tilt = float(intent.tilt)
+                    state.commit_valid()
+                continue
             if freeze:
                 continue
             if not self._beam_axes_mapped(fixture):
@@ -544,6 +572,19 @@ class Engine:
                 if fixture.kind is FixtureKind.FACE_PAR
             }
             composed = mask_auto_groups(composed, self.auto_groups, keep=face)
+        composed = apply_head_desk(composed, self.head_desk, self.show)
+        if self.overlays.blackout and self.head_desk.enabled:
+            for fixture in self.show.patch.fixtures:
+                if fixture.kind is not FixtureKind.BEAM:
+                    continue
+                intent = composed.fixtures.get(fixture.id)
+                if isinstance(intent, BeamIntent):
+                    composed.fixtures[fixture.id] = BeamIntent(
+                        pan=intent.pan,
+                        tilt=intent.tilt,
+                        dimmer=0.0,
+                        color=Rgbw(),
+                    )
         # Live FX advance on their own clock. Tempo, episode and lock do not
         # move this phase and do not release the hold.
         fx_dt = float(wall_dt_s) if wall_dt_s is not None else float(dt_s)
@@ -559,6 +600,9 @@ class Engine:
             composed,
             self.beam_motion,
             master=self.overlays.master_brightness,
+            full_beams=(
+                self.head_desk.enabled and self.head_desk.light and not self.head_desk.scene
+            ),
         )
 
         assert_frame_bounds(frame)

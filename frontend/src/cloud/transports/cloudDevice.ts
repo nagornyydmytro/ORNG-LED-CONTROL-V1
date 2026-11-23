@@ -95,6 +95,7 @@ export function createCloudDeviceTransport(opts: {
   let optimisticSweep: { value: boolean; at: number } | null = null;
   let optimisticSweepV: { value: boolean; at: number } | null = null;
   let optimisticEpisode: { value: number; at: number } | null = null;
+  let optimisticMaster: number | null = null;
 
   function keepHold<T>(hold: { value: T; at: number } | null, incoming: T): { hold: typeof hold; value: T } {
     if (!hold) return { hold, value: incoming };
@@ -404,6 +405,21 @@ export function createCloudDeviceTransport(opts: {
       typeof payload.episode_index === "number" ? payload.episode_index : lastLive.episode_index ?? 0;
     const episodeHold = keepHold(optimisticEpisode, episodeIncoming);
     optimisticEpisode = episodeHold.hold;
+    const incomingMaster =
+      typeof payload.master_brightness === "number" ? payload.master_brightness : undefined;
+    if (
+      optimisticMaster !== null &&
+      incomingMaster !== undefined &&
+      Math.abs(incomingMaster - optimisticMaster) < 0.02
+    ) {
+      optimisticMaster = null;
+    }
+    const masterBrightness =
+      optimisticMaster !== null
+        ? optimisticMaster
+        : incomingMaster !== undefined
+          ? incomingMaster
+          : lastLive.master_brightness;
     const stored = payload.device_channel === "stored";
     emitLive({
       online: stored ? lastLive.online : payload.online === undefined ? true : Boolean(payload.online),
@@ -445,6 +461,7 @@ export function createCloudDeviceTransport(opts: {
         typeof payload.cycle_duration_s === "number" ? payload.cycle_duration_s : undefined,
       face_brightness:
         typeof payload.face_brightness === "number" ? payload.face_brightness : undefined,
+      master_brightness: masterBrightness,
       preview_speed: typeof payload.preview_speed === "number" ? payload.preview_speed : undefined,
       ...(payload.bpm && typeof payload.bpm === "object"
         ? { bpm: payload.bpm as CloudDeviceLiveState["bpm"] }
@@ -732,6 +749,8 @@ export function createCloudDeviceTransport(opts: {
 
   let fxFlight: Promise<void> | null = null;
   let fxQueued: { strobe_speed?: number; sweep_speed?: number; persist?: boolean } | null = null;
+  let masterFlight: Promise<void> | null = null;
+  let masterQueued: number | null = null;
   const pressGen = new Map<string, number>();
   const keyGen = new Map<string, number>();
   const keyTimers = new Map<string, number>();
@@ -990,6 +1009,53 @@ export function createCloudDeviceTransport(opts: {
     async setProgramSpeed(value: number) {
       await wsCommand("set_program_speed", { value }, "applied");
     },
+    async setMasterBrightness(value: number) {
+      const previous = lastLive.master_brightness;
+      optimisticMaster = value;
+      emitLive({ master_brightness: value });
+      masterQueued = value;
+      if (masterFlight) return masterFlight;
+      masterFlight = (async () => {
+        while (masterQueued !== null) {
+          const next = masterQueued;
+          masterQueued = null;
+          try {
+            await wsCommand("set_master_brightness", { value: next }, "applied");
+          } catch (err) {
+            if (masterQueued === null) {
+              optimisticMaster = null;
+              emitLive({ master_brightness: previous });
+              throw err;
+            }
+          }
+        }
+      })().finally(() => {
+        masterFlight = null;
+      });
+      return masterFlight;
+    },
+    sendHeadDesk(payload: {
+      enabled: boolean;
+      light: boolean;
+      scene: boolean;
+      color: string;
+      x: number;
+      y: number;
+    }) {
+      const body = {
+        enabled: payload.enabled,
+        light: payload.light,
+        scene: payload.scene,
+        color: payload.color,
+        x: payload.x,
+        y: payload.y,
+      };
+      if (linkMode || !socket || socket.readyState !== WebSocket.OPEN) {
+        void httpCommand("set_head_desk", body).catch(() => undefined);
+        return;
+      }
+      socket.send(JSON.stringify({ type: "set_head_desk", payload: body }));
+    },
     async setBpmSync(
       enabled: boolean,
       patch?: {
@@ -1004,6 +1070,8 @@ export function createCloudDeviceTransport(opts: {
         period?: "auto" | 0.5 | 1 | 2 | 4 | 8;
         parRhythm?: boolean;
         accent?: number;
+        intentMs?: number;
+        commandId?: string;
       },
     ) {
       await wsCommand("bpm_sync", {
@@ -1019,6 +1087,10 @@ export function createCloudDeviceTransport(opts: {
         ...(patch?.period != null ? { period: patch.period } : {}),
         ...(patch?.parRhythm != null ? { par_rhythm: patch.parRhythm } : {}),
         ...(patch?.accent != null ? { accent: patch.accent } : {}),
+        ...(patch?.intentMs != null
+          ? { intent_ms: patch.intentMs, source_id: getCloudWebSessionSourceId() }
+          : {}),
+        ...(patch?.commandId ? { command_id: patch.commandId } : {}),
       }, "applied");
     },
     async nextAutoLook() {

@@ -251,13 +251,16 @@ describe("auto preview catalog", () => {
     expect(clip.canonical).toBe(true);
     expect(clip.loop_beats).toBe(8);
     const frames = clip.frames as Array<{ beams: Array<{ id: string; pan: number }> }>;
-    const mid = frames[Math.floor(frames.length / 3)];
-    const left = mid?.beams.find((beam) => beam.id === "beam_left")?.pan ?? 0;
-    const right = mid?.beams.find((beam) => beam.id === "beam_right")?.pan ?? 0;
-    expect(Math.abs(left + right - 1)).toBeLessThan(0.05);
-    const pans = frames.map((frame) => frame.beams.find((beam) => beam.id === "beam_left")?.pan ?? 0);
-    const steps = pans.slice(1).map((pan, index) => Math.abs(pan - (pans[index] ?? pan)));
-    expect(Math.abs((pans[0] ?? 0) - (pans[pans.length - 1] ?? 0))).toBeLessThanOrEqual(Math.max(...steps) + 1 / 255);
+    const leftPans = frames.map((frame) => frame.beams.find((beam) => beam.id === "beam_left")?.pan ?? 0);
+    const rightPans = frames.map((frame) => frame.beams.find((beam) => beam.id === "beam_right")?.pan ?? 0);
+    // Venue calibration is asymmetric (different homes/limits), so absolute
+    // left+right mirror is not required — only that both heads move and loop.
+    expect(Math.max(...leftPans) - Math.min(...leftPans)).toBeGreaterThan(0.02);
+    expect(Math.max(...rightPans) - Math.min(...rightPans)).toBeGreaterThan(0.02);
+    const steps = leftPans.slice(1).map((pan, index) => Math.abs(pan - (leftPans[index] ?? pan)));
+    expect(Math.abs((leftPans[0] ?? 0) - (leftPans[leftPans.length - 1] ?? 0))).toBeLessThanOrEqual(
+      Math.max(...steps) + 1 / 255,
+    );
   });
 
   it("does not pretend a head clip matches after the preset ranges change", async () => {

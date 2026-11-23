@@ -744,3 +744,42 @@ def test_held_strobe_keeps_its_own_clock() -> None:
     assert engine.overlays.strobe_held is True
     assert engine.overlays.strobe_phase > phase
     assert engine.overlays.strobe_phase != pytest.approx(0.9)
+
+
+def test_configure_bumps_a_revision_without_inventing_a_measured_bpm(tmp_path: Path) -> None:
+    service = BpmService(tmp_path, "room")
+    opened = service.status()
+    assert opened["revision"] == 0
+    assert opened["bpm"] is None
+    service.configure(enabled=True, scope="auto", palette="red")
+    painted = service.status()
+    assert painted["revision"] == 1
+    assert painted["session"] == opened["session"]
+    assert painted["enabled"] is True
+    assert painted["bpm"] is None
+    service.configure(enabled=False, palette="blue")
+    moved = service.status()
+    assert moved["revision"] == 2
+    assert moved["enabled"] is False
+    assert moved["bpm"] is None
+    assert isinstance(moved["epoch"], int)
+    again = BpmService(tmp_path, "room")
+    assert int(again.status()["epoch"]) == int(moved["epoch"]) + 1
+
+
+def test_reordered_on_off_on_from_one_desk_keeps_the_last_press(tmp_path: Path) -> None:
+    service = BpmService(tmp_path, "room")
+    runtime_epoch = service.status()["epoch"]
+    service.configure(enabled=False)
+    # The desk pressed on, off, on. The network delivers the last press first.
+    assert service.accept_intent("web:tab", 30) is True
+    service.configure(enabled=True)
+    assert service.accept_intent("web:tab", 10) is False
+    assert service.accept_intent("web:tab", 20) is False
+    assert service.status()["enabled"] is True
+    assert service.status()["epoch"] == runtime_epoch
+    # Another desk is not ordered by the first desk's clock.
+    assert service.accept_intent("web:other", 1) is True
+    service.configure(enabled=False)
+    assert service.status()["enabled"] is False
+

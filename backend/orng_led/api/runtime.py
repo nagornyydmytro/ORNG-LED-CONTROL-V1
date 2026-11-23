@@ -802,10 +802,14 @@ class AppRuntime:
             if self.engine.overlays.blackout:
                 self.beam_calibration.visible_beam_confirmed = False
                 self.beam_calibration.visible_beam_requested = False
+            show_frame = list(snap.frame) if snap is not None else list(
+                self.engine.render_at(self.engine.clock.time(), dt_s=0.0).frame
+            )
             return render_calibration_frame(
                 self.show,
                 self.beam_calibration,
                 blackout=self.engine.overlays.blackout,
+                base=show_frame,
             )
         if self.raw_tester.active:
             return list(self.raw_tester.frame)
@@ -1722,6 +1726,8 @@ class AppRuntime:
         par_rhythm: bool | None = None,
         accent: float | None = None,
         client_command_id: str | None = None,
+        source_id: str | None = None,
+        intent_ms: int | None = None,
     ) -> tuple[AppStateResponse, bool]:
         fingerprint = self._command_fingerprint(
             "bpm_sync",
@@ -1741,6 +1747,8 @@ class AppRuntime:
         cached = self._idempotent(client_command_id, fingerprint)
         if cached is not None:
             return cached, True
+        if not self.bpm.accept_intent(source_id, intent_ms):
+            return self.build_state(), True
         was_auto = bool(self.bpm.enabled and self.bpm.scope == "auto")
         self.bpm.configure(
             enabled=enabled,
@@ -2020,7 +2028,7 @@ class AppRuntime:
             semantic_tilt=float(fixture.spatial.home_tilt),
             frame=empty_frame(),
         )
-        self._publish_frame(self.beam_calibration.frame, from_raw=False)
+        self._publish_frame(self._source_frame(), from_raw=False)
         self.sequence += 1
         return self.build_state()
 
@@ -2033,19 +2041,13 @@ class AppRuntime:
         owner: str | None = None,
     ) -> AppStateResponse:
         from orng_led.engine.beam_transform import clamp01
-        from orng_led.setup.beam_calibration import render_calibration_frame
 
         self._require_calibration_session(session_id=session_id, owner=owner)
         if pan is not None:
             self.beam_calibration.semantic_pan = clamp01(pan)
         if tilt is not None:
             self.beam_calibration.semantic_tilt = clamp01(tilt)
-        frame = render_calibration_frame(
-            self.show,
-            self.beam_calibration,
-            blackout=self.engine.overlays.blackout,
-        )
-        self._publish_frame(frame, from_raw=False)
+        self._publish_frame(self._source_frame(), from_raw=False)
         self.sequence += 1
         return self.build_state()
 
@@ -2057,10 +2059,7 @@ class AppRuntime:
         session_id: str | None = None,
         owner: str | None = None,
     ) -> AppStateResponse:
-        from orng_led.setup.beam_calibration import (
-            render_calibration_frame,
-            visible_beam_blockers,
-        )
+        from orng_led.setup.beam_calibration import visible_beam_blockers
 
         self._require_calibration_session(session_id=session_id, owner=owner)
         if not self.beam_calibration.fixture_id:
@@ -2083,12 +2082,7 @@ class AppRuntime:
         else:
             self.beam_calibration.visible_beam_requested = False
             self.beam_calibration.visible_beam_confirmed = False
-        frame = render_calibration_frame(
-            self.show,
-            self.beam_calibration,
-            blackout=self.engine.overlays.blackout,
-        )
-        self._publish_frame(frame, from_raw=False)
+        self._publish_frame(self._source_frame(), from_raw=False)
         self.sequence += 1
         return self.build_state()
 
@@ -2837,9 +2831,30 @@ class AppRuntime:
         engine.set_blackout(False)
         engine.overlays.master_brightness = 1.0
         dt = 1.0 / fps
-        start_s = max(0.0, min(600.0, float(start_s)))
-        for _ in range(int(start_s * fps)):
-            engine.tick(dt_s=dt, wall_dt_s=dt)
+        program = programs[preset_id]
+        cycle = float(getattr(program, "total_duration_s", 0.0) or 0.0)
+        # The window is the document, not a fixed 600 s. Seeking lands on that
+        # time; the returned clip is still only ``seconds`` long.
+        limit = cycle if cycle > 0.0 else 600.0
+        start_s = max(0.0, min(limit, float(start_s)))
+        engine.preset_elapsed_s = start_s
+        engine._resync_phase_turns()
+        from orng_led.engine.beam import BeamMotionState
+        from orng_led.engine.intents import BeamIntent
+
+        held = engine.active_preset.evaluate(start_s, engine.show)
+        for fixture_id, intent in held.fixtures.items():
+            if (
+                isinstance(intent, BeamIntent)
+                and intent.pan is not None
+                and intent.tilt is not None
+            ):
+                engine.beam_motion[fixture_id] = BeamMotionState(
+                    pan=float(intent.pan),
+                    tilt=float(intent.tilt),
+                    last_valid_pan=float(intent.pan),
+                    last_valid_tilt=float(intent.tilt),
+                )
         frames = []
         total = int(seconds * fps)
         for _ in range(total):
@@ -2871,10 +2886,11 @@ class AppRuntime:
             self.engine.toggle_blackout()
         else:
             self.engine.set_blackout(enabled)
-        # Republish immediately so Blackout zeros override raw tester.
-        self._publish_frame(self._published_frame())
+        snap = self.engine.render_at(self.engine.clock.time(), dt_s=0.0)
+        self._last_engine_snap = snap
+        self._publish_frame(self._published_frame(snap))
         self.sequence += 1
-        state = self.build_state()
+        state = self.build_state(reuse=True)
         self._remember(client_command_id, fingerprint)
         return state, False
 
@@ -2903,9 +2919,37 @@ class AppRuntime:
         if cached is not None:
             return cached, True
         self.engine.set_master_brightness(value)
-        state = self.build_state()
+        snap = self.engine.render_at(self.engine.clock.time(), dt_s=0.0)
+        self._last_engine_snap = snap
+        self._publish_frame(self._published_frame(snap))
+        self.sequence += 1
+        state = self.build_state(reuse=True)
         self._remember(client_command_id, state)
         return state, False
+
+    def apply_head_desk(
+        self,
+        *,
+        enabled: bool,
+        light: bool,
+        scene: bool,
+        color: str,
+        x: float,
+        y: float,
+    ) -> None:
+        """Stick pose. Published immediately and held by the engine until the switch goes off."""
+        self.engine.set_head_desk(
+            enabled=enabled,
+            light=light,
+            scene=scene,
+            color=color,
+            x=x,
+            y=y,
+        )
+        snap = self.engine.render_at(self.engine.clock.time(), dt_s=0.0)
+        self._last_engine_snap = snap
+        self._publish_frame(self._published_frame(snap))
+        self.sequence += 1
 
     def apply_focus_loss(
         self,

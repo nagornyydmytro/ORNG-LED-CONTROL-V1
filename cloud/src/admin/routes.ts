@@ -853,6 +853,7 @@ export async function handleAdminRequest(request: Request, env: Env): Promise<Re
           preset_time_s: desk?.preset_time_s ?? null,
           episode_index: desk?.episode_index ?? null,
           episode_count: desk?.episode_count ?? null,
+          master_brightness: desk?.master_brightness ?? null,
           pad_presets: desk?.pad_presets ?? null,
           capabilities: desk?.capabilities ?? null,
           effect: desk
@@ -1089,6 +1090,7 @@ function liveBody(desk: DeskSnapshot | null): Record<string, unknown> {
     preset_time_s: desk?.preset_time_s ?? null,
     episode_index: desk?.episode_index ?? null,
     episode_count: desk?.episode_count ?? null,
+    master_brightness: desk?.master_brightness ?? null,
     pad_presets: desk?.pad_presets ?? null,
     capabilities: desk?.capabilities ?? null,
     effect: desk

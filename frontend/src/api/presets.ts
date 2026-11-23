@@ -37,6 +37,10 @@ export interface EpisodeCard {
   notes?: string | null;
   cycle_beats?: 1 | 2 | 4 | 8 | null;
   actions?: LookAction[];
+  look?: string | null;
+  head?: "sweep" | "nod" | "cross" | "rise" | "pulse" | null;
+  /** Saved Mix behaviour. Ordinary presets leave this empty. */
+  mix_style?: "picture" | "classic" | null;
 }
 
 export interface PresetDocument {
@@ -61,6 +65,7 @@ export const PALETTES = [
   "rose",
   "deep_blue",
   "violet",
+  "cyan",
 ] as const;
 
 export const EFFECTS = [
@@ -236,7 +241,7 @@ export function newEpisode(index: number): EpisodeCard {
     id: `ep${Date.now()}-${index}`,
     duration_s: 18,
     groups: ["all_rear"],
-    palette: "warm_orange",
+    palette: "deep_red",
     effect: "pulse",
     speed: 0.5,
     intensity: 0.7,

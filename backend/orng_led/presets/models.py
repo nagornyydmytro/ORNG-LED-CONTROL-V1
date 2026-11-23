@@ -21,6 +21,7 @@ PALETTES = (
     "rose",
     "deep_blue",
     "violet",
+    "cyan",
 )
 
 EFFECTS = (
@@ -130,7 +131,7 @@ class EpisodeCard(StrictModel):
     id: Annotated[str, Field(min_length=1, max_length=64)]
     duration_s: Annotated[float, Field(gt=0.0, le=180.0)] = 18.0
     groups: list[str] = Field(default_factory=lambda: ["all_rear"])
-    palette: str = "warm_orange"
+    palette: str = "deep_red"
     effect: str = "pulse"
     speed: Annotated[float, Field(ge=0.0, le=1.0)] = 0.5
     intensity: Annotated[float, Field(ge=0.0, le=1.0)] = 0.7
@@ -140,6 +141,14 @@ class EpisodeCard(StrictModel):
     cycle_beats: Literal[1, 2, 4, 8] | None = None
     # Empty means this card is the only action. A list is the concurrent set.
     actions: list[LookAction] = Field(default_factory=list)
+    # Optional auto-composition id. When set, that picture replaces the effect.
+    look: str | None = None
+    # Head path for this episode. None keeps the usual slow beam sweep.
+    head: Literal["sweep", "nod", "cross", "rise", "pulse"] | None = None
+    # Saved Mix behaviour. None leaves an ordinary preset on its own curves.
+    # ``picture`` follows the corrected block. ``classic`` keeps the earlier
+    # head curves, then the saved tilt limit. Both keep the safe colour join.
+    mix_style: Literal["picture", "classic"] | None = None
 
     @field_validator("palette")
     @classmethod
@@ -168,6 +177,16 @@ class EpisodeCard(StrictModel):
     def _check_cycle(cls, value: int | None) -> int | None:
         return _cycle_beats(value)
 
+    @field_validator("look")
+    @classmethod
+    def _check_look(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        name = str(value).strip()
+        if not name or len(name) > 64:
+            raise ValueError(f"Unknown look {value!r}")
+        return name
+
 
 def episode_actions(episode: EpisodeCard) -> list[LookAction]:
     """The looks that actually run together. One card stays one action."""
@@ -194,7 +213,9 @@ class PresetDocument(StrictModel):
     builtin: bool = False
     # None on every preset written before musical cycles. 1 names this canon.
     musical_version: int | None = None
-    episodes: list[EpisodeCard] = Field(min_length=1, max_length=20)
+    # 20 was the editor cap, not the number of pad slots. Builtins stay at 10
+    # in the store. Mix keeps the corrected block plus the earlier build.
+    episodes: list[EpisodeCard] = Field(min_length=1, max_length=80)
 
     @field_validator("schema_version")
     @classmethod

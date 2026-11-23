@@ -621,11 +621,10 @@ def render_beam(
 ) -> None:
     """Write axes always; light only when confirmed + intent is on.
 
-    Beams ignore the show master. RGB follows BeamIntent.dimmer so operator
-    intensity and the volume rider can dim them. The hardware dimmer channel
-    stays parked at full. Strobe still comes from the intent.
+    RGB follows the current look times the show master, so the desk fader
+    dims the heads that are already on. Face pars are not rendered here.
+    The hardware dimmer channel stays parked at full. Pan and tilt do not scale.
     """
-    _ = master  # Beams ignore the show master fader.
     _write_beam_axes(frame, fixture, profile, motion)
     roles = _role_map(profile)
     confirmed = bool(fixture.spatial.beam_calibration_confirmed)
@@ -633,8 +632,8 @@ def render_beam(
         _apply_fixed_and_unused(frame, fixture, profile)
         return
 
-    # Hardware dimmer stays parked. RGB follows the operator and the volume rider.
-    look = max(0.0, min(1.0, intent.dimmer))
+    # Hardware dimmer stays parked. RGB is the current look, scaled by the fader.
+    look = max(0.0, min(1.0, intent.dimmer * max(0.0, min(1.0, master))))
     if look <= 0.02:
         _apply_fixed_and_unused(frame, fixture, profile)
         return
@@ -676,6 +675,7 @@ def render_stage(
     *,
     master: float = 1.0,
     scrub: bool = True,
+    full_beams: bool = False,
 ) -> list[int]:
     """Render show frame. Beam axes always follow last_valid pose; light follows intents."""
     from orng_led.engine.show_whitelist import scrub_show_frame
@@ -692,7 +692,14 @@ def render_stage(
                 float(fixture.spatial.home_tilt),
             )
             if isinstance(intent, BeamIntent):
-                render_beam(frame, fixture, profile, intent, motion, master=master)
+                render_beam(
+                    frame,
+                    fixture,
+                    profile,
+                    intent,
+                    motion,
+                    master=1.0 if full_beams else master,
+                )
             else:
                 render_beam(frame, fixture, profile, None, motion, master=master)
             continue

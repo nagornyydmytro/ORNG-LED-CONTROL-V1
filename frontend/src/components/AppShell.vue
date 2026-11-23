@@ -54,9 +54,15 @@ const collapsed = ref(false);
 const cloudDesk = isCloudAdminBuild();
 
 const links = computed(() => {
-  if (props.operatorDesk) return [{ to: "/", label: "Пульт", glyph: "◉" }];
+  if (props.operatorDesk) {
+    return [
+      { to: "/", label: "Пульт", glyph: "◉" },
+      { to: "/heads", label: "Головы", glyph: "◎" },
+    ];
+  }
   return [
     { to: "/", label: "Пульт", glyph: "◉" },
+    { to: "/heads", label: "Головы", glyph: "◎" },
     { to: "/presets", label: "Пресети", glyph: "▤" },
     { to: "/setup", label: "Калібрування", glyph: "⚙" },
     { to: "/channels", label: "Канали", glyph: "⑂" },

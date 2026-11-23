@@ -24,6 +24,8 @@ export const ALLOWED_COMMAND_TYPES = [
   "seek_episode",
   "speed",
   "set_program_speed",
+  "set_master_brightness",
+  "set_head_desk",
   "bpm_sync",
   "auto_next_look",
   "set_live_fx_speed",
@@ -175,6 +177,7 @@ export function isEphemeralCommand(type: string): boolean {
     CALIBRATION_COMMAND_TYPES.has(type) ||
     type === "keyboard" ||
     type === "hold_keepalive" ||
+    type === "set_head_desk" ||
     type === "face_toggle" ||
     type === "release_source"
   );

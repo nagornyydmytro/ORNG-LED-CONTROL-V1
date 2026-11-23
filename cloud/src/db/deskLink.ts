@@ -18,6 +18,7 @@ export type DeskSnapshot = {
   preset_time_s?: number | null;
   episode_index?: number | null;
   episode_count?: number | null;
+  master_brightness?: number | null;
   scene_name?: string | null;
   pad_presets?: unknown;
   capabilities?: string[] | null;

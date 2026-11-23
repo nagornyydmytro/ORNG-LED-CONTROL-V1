@@ -246,8 +246,9 @@ export interface PreviewClip {
   preset_id: string;
   fps: number;
   seconds: number;
+  start_s?: number;
   transport: string;
-  playback?: "engine" | "palette";
+  playback?: "engine" | "palette" | "sim";
   safe_mock_preview: boolean;
   frames: SimulatorView[];
 }
@@ -363,6 +364,12 @@ export type BpmPeriodId = "auto" | 0.5 | 1 | 2 | 4 | 8;
 
 export interface BpmSyncState {
   enabled: boolean;
+  /** Executor generation. A higher revision is a newer picture; the clock is not. */
+  revision?: number;
+  /** New id when the player process starts. Not a freshness clock by itself. */
+  session?: string;
+  /** Increases once per player process. A smaller value is an old session. */
+  epoch?: number;
   scope?: BpmSyncScope;
   mode: BpmSyncMode;
   palette?: BpmPaletteId;

@@ -9,7 +9,9 @@ import {
   saveAppConfig,
   savePatch,
   setupPost,
+  beamCalibrationBegin,
   beamCalibrationEnd,
+  beamCalibrationSet,
   validatePatch,
 } from "../api/setup";
 import { fetchStageLayout, postCommand, activateArtNet, deactivateArtNet, armOutput, disarmOutput, fetchArmBlockers } from "../api/client";
@@ -175,6 +177,37 @@ function beamStateFor(fixtureId: string): BeamCalibrationBeamView | null {
   );
 }
 
+const beamPlayBusy = ref(false);
+
+async function playBeamOnHardware(id: string) {
+  if (runtimeEngine.value?.blackout !== true) {
+    error.value = "Відтворення на обладнанні доступне лише під blackout";
+    return;
+  }
+  const draft = beamDrafts[id];
+  if (!draft) return;
+  const pan = Number(draft.home_pan);
+  const tilt = Number(draft.home_tilt);
+  beamPlayBusy.value = true;
+  try {
+    if (beamSession.value?.active && beamSession.value.fixture_id !== id) {
+      await beamCalibrationEnd();
+    }
+    if (!(beamSession.value?.active && beamSession.value.fixture_id === id)) {
+      await beamCalibrationBegin(id, true);
+    }
+    await beamCalibrationSet({
+      pan: Number.isFinite(pan) ? pan : 0.5,
+      tilt: Number.isFinite(tilt) ? tilt : 0.5,
+    });
+    await appState?.refreshRest?.();
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : "Не вдалося вивести голову на обладнання";
+  } finally {
+    beamPlayBusy.value = false;
+  }
+}
+
 async function endBeamCalibrationIfActive() {
   if (!beamSession.value?.active) return;
   try {
@@ -192,6 +225,15 @@ const armBlockers = ref<string[]>([]);
 
 const runtimeOutput = computed(() => appState?.output.value ?? null);
 const runtimeEngine = computed(() => appState?.engine.value ?? null);
+
+watch(
+  () => runtimeEngine.value?.blackout,
+  (on, previous) => {
+    if (previous === true && on === false && beamSession.value?.active) {
+      void endBeamCalibrationIfActive();
+    }
+  },
+);
 
 /** Authoritative Raw session from backend AppState (not local-only refs). */
 const rawSession = computed(() => appState?.state.value?.raw_tester ?? null);
@@ -1099,7 +1141,12 @@ onBeforeUnmount(() => {
               :errors="fieldErrors[String(fx.id)]"
               :beam-state="beamStateFor(String(fx.id))"
               :session="beamSession"
+              :playing="Boolean(beamSession?.active && beamSession?.fixture_id === String(fx.id))"
+              :busy="beamPlayBusy"
+              :blackout="runtimeEngine?.blackout === true"
               @edit="onBeamEdit(String(fx.id), $event)"
+              @play="playBeamOnHardware(String(fx.id))"
+              @stop="endBeamCalibrationIfActive()"
             />
           </template>
         </div>

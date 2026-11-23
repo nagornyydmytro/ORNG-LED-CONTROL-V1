@@ -105,6 +105,8 @@ export class DeviceDO implements DurableObject {
   private calibrationLeaseUntil = 0;
   private lastHeartbeat: Record<string, unknown> | null = null;
   private lastHeartbeatAt: string | null = null;
+  /** Slider value until the next hall beat confirms it. A beat already in flight still carries the old number. */
+  private pinnedMaster: { value: number; until: number } | null = null;
   private heartbeatSignature = "";
   private lastArch = "";
   private lastPresenceWrite = 0;
@@ -606,7 +608,7 @@ export class DeviceDO implements DurableObject {
   private async onDeviceMessage(att: Attachment, msg: Record<string, unknown>): Promise<void> {
     const type = String(msg.type ?? "");
     if (type === "heartbeat") {
-      const payload = (msg.payload ?? {}) as Record<string, unknown>;
+      const payload = this.withPinnedMaster((msg.payload ?? {}) as Record<string, unknown>);
       const signature = this.showSignature(payload);
       const changed = signature !== this.heartbeatSignature;
       const presenceDue = Date.now() - this.lastPresenceWrite >= PRESENCE_WRITE_MS;
@@ -738,6 +740,7 @@ export class DeviceDO implements DurableObject {
         const pending = this.pending.get(commandId);
         if (historyBlocked) {
           const owns = pending != null || this.installationId === att.installationId;
+          if (owns && status === "applied") await this.pinAppliedMaster(pending, null);
           if (owns && pending) {
             if (!(status === "accepted" && pending.desired_sync === true)) {
               this.pending.delete(commandId);
@@ -753,6 +756,7 @@ export class DeviceDO implements DurableObject {
         if (existing && existing.installation_id !== att.installationId) {
           return;
         }
+        if (status === "applied") await this.pinAppliedMaster(pending, existing);
         // ACK scoped to this installation (+ type when known) — cannot ACK another install's command.
         if (
           existing &&
@@ -854,6 +858,40 @@ export class DeviceDO implements DurableObject {
           payload: { code: "not_allowlisted", message: type },
         }),
       );
+      return;
+    }
+    if (type === "set_head_desk") {
+      const stick = (msg.payload as Record<string, unknown> | undefined) ?? {};
+      const commandId = typeof stick.command_id === "string" && stick.command_id ? stick.command_id : uuid();
+      if (!this.deviceSocket) {
+        ws.send(
+          JSON.stringify({
+            type: "ack",
+            payload: { command_id: commandId, status: "failed", error_message: "device_offline", type },
+          }),
+        );
+        return;
+      }
+      try {
+        this.deviceSocket.send(
+          JSON.stringify({
+            protocol_version: PROTOCOL_VERSION,
+            message_id: uuid(),
+            type,
+            device_id: att.installationId,
+            sent_at: nowIso(),
+            payload: { ...stick, command_id: commandId },
+          }),
+        );
+      } catch {
+        ws.send(
+          JSON.stringify({
+            type: "ack",
+            payload: { command_id: commandId, status: "failed", error_message: "device_offline", type },
+          }),
+        );
+        return;
+      }
       return;
     }
     const source = att.source ?? `cloud:web:${att.sessionId}`;
@@ -1331,6 +1369,50 @@ export class DeviceDO implements DurableObject {
       /* the next session_hello carries the same count */
     }
   }
+  private withPinnedMaster(payload: Record<string, unknown>): Record<string, unknown> {
+    const pin = this.pinnedMaster;
+    if (!pin) return payload;
+    const incoming = payload.master_brightness;
+    if (typeof incoming === "number" && Math.abs(incoming - pin.value) < 0.02) {
+      this.pinnedMaster = null;
+      return payload;
+    }
+    if (Date.now() >= pin.until) {
+      this.pinnedMaster = null;
+      return payload;
+    }
+    return { ...payload, master_brightness: pin.value };
+  }
+
+  private async pinAppliedMaster(
+    pending: PendingCommand | undefined,
+    existing: { type: string; payload_json: string } | null,
+  ): Promise<void> {
+    let type = pending?.type;
+    let payload = pending?.payload;
+    if (type !== "set_master_brightness" && existing?.type === "set_master_brightness") {
+      type = existing.type;
+      try {
+        payload = JSON.parse(existing.payload_json) as Record<string, unknown>;
+      } catch {
+        return;
+      }
+    }
+    if (type !== "set_master_brightness" || !payload) return;
+    const raw = payload.value;
+    if (typeof raw !== "number" || !Number.isFinite(raw)) return;
+    const master = Math.min(1, Math.max(0, raw));
+    this.pinnedMaster = { value: master, until: Date.now() + 15_000 };
+    if (this.lastHeartbeat) {
+      this.lastHeartbeat = { ...this.lastHeartbeat, master_brightness: master };
+      this.lastHeartbeatAt = nowIso();
+    }
+    const desk = await this.state.storage.get<DeskSnapshot>("mailbox_desk");
+    if (desk) {
+      await this.state.storage.put("mailbox_desk", { ...desk, master_brightness: master });
+    }
+  }
+
   private showSignature(payload: Record<string, unknown>): string {
     return JSON.stringify([
       payload.armed,

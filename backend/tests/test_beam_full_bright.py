@@ -21,7 +21,7 @@ def test_beam_profile_has_no_dimmer_role() -> None:
     assert fixed and all(int(ch.fixed_value or 0) == 255 for ch in fixed)
 
 
-def test_render_beam_ignores_master_and_intent_dimmer_curve() -> None:
+def test_render_beam_master_scales_current_rgb() -> None:
     show = load_show_config()
     beam = next(fx for fx in show.patch.fixtures if fx.kind is FixtureKind.BEAM)
     beam = beam.model_copy(
@@ -51,7 +51,7 @@ def test_render_beam_ignores_master_and_intent_dimmer_curve() -> None:
         if ch.role is ChannelRole.FIXED:
             assert frame[idx] == 255
         if ch.role is ChannelRole.RED:
-            assert frame[idx] == int(round(0.2 * 255))
+            assert frame[idx] == int(round(0.2 * 0.1 * 255))
     full_master = render_stage(
         show,
         stage,
@@ -63,7 +63,8 @@ def test_render_beam_ignores_master_and_intent_dimmer_curve() -> None:
         for ch in profile.channels
         if ch.role is ChannelRole.RED
     )
-    assert full_master[red] == frame[red]
+    assert full_master[red] == int(round(0.2 * 255))
+    assert full_master[red] != frame[red]
 
 
 def test_staff_presets_set_beam_dimmer_full_when_present() -> None:

@@ -791,6 +791,50 @@ describe("telemetry and hold refresh", () => {
     expect(view.holds.get("other::h2")?.lease_until).toBe(otherUntil);
   });
 
+  it("forwards set_head_desk without inventing applied; the desk hears the executor ACK", async () => {
+    const env = createMemoryEnv();
+    await seedCredential(env, "do-1", "tokentokentokentoken77");
+    const state = new MemoryDOState();
+    const dob = new DeviceDO(state as unknown as DurableObjectState, env);
+    const deviceSent: string[] = [];
+    const adminSent: string[] = [];
+    const adminWs = { send: (data: string) => adminSent.push(data) };
+    const view = dob as unknown as {
+      deviceSocket: { send: (data: string) => void } | null;
+      sessions: Map<object, { role: string }>;
+      onAdminMessage: (ws: object, att: object, msg: object) => Promise<void>;
+      onDeviceMessage: (att: object, msg: object) => Promise<void>;
+    };
+    view.sessions.set(adminWs, {
+      role: "admin",
+      installationId: "do-1",
+      sessionId: "desk",
+      source: "cloud:web:desk",
+    });
+    view.deviceSocket = { send: (data) => deviceSent.push(data) };
+    await view.onAdminMessage(
+      adminWs,
+      { role: "admin", installationId: "do-1", sessionId: "desk", source: "cloud:web:desk" },
+      {
+        type: "set_head_desk",
+        payload: { command_id: "stick-1", enabled: true, x: 0.2, y: 0.5, light: true, scene: true, color: "red" },
+      },
+    );
+    expect(deviceSent).toHaveLength(1);
+    const forwarded = JSON.parse(deviceSent[0]) as { type: string; payload: { command_id: string } };
+    expect(forwarded.type).toBe("set_head_desk");
+    expect(forwarded.payload.command_id).toBe("stick-1");
+    expect(adminSent.filter((line) => JSON.parse(line).type === "ack")).toEqual([]);
+    await view.onDeviceMessage(
+      { role: "device", installationId: "do-1", sessionId: "player" },
+      { type: "ack", payload: { command_id: "stick-1", status: "applied", type: "set_head_desk" } },
+    );
+    const acks = adminSent.map((line) => JSON.parse(line) as { type: string; payload: { status?: string; command_id?: string } });
+    expect(acks).toEqual([
+      { type: "ack", payload: { command_id: "stick-1", status: "applied", type: "set_head_desk" } },
+    ]);
+  });
+
   it("does not rewrite D1 or meta when the heartbeat is unchanged", async () => {
     const env = createMemoryEnv();
     await seedCredential(env, "do-1", "tokentokentokentoken77");

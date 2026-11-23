@@ -12,7 +12,8 @@ ATMOSPHERE_LABELS: dict[str, str] = {
     "A03": "Статика — фіолетовий",
 }
 
-# Exactly one vertical bar-motion episode per preset (the rest stay solid glow).
+# Ep8 is the one signature vertical look. A01 episode 4 repeats A03's
+# equalizer wave (glow_eq) in red. Every other card stays a solid glow.
 _VERTICAL_EFFECTS = frozenset({"glow_line", "glow_pinch", "glow_eq"})
 _ALLOWED_EFFECTS = frozenset({"glow"}) | _VERTICAL_EFFECTS
 
@@ -43,9 +44,9 @@ def build_atmosphere_preset(preset_id: str) -> PresetDocument:
     episodes = _EPISODES[preset_id]
     if len(episodes) != 10:
         raise ValueError(f"{preset_id} must have exactly 10 episodes")
-    vertical = [ep for ep in episodes if ep.effect in _VERTICAL_EFFECTS]
-    if len(vertical) != 1:
-        raise ValueError(f"{preset_id} must have exactly one vertical bar episode")
+    signature = [ep for ep in episodes if ep.id == "ep8" and ep.effect in _VERTICAL_EFFECTS]
+    if len(signature) != 1:
+        raise ValueError(f"{preset_id} episode 8 must be the signature vertical look")
     for ep in episodes:
         if "bar" not in ep.groups and "all_rear" not in ep.groups:
             raise ValueError(f"{preset_id}/{ep.id} must keep bars lit")
@@ -53,6 +54,12 @@ def build_atmosphere_preset(preset_id: str) -> PresetDocument:
             raise ValueError(f"{preset_id}/{ep.id} unexpected effect {ep.effect!r}")
         if ep.speed > 0.25:
             raise ValueError(f"{preset_id}/{ep.id} speed too high for near-static")
+        extra_wave = ep.effect in _VERTICAL_EFFECTS and ep.id != "ep8"
+        if extra_wave and not (preset_id == "A01" and ep.id == "ep4" and ep.effect == "glow_eq"):
+            raise ValueError(f"{preset_id}/{ep.id} unexpected vertical look")
+        if preset_id == "A01" and ep.id == "ep4":
+            if ep.effect != "glow_eq" or ep.palette != "deep_red" or ep.speed != 0.16:
+                raise ValueError("A01 episode 4 must be the red Static 3 equalizer wave")
     return PresetDocument(
         id=preset_id,
         label=label,
@@ -66,8 +73,9 @@ def all_atmosphere_presets() -> dict[str, PresetDocument]:
     return {preset_id: build_atmosphere_preset(preset_id) for preset_id in ATMOSPHERE_PRESET_IDS}
 
 
-# Near-static washes: solid ``glow`` everywhere except one vertical bar episode (ep8).
-# A01 stays red-family only (no amber). Beams stay on from ep4 so ep5 all_rear has no head pop.
+# Near-static washes. A01 episode 4 is A03's equalizer wave in deep red.
+# Ep8 stays the signature vertical look. A01 stays red-family only (no amber).
+# Beams stay on from ep4 so ep5 all_rear has no head pop.
 _EPISODES: dict[str, list[EpisodeCard]] = {
     "A01": [
         _ep(1, groups=["bar", "par"], palette="deep_red", effect="glow", speed=0.1, intensity=0.9),
@@ -80,13 +88,14 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
             speed=0.09,
             intensity=0.92,
         ),
+        # Same equalizer wave as A03 episode 8, in red. Pars and beams stay lit.
         _ep(
             4,
             groups=["bar", "par", "beam"],
-            palette="rose",
-            effect="glow",
-            speed=0.1,
-            intensity=0.88,
+            palette="deep_red",
+            effect="glow_eq",
+            speed=0.16,
+            intensity=0.92,
         ),
         _ep(5, groups=["all_rear"], palette="deep_red", effect="glow", speed=0.1, intensity=0.9),
         _ep(6, groups=["bar", "beam"], palette="rose", effect="glow", speed=0.1, intensity=0.9),

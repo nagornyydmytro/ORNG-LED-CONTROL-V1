@@ -9,6 +9,7 @@ import logging
 import os
 import threading
 import time
+import uuid
 from multiprocessing import get_context
 from pathlib import Path
 from queue import Empty, Full
@@ -88,6 +89,10 @@ class BpmService:
         self.period: float | None = None
         self.par_rhythm = False
         self.accent = 0.0
+        self._revision = 0
+        self._session = uuid.uuid4().hex
+        self._epoch = self._open_epoch()
+        self._intent_at: dict[str, int] = {}
         self.section = SectionTracker()
         self.follower = TempoFollower()
         self.planner = EpisodePlanner()
@@ -609,6 +614,33 @@ class BpmService:
             self._save_prefs()
         if was_auto and not (self.enabled and self.scope == "auto"):
             self.planner.reset()
+        self._revision += 1
+
+    def _open_epoch(self) -> int:
+        """One step per player process. A delayed reply keeps the epoch it was born with."""
+        path = self.config_root / "bpm-epoch"
+        current = 0
+        try:
+            current = int(path.read_text(encoding="utf-8").strip() or "0")
+        except (OSError, ValueError):
+            current = 0
+        epoch = current + 1
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(str(epoch), encoding="utf-8")
+        except OSError:
+            pass
+        return epoch
+
+    def accept_intent(self, source_id: str | None, intent_ms: int | None) -> bool:
+        """Drop a reordered command from the same desk. Another desk has its own clock."""
+        if intent_ms is None or not source_id:
+            return True
+        last = self._intent_at.get(source_id)
+        if last is not None and intent_ms < last:
+            return False
+        self._intent_at[source_id] = int(intent_ms)
+        return True
 
     def feed(
         self,
@@ -1403,6 +1435,9 @@ class BpmService:
             )
         return {
             "enabled": self.enabled,
+            "revision": self._revision,
+            "session": self._session,
+            "epoch": self._epoch,
             "scope": self.scope,
             "mode": self.mode,
             "palette": colour_of(self.palette, self.palette),

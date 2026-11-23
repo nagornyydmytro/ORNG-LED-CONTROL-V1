@@ -62,6 +62,7 @@ _POST = {
     "/api/commands/seek-episode",
     "/api/commands/face",
     "/api/commands/master-brightness",
+    "/api/commands/head-desk",
     "/api/commands/live-fx-speed",
     "/api/commands/bpm-sync",
     "/api/commands/auto-next-look",
@@ -296,6 +297,11 @@ def _allowed(method: str, path: str) -> bool:
         return True
     if method == "GET" and path.startswith("/api/presets/"):
         rest = path.removeprefix("/api/presets/")
+        return bool(rest) and "/" not in rest
+    if method == "GET" and path in {"/api/scene-draft", "/api/scene-draft/presets"}:
+        return True
+    if method == "GET" and path.startswith("/api/scene-draft/presets/"):
+        rest = path.removeprefix("/api/scene-draft/presets/")
         return bool(rest) and "/" not in rest
     if method == "GET" and path.startswith("/api/auto/preview-clip"):
         return True

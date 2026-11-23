@@ -4,10 +4,17 @@ import { fetchPresets } from "../api/client";
 import { fetchAppConfig, saveAppConfig } from "../api/setup";
 import type { CloudControlTransport, CloudDeviceLiveState } from "../cloud/transport";
 import {
+  beginBpmChange,
+  bindBpmCommandId,
+  confirmBpmFromTelemetry,
+  finishBpmChange,
+  settlePendingBpmCommands,
+} from "../lib/bpmIntent";
+import { createCommandId } from "../api/client";
+import {
   asPeriod,
   bpmChoiceKey,
   bpmControlsLocked,
-  paletteFromApi,
   readBpmChoice,
   writeBpmChoice,
 } from "../lib/bpmPalettes";
@@ -108,7 +115,7 @@ function engineFromLive(live: CloudDeviceLiveState | null): EngineState | null {
     face_brightness: live.face_brightness ?? 1,
     strobe_held: Boolean(live.strobe_held),
     white_hit_active: false,
-    master_brightness: 0,
+    master_brightness: live.master_brightness ?? 1,
     time_s: live.preset_time_s ?? 0,
     color_hit_active: false,
     sweep_active: Boolean(live.sweep_active),
@@ -286,6 +293,28 @@ export function useCloudAppState(
       }
     }
     live.value = merged;
+    if (merged.bpm) {
+      confirmBpmFromTelemetry(
+        bpmChoiceKey({ locationId: location.value?.id, sceneId: location.value?.sceneId }),
+        {
+          enabled: merged.bpm.enabled === true,
+          mode: merged.bpm.mode,
+          scope: merged.bpm.scope,
+          palette: merged.bpm.palette,
+          cast: merged.bpm.cast,
+          groups: merged.bpm.groups,
+          excluded: merged.bpm.excluded,
+          character: merged.bpm.character,
+          intensity: merged.bpm.intensity,
+          period: merged.bpm.period,
+          parRhythm: merged.bpm.par_rhythm,
+          accent: merged.bpm.accent,
+          revision: merged.bpm.revision,
+          session: merged.bpm.session,
+          epoch: merged.bpm.epoch,
+        },
+      );
+    }
     connection.value = connectionFrom(live.value);
   }
 
@@ -461,8 +490,32 @@ export function useCloudAppState(
     }
   }
 
-  async function setMasterBrightness() {
-    toasts.push("Майстер-яскравість на Raspberry з цього пульта не керується", "error");
+  async function setMasterBrightness(value: number) {
+    const token = sessionToken();
+    const current = transport.value;
+    if (!current) {
+      noteError(new Error("Виконавця немає"));
+      return;
+    }
+    try {
+      await current.setMasterBrightness(value);
+    } catch (err) {
+      if (!still(token)) return;
+      noteError(err);
+    }
+  }
+
+  function sendHeadDesk(payload: {
+    enabled: boolean;
+    light: boolean;
+    scene: boolean;
+    color: string;
+    x: number;
+    y: number;
+  }) {
+    const current = transport.value;
+    if (!current) return;
+    current.sendHeadDesk(payload);
   }
 
   async function setPreviewSpeed(value: number) {
@@ -511,23 +564,27 @@ export function useCloudAppState(
   }): Promise<boolean> {
     const token = sessionToken();
     const current = live.value?.bpm;
-    const saved = readBpmChoice(
-      bpmChoiceKey({ locationId: state.value?.location_id, sceneId: state.value?.scene_id }),
-    );
-    const next = {
-      enabled: patch.enabled ?? current?.enabled ?? false,
-      mode: patch.mode ?? current?.mode ?? saved.mode,
-      scope: patch.scope ?? current?.scope ?? saved.scope,
-      palette: patch.palette ?? current?.palette ?? saved.palette,
-      cast: patch.cast ?? current?.cast ?? saved.cast,
-      groups: patch.groups ?? current?.groups ?? saved.groups,
-      excluded: patch.excluded ?? current?.excluded ?? saved.excluded,
-      character: patch.character ?? current?.character ?? saved.character,
-      intensity: patch.intensity ?? current?.intensity ?? saved.intensity,
-      period: patch.period ?? current?.period ?? saved.period,
-      parRhythm: patch.parRhythm ?? current?.par_rhythm ?? saved.parRhythm,
-      accent: patch.accent ?? current?.accent ?? saved.accent,
-    };
+    const key = bpmChoiceKey({
+      locationId: state.value?.location_id,
+      sceneId: state.value?.scene_id,
+    });
+    const staged = beginBpmChange(key, patch, {
+      enabled: current?.enabled === true,
+      mode: current?.mode,
+      scope: current?.scope,
+      palette: current?.palette,
+      cast: current?.cast,
+      groups: current?.groups,
+      excluded: current?.excluded,
+      character: current?.character,
+      intensity: current?.intensity,
+      period: current?.period,
+      parRhythm: current?.par_rhythm,
+      accent: current?.accent,
+      revision: current?.revision,
+      session: current?.session,
+      epoch: current?.epoch,
+    });
     const musical =
       patch.mode != null ||
       patch.scope != null ||
@@ -541,46 +598,49 @@ export function useCloudAppState(
       patch.parRhythm != null ||
       patch.accent != null;
     const locationId = location.value?.id;
-    let applied = next;
     if (musical && locationId) {
-      const body = buildShowPrefsWrite(patch, next, prefsBase) as Parameters<
-        typeof adminPutLocationShowPrefs
-      >[1];
-      try {
-        const savedPrefs = await adminPutLocationShowPrefs(locationId, body);
-        if (!still(token)) return false;
-        if (savedPrefs.prefs) {
-          prefsEpoch += 1;
+      const applied = staged.command;
+      const body = buildShowPrefsWrite(patch, {
+        enabled: applied.enabled,
+        mode: applied.mode,
+        scope: applied.scope,
+        palette: applied.palette,
+        cast: applied.cast,
+        groups: applied.groups,
+        excluded: applied.excluded,
+        character: applied.character,
+        intensity: applied.intensity,
+        period: applied.period,
+        parRhythm: applied.parRhythm,
+        accent: applied.accent,
+      }, prefsBase) as Parameters<typeof adminPutLocationShowPrefs>[1];
+      const requestedEpoch = prefsEpoch;
+      void Promise.race([
+        adminPutLocationShowPrefs(locationId, body),
+        new Promise<never>((_, reject) => {
+          window.setTimeout(() => reject(new Error("Збереження налаштувань не відповіло")), 4000);
+        }),
+      ])
+        .then((savedPrefs) => {
+          if (!shouldApplyLocationPrefs(locationId, location.value?.id ?? null, requestedEpoch, prefsEpoch)) return;
+          if (!savedPrefs.prefs) return;
           prefsBase = savedPrefs.prefs;
-          applied = {
-            ...next,
-            mode: savedPrefs.prefs.mode,
-            scope: savedPrefs.prefs.scope,
-            palette: paletteFromApi(savedPrefs.prefs.palette, next.palette),
-            cast: savedPrefs.prefs.cast ?? next.cast,
-            groups: savedPrefs.prefs.groups ?? next.groups,
-            excluded: savedPrefs.prefs.excluded ?? next.excluded,
-            character: savedPrefs.prefs.character ?? next.character,
-            intensity: savedPrefs.prefs.intensity ?? next.intensity,
-            period: savedPrefs.prefs.period ?? next.period,
-            parRhythm: savedPrefs.prefs.par_rhythm === true,
-            accent: typeof savedPrefs.prefs.accent === "number" ? savedPrefs.prefs.accent : next.accent,
-          };
-        }
-      } catch (err) {
-        if (!still(token)) return false;
-        noteBpmError(err);
-        return false;
-      }
+        })
+        .catch((err) => {
+          if (!still(token)) return;
+          noteBpmError(err);
+        });
     }
-    if (!still(token)) return false;
     const currentTransport = transport.value;
     if (!currentTransport) {
-      if (musical && locationId) return true;
+      finishBpmChange(key, staged.fieldRevs, false, "Виконавця немає");
       noteError(new Error("Виконавця немає"));
       return false;
     }
+    const commandId = createCommandId("bpm-sync");
+    bindBpmCommandId(key, staged.fieldRevs, commandId);
     try {
+      const applied = staged.command;
       await currentTransport.setBpmSync(applied.enabled, {
         mode: applied.mode,
         scope: applied.scope,
@@ -593,13 +653,50 @@ export function useCloudAppState(
         period: asPeriod(applied.period, applied.character),
         parRhythm: applied.parRhythm,
         accent: applied.accent,
+        intentMs: staged.intentMs,
+        commandId,
       });
-      return still(token);
+      if (!still(token)) return false;
+      finishBpmChange(key, staged.fieldRevs, true);
+      return true;
     } catch (err) {
       if (!still(token)) return false;
+      finishBpmChange(
+        key,
+        staged.fieldRevs,
+        false,
+        err instanceof Error ? err.message : "Не підтверджено",
+      );
       noteBpmError(err);
       return false;
     }
+  }
+
+  async function settleBpmAfterReload() {
+    const currentTransport = transport.value;
+    if (!currentTransport) return;
+    const key = bpmChoiceKey({
+      locationId: location.value?.id ?? state.value?.location_id,
+      sceneId: location.value?.sceneId ?? state.value?.scene_id,
+    });
+    await settlePendingBpmCommands(key, async (command) => {
+      await currentTransport.setBpmSync(command.body.enabled, {
+        mode: command.body.mode,
+        scope: command.body.scope,
+        palette: command.body.palette as import("../vite-env").BpmPaletteId,
+        cast: command.body.cast,
+        groups: command.body.groups,
+        excluded: command.body.excluded,
+        character: command.body.character,
+        intensity: command.body.intensity,
+        period: asPeriod(command.body.period, command.body.character),
+        parRhythm: command.body.parRhythm,
+        accent: command.body.accent,
+        intentMs: command.intentMs,
+        commandId: command.commandId,
+      });
+      return { ok: true };
+    });
   }
 
   async function colorHit() {
@@ -709,10 +806,16 @@ export function useCloudAppState(
         else noteError(rejected);
       }
     });
-    void next.connect().catch((err) => {
-      if (!still(token)) return;
-      noteError(err);
-    });
+    void next
+      .connect()
+      .then(async () => {
+        if (!still(token)) return;
+        await settleBpmAfterReload();
+      })
+      .catch((err) => {
+        if (!still(token)) return;
+        noteError(err);
+      });
   }
 
   watch(
@@ -848,6 +951,7 @@ export function useCloudAppState(
     toggleBlackout,
     setFace,
     setMasterBrightness,
+    sendHeadDesk,
     setPreviewSpeed,
     nextAutoLook,
     setBpmSync,

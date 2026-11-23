@@ -58,6 +58,11 @@ def validate_episode_show_contract(episode: EpisodeCard) -> None:
     for key in dump:
         if key in FORBIDDEN_DOCUMENT_KEYS:
             raise ConfigError(f"Episode {episode.id!r} contains forbidden key {key!r}")
+    if episode.look:
+        from orng_led.audio.library import BY_ID
+
+        if episode.look not in BY_ID:
+            raise ConfigError(f"Episode {episode.id!r} look {episode.look!r} is not in the catalogue")
     # Intensity/speed already bounded by the model; palette/effect enums too.
 
 

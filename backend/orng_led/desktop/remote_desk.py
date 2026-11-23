@@ -40,6 +40,8 @@ BASELINE_EXECUTOR_COMMANDS = frozenset(
         "face_toggle",
         "set_live_fx_speed",
         "set_program_speed",
+        "set_master_brightness",
+        "set_head_desk",
         "episode_nudge",
         "keyboard",
     }
@@ -232,6 +234,20 @@ def command_for_request(path: str, body: dict[str, Any]) -> tuple[str, dict[str,
         return ("set_live_fx_speed", payload)
     if path == "/api/commands/preview-speed":
         return ("set_program_speed", {"value": body.get("value")})
+    if path == "/api/commands/master-brightness":
+        return ("set_master_brightness", {"value": body.get("value")})
+    if path == "/api/commands/head-desk":
+        return (
+            "set_head_desk",
+            {
+                "enabled": body.get("enabled"),
+                "light": body.get("light"),
+                "scene": body.get("scene", True),
+                "color": body.get("color", "red"),
+                "x": body.get("x", 0),
+                "y": body.get("y", 0),
+            },
+        )
     if path == "/api/commands/bpm-sync":
         payload: dict[str, Any] = {"enabled": bool(body.get("enabled"))}
         if body.get("mode"):
@@ -248,6 +264,10 @@ def command_for_request(path: str, body: dict[str, Any]) -> tuple[str, dict[str,
             payload["intensity"] = body.get("intensity")
         if body.get("period") is not None:
             payload["period"] = body.get("period")
+        if isinstance(body.get("source_id"), str) and body.get("source_id"):
+            payload["source_id"] = body.get("source_id")
+        if isinstance(body.get("intent_ms"), int) and not isinstance(body.get("intent_ms"), bool):
+            payload["intent_ms"] = body.get("intent_ms")
         return ("bpm_sync", payload)
     if path == "/api/commands/auto-next-look":
         return ("auto_next_look", {})

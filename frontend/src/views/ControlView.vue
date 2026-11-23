@@ -11,6 +11,7 @@ import { getPreset, type EpisodeCard, type PresetDocument } from "../api/presets
 import { isCloudAdminBuild } from "../cloud/mode";
 import { APP_STATE_KEY } from "../composables/appStateKey";
 import { acceptedBpmValue, bpmDeskReason } from "../lib/acceptedBpm";
+import { bpmDesk, choiceKeyFor } from "../lib/bpmIntent";
 import { BPM_INTENSITIES, bpmControlsLocked, hasBpmSync } from "../lib/bpmPalettes";
 import { presetButtonLabel } from "../lib/presetLabel";
 import { REMOTE_PREVIEW_LIVE_MS } from "../lib/previewFreshness";
@@ -38,6 +39,7 @@ const {
   toggleBlackout,
   setFace,
   setPreviewSpeed,
+  setMasterBrightness,
   nextAutoLook,
   setBpmSync,
   sweepPress,
@@ -359,11 +361,37 @@ function onProgramSpeed(value: number) {
   void setPreviewSpeed(value);
 }
 
-const bpmCapable = computed(() => hasBpmSync(state.value?.capabilities));
-const bpmOn = computed(() => bpmCapable.value && state.value?.bpm?.enabled === true);
-const autoDesk = computed(
-  () => bpmOn.value && state.value?.bpm?.scope === "auto",
+const brightnessUi = ref(100);
+const brightnessHold = ref(false);
+
+watch(
+  () => engine.value?.master_brightness,
+  (value) => {
+    if (brightnessHold.value || typeof value !== "number") return;
+    brightnessUi.value = Math.round(Math.min(1, Math.max(0, value)) * 100);
+  },
+  { immediate: true },
 );
+
+function onMasterBrightness(value: number) {
+  brightnessHold.value = true;
+  brightnessUi.value = value;
+  void setMasterBrightness(value / 100);
+}
+
+function releaseMasterBrightness() {
+  brightnessHold.value = false;
+}
+
+const bpmCapable = computed(() => hasBpmSync(state.value?.capabilities));
+const bpmChoice = computed(() =>
+  bpmDesk(
+    choiceKeyFor({ locationId: state.value?.location_id, sceneId: state.value?.scene_id }),
+    state.value?.bpm,
+  ),
+);
+const bpmOn = computed(() => bpmCapable.value && bpmChoice.value.enabled);
+const autoDesk = computed(() => bpmOn.value && bpmChoice.value.choice.scope === "auto");
 const bpmAccepted = computed(() => acceptedBpmValue(state.value?.bpm ?? null));
 const bpmStatus = computed(() => bpmDeskReason(state.value?.bpm ?? null));
 const confirmedLive = computed(() => {
@@ -577,39 +605,23 @@ function goNextEpisode() {
           >
           <span class="meter__value">{{ speedUi.toFixed(2) }}</span>
         </label>
-        <div
-          v-if="bpmCapable"
-          class="bpm-row"
+        <label
+          class="meter"
+          aria-label="brightness"
         >
-          <span class="meter__name">Музика</span>
-          <button
-            type="button"
-            class="theme-slider"
-            :class="{ 'is-dark': bpmOn }"
-            role="switch"
-            :aria-checked="bpmOn"
-            aria-label="Музика"
+          <span class="meter__name">brightness</span>
+          <input
+            type="range"
+            min="0"
+            max="100"
+            step="1"
+            :value="brightnessUi"
             :disabled="offline"
-            @click="toggleBpm"
+            @input="onMasterBrightness(Number(($event.target as HTMLInputElement).value))"
+            @change="releaseMasterBrightness"
           >
-            <span class="theme-slider__thumb" />
-          </button>
-          <div
-            v-if="bpmOn"
-            class="bpm-row__reading"
-          >
-            <span
-              class="meter__value"
-              data-accepted-bpm
-            >{{ bpmAccepted }}</span>
-            <span
-              v-if="bpmStatus"
-              class="bpm-row__reason"
-            >{{ bpmStatus }}</span>
-          </div>
-        </div>
-        <BpmModePicker v-if="bpmCapable && bpmOn" />
-
+          <span class="meter__value">{{ brightnessUi }}</span>
+        </label>
         <label
           v-if="faceShown"
           class="meter"
@@ -627,6 +639,45 @@ function goNextEpisode() {
           >
           <span class="meter__value">{{ faceLevel.toFixed(2) }}</span>
         </label>
+        <div
+          v-if="bpmCapable"
+          class="bpm-row"
+        >
+          <span class="meter__name">Музика</span>
+          <button
+            type="button"
+            class="theme-slider"
+            :class="{ 'is-dark': bpmOn }"
+            role="switch"
+            :aria-checked="bpmOn"
+            aria-label="Музика"
+            :disabled="offline"
+            @click="toggleBpm"
+          >
+            <span class="theme-slider__thumb" />
+          </button>
+          <span
+            v-if="bpmChoice.pending || bpmChoice.error"
+            class="bpm-row__reason"
+            role="status"
+          >
+            {{ bpmChoice.error || "Ще застосовується" }}
+          </span>
+          <div
+            v-if="bpmOn"
+            class="bpm-row__reading"
+          >
+            <span
+              class="meter__value"
+              data-accepted-bpm
+            >{{ bpmAccepted }}</span>
+            <span
+              v-if="bpmStatus"
+              class="bpm-row__reason"
+            >{{ bpmStatus }}</span>
+          </div>
+        </div>
+        <BpmModePicker v-if="bpmCapable && bpmOn" />
       </aside>
     </div>
   </div>

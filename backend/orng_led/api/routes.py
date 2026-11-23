@@ -41,6 +41,7 @@ from orng_led.api.schemas import (
     InputKeyboardRequest,
     LiveFxSpeedCommand,
     MasterBrightnessCommand,
+    HeadDeskCommand,
     PadPresetsCommand,
     PresetCreateRequest,
     PresetDuplicateRequest,
@@ -831,6 +832,19 @@ def build_api_router() -> APIRouter:
             await runtime.broadcast_state()
         return CommandAck(state=state, idempotent_replay=replay)
 
+    @router.post("/commands/head-desk", response_model=CommandAck)
+    async def head_desk(body: HeadDeskCommand, request: Request) -> CommandAck:
+        runtime = get_runtime(request)
+        runtime.apply_head_desk(
+            enabled=body.enabled,
+            light=body.light,
+            scene=body.scene,
+            color=body.color,
+            x=body.x,
+            y=body.y,
+        )
+        return CommandAck(state=runtime.build_state(reuse=True))
+
     @router.post("/commands/bpm-sync", response_model=CommandAck)
     async def bpm_sync(body: BpmSyncCommand, request: Request) -> CommandAck:
         runtime = get_runtime(request)
@@ -848,6 +862,8 @@ def build_api_router() -> APIRouter:
             par_rhythm=body.par_rhythm,
             accent=body.accent,
             client_command_id=body.client_command_id,
+            source_id=body.source_id,
+            intent_ms=body.intent_ms,
         )
         if not replay:
             await runtime.broadcast_state()

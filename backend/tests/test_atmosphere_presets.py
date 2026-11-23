@@ -48,12 +48,22 @@ def test_pad_starts_with_atmosphere_presets() -> None:
 )
 def test_exactly_one_vertical_episode(preset_id: str, effect: str, atmosphere_docs) -> None:
     doc = atmosphere_docs[preset_id]
-    vertical = [ep for ep in doc.episodes if ep.effect in _VERTICAL_EFFECTS]
+    vertical = [ep for ep in doc.episodes if ep.id == "ep8"]
     assert len(vertical) == 1
     assert vertical[0].effect == effect
-    assert vertical[0].id == "ep8"
     assert vertical[0].groups == ["bar"]
-    assert all(ep.effect == "glow" for ep in doc.episodes if ep.id != "ep8")
+    if preset_id == "A01":
+        ep4 = next(ep for ep in doc.episodes if ep.id == "ep4")
+        reference = next(ep for ep in atmosphere_docs["A03"].episodes if ep.id == "ep8")
+        assert ep4.effect == reference.effect == "glow_eq"
+        assert ep4.speed == reference.speed
+        assert ep4.intensity == reference.intensity
+        assert ep4.palette == "deep_red"
+        assert not ep4.actions
+        solid = [ep for ep in doc.episodes if ep.id not in {"ep4", "ep8"}]
+    else:
+        solid = [ep for ep in doc.episodes if ep.id != "ep8"]
+    assert all(ep.effect == "glow" and not ep.actions for ep in solid)
 
 
 @pytest.mark.parametrize("preset_id", ATMOSPHERE_PRESET_IDS)
@@ -67,6 +77,32 @@ def test_solid_episodes_keep_bars_whole(preset_id: str, show, atmosphere_docs) -
         assert isinstance(bar, BarIntent)
         assert bar.whole is True
         assert bar.dimmer >= 0.45
+
+
+def test_a01_ep4_is_the_red_static3_wave(show, atmosphere_docs) -> None:
+    program = YamlPresetProgram(atmosphere_docs["A01"])
+    bar_ids = sorted(
+        (f.id for f in show.patch.fixtures if f.id.startswith("bar_")),
+        key=lambda fid: show.layout.placement_for(fid).x
+        if show.layout.placement_for(fid) is not None
+        else 0.0,
+    )
+    intent = program.evaluate(58.0, show)
+    heights = []
+    for bar_id in bar_ids:
+        bar = intent.fixtures[bar_id]
+        assert isinstance(bar, BarIntent)
+        assert bar.whole is False
+        assert bar.color.r == 1.0
+        assert bar.color.g <= 0.05
+        assert bar.color.b <= 0.05
+        on = [level >= 0.5 for level in bar.segments]
+        if False in on:
+            first_off = on.index(False)
+            assert all(not value for value in on[first_off:])
+        heights.append(sum(1 for value in on if value))
+    assert min(heights) >= 1
+    assert len(set(heights)) >= 2
 
 
 def test_a01_glow_line_is_sync_across_bars(show, atmosphere_docs) -> None:

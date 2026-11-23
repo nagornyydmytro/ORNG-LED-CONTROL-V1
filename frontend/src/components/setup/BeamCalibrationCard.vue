@@ -13,10 +13,15 @@ const props = defineProps<{
   errors?: Record<string, string>;
   beamState: BeamCalibrationBeamView | null;
   session: BeamCalibrationSessionView | null;
+  playing?: boolean;
+  busy?: boolean;
+  blackout?: boolean;
 }>();
 
 const emit = defineEmits<{
   edit: [draft: BeamDraft];
+  play: [];
+  stop: [];
 }>();
 
 function update(partial: Partial<BeamDraft>) {
@@ -33,6 +38,25 @@ function sliderValue(raw: string, min: number): number {
   <article class="card beam-card">
     <div class="card__head">
       <h3>{{ fixture.label }}</h3>
+      <button
+        v-if="playing"
+        type="button"
+        class="action-btn"
+        :disabled="busy"
+        @click="emit('stop')"
+      >
+        Зупинити
+      </button>
+      <button
+        v-else
+        type="button"
+        class="action-btn"
+        :disabled="busy || !blackout"
+        title="Доступно лише під blackout"
+        @click="emit('play')"
+      >
+        Відтворити на обладнанні
+      </button>
     </div>
 
     <div class="row-actions">

@@ -1,4 +1,7 @@
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { sliceMixCatalog } from "./mixCatalogClip";
 import { installScenePort, sceneSyncPhase } from "./scenePort";
 
 const { loadLocation, publishLocation } = vi.hoisted(() => ({
@@ -347,6 +350,61 @@ describe("scene draft isolation", () => {
     expect(loaded.episodes[0]?.actions?.map((action) => action.cycle_beats)).toEqual([1, 2, 4, 8]);
   });
 
+  it("renders animated ordinary preset preview with 0..1 colors", async () => {
+    loadLocation.mockResolvedValue({
+      ...workspace("room-test"),
+      files: [
+        { path: "scene.yaml", text: "name: Room\n" },
+        { path: "app.yaml", text: "transport: mock\n" },
+        {
+          path: "patch.yaml",
+          text:
+            "fixtures:\n" +
+            "  - {id: bar-1, kind: bar, profile_id: bar, groups: [bar, all_rear]}\n" +
+            "  - {id: par-1, kind: par, profile_id: par, groups: [par, all_rear]}\n" +
+            "  - {id: beam-1, kind: beam, profile_id: beam, groups: [beam, all_rear]}\n",
+        },
+        {
+          path: "layout.yaml",
+          text:
+            "placements:\n" +
+            "  - {fixture_id: bar-1, kind: bar, x: 0, y: 0, z: 0}\n" +
+            "  - {fixture_id: par-1, kind: par, x: 1, y: 0, z: 0}\n" +
+            "  - {fixture_id: beam-1, kind: beam, x: 2, y: 0, z: 0}\n",
+        },
+        {
+          path: "presets/A01.yaml",
+          text:
+            "id: A01\nlabel: One\nbuiltin: true\nhardware_tuned: false\n" +
+            "episodes:\n" +
+            "  - {id: ep1, duration_s: 18, groups: [bar, par], palette: deep_red, effect: pulse, speed: 0.6, intensity: 0.9}\n" +
+            "  - {id: ep2, duration_s: 18, groups: [beam], palette: cool_blue, effect: breathe, speed: 0.5, intensity: 0.8}\n",
+        },
+      ],
+    });
+    const clip = await port("alice", "loc-test", "room-test").previewClip!("A01", 4, 10, 0);
+    expect(clip.safe_mock_preview).toBe(true);
+    expect(clip.playback).toBe("sim");
+    expect(clip.frames.length).toBe(40);
+    const first = clip.frames[0]!;
+    expect(first.bars).toHaveLength(1);
+    expect(first.pars).toHaveLength(1);
+    expect(first.beams).toHaveLength(0);
+    // Bars snap deep_red onto the red wheel. The stage readout is the renderer
+    // display colour (1, 0.08, 0.02), not the CSS swatch rgb(255, 20, 5).
+    expect(first.bars[0]!.r).toBeCloseTo(1, 5);
+    expect(first.bars[0]!.g).toBeCloseTo(0.08, 5);
+    expect(first.bars[0]!.b).toBeCloseTo(0.02, 5);
+    expect(first.bars[0]!.r).toBeLessThanOrEqual(1);
+    const intensities = clip.frames.map((frame) => frame.pars[0]!.intensity);
+    expect(new Set(intensities.map((value) => value.toFixed(3))).size).toBeGreaterThan(1);
+    const second = await port("alice", "loc-test", "room-test").previewClip!("A01", 4, 10, 18);
+    expect(second.frames[0]!.beams).toHaveLength(1);
+    expect(second.frames[0]!.bars).toHaveLength(0);
+    expect(second.frames[0]!.beams[0]!.b).toBeCloseTo(255 / 255, 5);
+    expect(second.frames[0]!.beams[0]!.shutter_open).toBe(true);
+  });
+
   it("validates DMX range from footprint and rejects a missing pad preset", async () => {
     const base = workspace("room-test");
     loadLocation.mockResolvedValue({
@@ -369,5 +427,107 @@ describe("scene draft isolation", () => {
     expect(result.ok).toBe(false);
     expect(result.errors).toContain("a і b перетинаються");
     expect(result.errors).toContain("слот пульта GONE не має пресета");
+  });
+});
+
+function sceneYamlFiles() {
+  const root = join(process.cwd(), "../config/scenes/orng-bar");
+  const files: { path: string; text: string }[] = [];
+  const walk = (dir: string, prefix: string) => {
+    for (const name of readdirSync(dir)) {
+      const absolute = join(dir, name);
+      const path = prefix ? `${prefix}/${name}` : name;
+      if (statSync(absolute).isDirectory()) {
+        walk(absolute, path);
+        continue;
+      }
+      if (!name.endsWith(".yaml")) continue;
+      files.push({ path, text: readFileSync(absolute, "utf8") });
+    }
+  };
+  walk(root, "");
+  return files;
+}
+
+describe("Mix catalog preview", () => {
+  it("uses renderer frames for the saved Mix and not for a changed draft", async () => {
+    const files = sceneYamlFiles();
+    loadLocation.mockResolvedValue({
+      installation_id: "inst-1",
+      scene_id: "orng-bar",
+      version: 5,
+      content_hash: "mix-current",
+      track_latest: false,
+      files,
+    });
+    const clip = await port("alice", "loc-mix", "orng-bar").previewClip!("Mix", 1, 8, 738);
+    expect(clip.playback).toBe("engine");
+    expect(clip.start_s).toBe(738);
+    expect(clip.fps).toBe(8);
+    expect(clip.frames).toEqual(sliceMixCatalog(1, 8, 738)!.frames);
+    expect(clip.frames[0]!.faces).toEqual([]);
+    expect(clip.frames[0]!.beams.every((beam) => beam.tilt <= 0.64)).toBe(true);
+    expect(clip.frames[0]!.beams.some((beam) => beam.hit_x !== 0 || beam.hit_z !== 0)).toBe(true);
+    const episode6 = await port("alice", "loc-mix-6", "orng-bar").previewClip!("Mix", 1, 8, 93);
+    expect(episode6.playback).toBe("engine");
+    expect(episode6.frames[0]!.bars.every((bar) => bar.dimmer <= 0.05 && bar.segments.every((value) => value <= 0.05))).toBe(
+      true,
+    );
+
+    const edited = files.map((file) =>
+      file.path === "presets/Mix.yaml"
+        ? { ...file, text: file.text.replace("palette: deep_red", "palette: cyan") }
+        : file,
+    );
+    loadLocation.mockResolvedValue({
+      installation_id: "inst-1",
+      scene_id: "orng-bar",
+      version: 5,
+      content_hash: "mix-draft",
+      track_latest: false,
+      files: edited,
+    });
+    const draft = await port("alice", "loc-mix-draft", "orng-bar").previewClip!("Mix", 2, 8, 9);
+    expect(draft.playback).toBe("sim");
+    expect(draft.frames[0]!.bars[0]!.g).toBeGreaterThan(0.9);
+    expect(draft.frames[0]!.bars[0]!.b).toBeGreaterThan(0.9);
+    expect(draft.frames[0]).not.toEqual(sliceMixCatalog(2, 8, 9)!.frames[0]);
+  });
+
+  it("drops baked frames after a copy gains a new action", async () => {
+    const files = sceneYamlFiles();
+    loadLocation.mockResolvedValue({
+      installation_id: "inst-1",
+      scene_id: "orng-bar",
+      version: 5,
+      content_hash: "mix-copy",
+      track_latest: false,
+      files,
+    });
+    const scene = port("alice", "loc-mix-copy", "orng-bar");
+    await scene.duplicatePreset!("Mix", "MixCopy", "Mix copy");
+    const original = await scene.getPreset!("Mix");
+    const copy = structuredClone(await scene.getPreset!("MixCopy"));
+    const third = copy.episodes[2]!;
+    third.actions = [
+      {
+        id: "par-only",
+        groups: ["par"],
+        palette: "cyan",
+        effect: "static",
+        speed: 0.5,
+        intensity: 1,
+      },
+    ];
+    copy.episodes[2] = third;
+    await scene.savePreset!("MixCopy", copy);
+    const reloaded = await scene.getPreset!("MixCopy");
+    expect(reloaded.episodes[2]!.actions?.[0]?.palette).toBe("cyan");
+    const baked = await scene.previewClip!("Mix", 1, 8, 40);
+    expect(baked.playback).toBe("engine");
+    const changed = await scene.previewClip!("MixCopy", 1, 8, 40);
+    expect(changed.playback).toBe("sim");
+    expect(changed.frames[0]).not.toEqual(baked.frames[0]);
+    expect(original.episodes[2]!.actions ?? []).toEqual([]);
   });
 });

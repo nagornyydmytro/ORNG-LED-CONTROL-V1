@@ -2,14 +2,16 @@ import { defineComponent, nextTick, ref } from "vue";
 import { mount } from "@vue/test-utils";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { APP_STATE_KEY } from "../../composables/appStateKey";
+import { bpmDesk, resetBpmIntent } from "../../lib/bpmIntent";
 import BpmModePicker from "./BpmModePicker.vue";
 
 beforeEach(() => {
   localStorage.clear();
+  resetBpmIntent();
 });
 
 describe("BpmModePicker", () => {
-  it("does not paint a refused scope as active", async () => {
+  it("keeps a refused scope painted and stored", async () => {
     const state = ref({
       scene_id: "scene-a",
       bpm: { enabled: true, scope: "preset", mode: "smooth", palette: "orange" },
@@ -36,10 +38,9 @@ describe("BpmModePicker", () => {
     await auto?.trigger("click");
     await nextTick();
     expect(setBpmSync).toHaveBeenCalled();
-    expect(auto?.classes()).not.toContain("active");
-    expect(preset?.classes()).toContain("active");
-    expect(localStorage.getItem("orng-bpm-choice:scene-a")).toBeNull();
-    expect(localStorage.getItem("orng-bpm-choice:scene:scene-a")).toBeNull();
+    expect(auto?.classes()).toContain("active");
+    expect(preset?.classes()).not.toContain("active");
+    expect(localStorage.getItem("orng-bpm-choice:scene:scene-a")).toContain("auto");
     wrapper.unmount();
   });
 
@@ -179,7 +180,7 @@ describe("BpmModePicker", () => {
     const impact = wrapper.findAll("button").find((button) => button.text() === "Ударний");
     await impact?.trigger("click");
     expect(setBpmSync).toHaveBeenCalledWith({ character: "impact" });
-    expect(impact?.classes()).not.toContain("active");
+    expect(impact?.classes()).toContain("active");
     setBpmSync.mockClear();
     const intensityButtons = wrapper.find("[aria-label=\"Інтенсивність\"]").findAll("button");
     await intensityButtons[0].trigger("click");
@@ -191,11 +192,71 @@ describe("BpmModePicker", () => {
     const periods = wrapper.find("[aria-label=\"Музичний період\"]").findAll("button");
     setBpmSync.mockClear();
     await periods[periods.length - 1].trigger("click");
-    expect(setBpmSync).toHaveBeenCalledWith({ period: 8 });
+    expect(setBpmSync).toHaveBeenCalledWith({ period: 4 });
     const swatch = wrapper.findAll(".palette-swatch")[1];
     setBpmSync.mockClear();
     await swatch.trigger("click");
     expect(setBpmSync.mock.calls[0][0]).toHaveProperty("palette");
     wrapper.unmount();
+  });
+
+  it("moves the accent immediately and does not send it to the next location", async () => {
+    vi.useFakeTimers();
+    const state = ref({
+      location_id: "loc-a",
+      scene_id: "scene-a",
+      capabilities: ["bpm_sync", "auto_director"],
+      bpm: { enabled: true, scope: "auto", mode: "smooth", palette: "orange", character: "rhythmic", intensity: "full", period: "auto" },
+    });
+    const setBpmSync = vi.fn(async () => true);
+    const Parent = defineComponent({
+      components: { BpmModePicker },
+      setup() {
+        return { state };
+      },
+      template: "<BpmModePicker />",
+    });
+    const wrapper = mount(Parent, {
+      global: { provide: { [APP_STATE_KEY as symbol]: { state, setBpmSync } } },
+    });
+    await wrapper.get(".bpm-extra__toggle").trigger("click");
+    await wrapper.get("[aria-label='Додаткові акценти']").setValue("0.8");
+    await nextTick();
+    expect(wrapper.get("[aria-label='Додаткові акценти']").element.getAttribute("value") ?? (wrapper.get("[aria-label='Додаткові акценти']").element as HTMLInputElement).value).toBe("0.8");
+    expect(setBpmSync).not.toHaveBeenCalled();
+    state.value = { ...state.value, location_id: "loc-b" };
+    await nextTick();
+    await vi.advanceTimersByTimeAsync(50);
+    expect(setBpmSync).not.toHaveBeenCalled();
+    expect(bpmDesk("loc:loc-a").error).toBeTruthy();
+    wrapper.unmount();
+    vi.useRealTimers();
+  });
+
+  it("cancels a pending accent when the picker closes", async () => {
+    vi.useFakeTimers();
+    const state = ref({
+      scene_id: "scene-a",
+      capabilities: ["bpm_sync", "auto_director"],
+      bpm: { enabled: true, scope: "auto", mode: "smooth", palette: "orange", character: "rhythmic", intensity: "full", period: "auto" },
+    });
+    const setBpmSync = vi.fn(async () => true);
+    const Parent = defineComponent({
+      components: { BpmModePicker },
+      setup() {
+        return { state };
+      },
+      template: "<BpmModePicker />",
+    });
+    const wrapper = mount(Parent, {
+      global: { provide: { [APP_STATE_KEY as symbol]: { state, setBpmSync } } },
+    });
+    await wrapper.get(".bpm-extra__toggle").trigger("click");
+    await wrapper.get("[aria-label='Додаткові акценти']").setValue("0.4");
+    wrapper.unmount();
+    await vi.advanceTimersByTimeAsync(50);
+    expect(setBpmSync).not.toHaveBeenCalled();
+    expect(bpmDesk("scene:scene-a").error).toBeTruthy();
+    vi.useRealTimers();
   });
 });

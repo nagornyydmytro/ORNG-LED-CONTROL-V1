@@ -436,8 +436,8 @@ def test_gain_tone_noise_and_a_long_groove_do_not_invent_a_drop(tmp_path: Path) 
     assert runtime.bpm.follower.locked
 
 
-def test_beam_brightness_stays_binary_and_face_keeps_its_own_fader() -> None:
-    """Recorded canon: head RGB is on or off, and Face does not follow show master."""
+def test_beam_brightness_follows_master_and_face_keeps_its_own_fader() -> None:
+    """Show master scales the head level already on stage. Face keeps its own fader."""
     show = load_show_config()
     beam = next(fixture for fixture in show.patch.fixtures if fixture.kind is FixtureKind.BEAM)
     dim = StageIntent(
@@ -470,10 +470,10 @@ def test_beam_brightness_stays_binary_and_face_keeps_its_own_fader() -> None:
         for channel in show.profile_for(beam).channels
         if channel.role is ChannelRole.RED
     )
-    assert dim_frame[red] == int(round(0.25 * 255))
+    assert dim_frame[red] == int(round(0.25 * 0.2 * 255))
     assert full_frame[red] == 255
     same = render_stage(show, dim, pose, master=1.0)
-    assert same[red] == dim_frame[red]
+    assert same[red] == int(round(0.25 * 255))
     face = next(fixture for fixture in show.patch.fixtures if fixture.kind is FixtureKind.FACE_PAR)
     from orng_led.engine.intents import ParIntent
 

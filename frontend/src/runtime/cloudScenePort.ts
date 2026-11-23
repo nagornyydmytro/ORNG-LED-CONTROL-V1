@@ -10,11 +10,12 @@ import {
 } from "../api/adminCloud";
 import { FALLBACK_CHANNEL_ROLES, type ChannelRoleOption } from "../api/setup";
 import type { PresetDocument } from "../api/presets";
-import { PALETTE_CSS } from "../lib/presets";
-import type { AutoCatalog, AutoPreviewClip, CommandAck, PreviewClip, SimulatorView, StageLayout } from "../vite-env";
+import type { AutoCatalog, AutoPreviewClip, CommandAck, PreviewClip, StageLayout } from "../vite-env";
 import type { PresetInfo } from "../vite-env";
 import { sendCalibrationCommand } from "./calibrationChannel";
 import { currentSceneEpoch, sceneSyncDetail, sceneSyncPhase, type ScenePort } from "./scenePort";
+import { mixCatalogStamps, mixEpisodeStamp, mixSceneStamp, sliceMixCatalog } from "./mixCatalogClip";
+import { buildPresetPreviewClip } from "./presetPreviewSim";
 import { sceneLookErrors, validatePadSlots, validatePatchShape } from "./sceneValidate";
 
 type LiveSnap = {
@@ -500,86 +501,6 @@ export function createCloudScenePort(opts: {
     return EMPTY_ACK;
   }
 
-  function paletteRgb(name: string): { r: number; g: number; b: number } {
-    const css = PALETTE_CSS[name] ?? "rgb(120, 124, 136)";
-    const match = /rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)/.exec(css);
-    if (!match) return { r: 120, g: 124, b: 136 };
-    return { r: Number(match[1]), g: Number(match[2]), b: Number(match[3]) };
-  }
-
-  function previewFrame(palette: string, layout: StageLayout): SimulatorView {
-    const color = paletteRgb(palette);
-    const pars = [];
-    const bars = [];
-    const beams = [];
-    const faces = [];
-    for (const place of layout.placements) {
-      const kind = String(place.kind || "");
-      if (kind === "bar") {
-        bars.push({
-          id: place.fixture_id,
-          label: place.label ?? place.fixture_id,
-          kind,
-          side: "",
-          ring: "",
-          order: null,
-          dimmer: 1,
-          r: color.r,
-          g: color.g,
-          b: color.b,
-          segments: [1, 1, 1, 1],
-        });
-      } else if (kind === "beam") {
-        beams.push({
-          id: place.fixture_id,
-          label: place.label ?? place.fixture_id,
-          kind,
-          side: "",
-          order: null,
-          pan: 0.5,
-          tilt: 0.5,
-          dimmer: 0,
-          shutter_open: false,
-          r: color.r,
-          g: color.g,
-          b: color.b,
-          strobe: 0,
-          dir_x: 0,
-          dir_y: -1,
-          dir_z: 0,
-          hit_x: place.x,
-          hit_z: place.z,
-          throw: 1,
-        });
-      } else {
-        const fx = {
-          id: place.fixture_id,
-          label: place.label ?? place.fixture_id,
-          kind,
-          side: "",
-          ring: "",
-          face: kind === "face",
-          order: null,
-          r: color.r,
-          g: color.g,
-          b: color.b,
-          w: 0,
-          intensity: 0.8,
-        };
-        if (kind === "face") faces.push(fx);
-        else pars.push(fx);
-      }
-    }
-    return {
-      pars,
-      bars,
-      beams,
-      faces,
-      nonzero_channels: 0,
-      blackout_visual: false,
-    };
-  }
-
   return {
     async listPresets() {
       await ensureLoaded();
@@ -731,21 +652,31 @@ export function createCloudScenePort(opts: {
     async publishForLocation() {
       await pushCanonical();
     },
-    async previewClip(id: string): Promise<PreviewClip> {
+    async previewClip(
+      id: string,
+      seconds = 8,
+      fps = 12,
+      startS = 0,
+    ): Promise<PreviewClip> {
       await ensureLoaded();
-      const doc = parse(files.get(presetPath(id)) ?? "") as PresetDocument;
       const layout = await this.fetchStageLayout();
-      const episodes = doc.episodes?.length ? doc.episodes : [{ palette: "warm_orange" }];
-      const frames = episodes.slice(0, 8).map((episode) => previewFrame(String(episode.palette || ""), layout));
-      return {
-        preset_id: id,
-        fps: 1,
-        seconds: frames.length,
-        transport: "none",
-        playback: "palette",
-        safe_mock_preview: true,
-        frames,
-      };
+      const doc = parse(files.get(presetPath(id)) ?? "") as PresetDocument;
+      const episodes = doc.episodes?.length
+        ? doc.episodes
+        : [{ palette: "deep_red", effect: "breathe", duration_s: 18 }];
+      const baked = mixCatalogStamps();
+      const sameCards = (await mixEpisodeStamp(episodes)) === baked.episodes;
+      const sameScene = (await mixSceneStamp(files)) === baked.scene;
+      if (sameCards && sameScene && baked.version === "preset-catalog-2") {
+        const clip = sliceMixCatalog(seconds, fps, startS);
+        if (clip) return { ...clip, preset_id: id };
+      }
+      return buildPresetPreviewClip(episodes, layout, {
+        presetId: id,
+        seconds,
+        fps,
+        startS,
+      });
     },
     async setupPost(path, body = {}) {
       if (path === "beam-calibration/save") {

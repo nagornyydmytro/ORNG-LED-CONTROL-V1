@@ -139,6 +139,7 @@ export async function handleDeviceRequest(request: Request, env: Env): Promise<R
         preset_time_s: num(beat.preset_time_s) ?? null,
         episode_index: num(beat.episode_index) ?? null,
         episode_count: num(beat.episode_count) ?? null,
+        master_brightness: num(beat.master_brightness) ?? null,
         scene_name: str(beat.scene_name) ?? null,
         pad_presets: beat.pad_presets ?? null,
         capabilities: Array.isArray(beat.capabilities)

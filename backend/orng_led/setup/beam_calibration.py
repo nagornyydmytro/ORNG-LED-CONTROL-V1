@@ -106,15 +106,22 @@ def render_calibration_frame(
     session: BeamCalibrationTestSession,
     *,
     blackout: bool,
+    base: list[int] | None = None,
 ) -> list[int]:
-    frame = empty_frame()
+    """Pan/tilt for one head.
+
+    Without ``base`` the rest of the frame stays dark, which is the isolated
+    test. With the live show frame, only this head's axes change.
+    """
+    frame = list(base) if base is not None else empty_frame()
     if not session.active or not session.fixture_id:
         return frame
     fixture = next((fx for fx in show.patch.fixtures if fx.id == session.fixture_id), None)
     if fixture is None or fixture.kind is not FixtureKind.BEAM:
         return frame
     profile = show.profile_for(fixture)
-    _zero_fixture(frame, fixture, profile.footprint)
+    if base is None:
+        _zero_fixture(frame, fixture, profile.footprint)
 
     encoded = encode_fixture_pan_tilt(
         fixture,

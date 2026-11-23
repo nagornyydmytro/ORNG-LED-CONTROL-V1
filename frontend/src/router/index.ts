@@ -4,6 +4,7 @@ import CloudView from "../views/CloudView.vue";
 import AutoDeskPreview from "../views/AutoDeskPreview.vue";
 import ChannelsView from "../views/ChannelsView.vue";
 import ControlView from "../views/ControlView.vue";
+import HeadsView from "../views/HeadsView.vue";
 import NotFoundView from "../views/NotFoundView.vue";
 import PresetsView from "../views/PresetsView.vue";
 import SetupView from "../views/SetupView.vue";
@@ -12,6 +13,7 @@ export const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: "/", name: "control", component: ControlView, meta: { title: "Пульт" } },
+    { path: "/heads", name: "heads", component: HeadsView, meta: { title: "Головы" } },
     {
       path: "/_preview/auto-desk",
       name: "auto-desk-preview",

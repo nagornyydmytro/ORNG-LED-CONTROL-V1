@@ -189,11 +189,12 @@ def _mirror_goals(
     for row in rows:
         pan = None
         tilt = None
-        if row.pan is not None and abs(course.pan) > 1e-6 and pan_amp > 0.0:
-            aim = _STAGE_CENTER + row.side * pan_amp * course.pan
+        if row.pan is not None:
+            home = _clamp(row.home_pan, row.pan[0], row.pan[1])
+            # Open away from the other head, around this head's own home.
+            # Semantic 0.5 is not beam_left's forward: that value turns it toward beam_right.
+            aim = home if abs(course.pan) <= 1e-6 or pan_amp <= 0.0 else home + row.side * pan_amp * course.pan
             pan = _quantize(_clamp(aim, row.pan[0], row.pan[1]), row.pan[0], row.pan[1])
-        elif row.pan is not None:
-            pan = _quantize(_clamp(row.home_pan, row.pan[0], row.pan[1]), row.pan[0], row.pan[1])
         if row.tilt is not None:
             if course.tilt >= 0.0:
                 tilt = tilt_rest + tilt_up * course.tilt
@@ -504,12 +505,11 @@ def _common_room(rows: list[_HeadRow]) -> tuple[float, float, float, float]:
             continue
         saw_pan = True
         lo, hi = row.pan
-        if lo - 1e-9 > _STAGE_CENTER or hi + 1e-9 < _STAGE_CENTER:
-            room = 0.0
-        elif row.side < 0.0:
-            room = max(0.0, _STAGE_CENTER - lo)
+        home = _clamp(row.home_pan, lo, hi)
+        if row.side < 0.0:
+            room = max(0.0, home - lo)
         else:
-            room = max(0.0, hi - _STAGE_CENTER)
+            room = max(0.0, hi - home)
         pan_hi = min(pan_hi, room)
     if not saw_pan:
         pan_hi = 0.0
@@ -558,17 +558,14 @@ def _place_pan(
     if span is None:
         return None
     lo, hi = float(span[0]), float(span[1])
-    if abs(float(unit)) <= 1e-6 and home is not None:
-        return _clamp(float(home), lo, hi)
-    if lo > _STAGE_CENTER or hi < _STAGE_CENTER:
-        outward = (_STAGE_CENTER - lo) if side < 0.0 else (hi - _STAGE_CENTER)
-        room = max(0.0, outward)
-    else:
-        outward = (_STAGE_CENTER - lo) if side < 0.0 else (hi - _STAGE_CENTER)
-        room = max(0.0, outward)
+    origin = _clamp(float(_STAGE_CENTER if home is None else home), lo, hi)
+    if abs(float(unit)) <= 1e-6:
+        return origin
+    outward = (origin - lo) if side < 0.0 else (hi - origin)
+    room = max(0.0, outward)
     per_beat = min(_MAX_PAN_PER_BEAT, max(0.0, float(max_speed)) * max(0.05, float(beat_period_s)))
     amp = min(room, per_beat * float(period) * 0.5)
-    return _clamp(_STAGE_CENTER + float(side) * amp * float(unit), lo, hi)
+    return _clamp(origin + float(side) * amp * float(unit), lo, hi)
 
 
 def _place_tilt(

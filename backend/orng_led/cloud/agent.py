@@ -71,6 +71,12 @@ def bpm_sync_args(payload: dict[str, Any]) -> dict[str, Any]:
             args["accent"] = 0.0
     if "enabled" in payload:
         args["enabled"] = bool(payload.get("enabled"))
+    source = payload.get("source_id")
+    if isinstance(source, str) and source:
+        args["source_id"] = source
+    intent = payload.get("intent_ms")
+    if isinstance(intent, int) and not isinstance(intent, bool):
+        args["intent_ms"] = intent
     return args
 
 PROTOCOL_VERSION = 1
@@ -96,6 +102,8 @@ ALLOWED = frozenset(
         "seek_episode",
         "speed",
         "set_program_speed",
+        "set_master_brightness",
+        "set_head_desk",
         "bpm_sync",
         "auto_next_look",
         "set_live_fx_speed",
@@ -139,6 +147,8 @@ DESK_OPERATOR_COMMANDS = frozenset(
         "seek_episode",
         "speed",
         "set_program_speed",
+        "set_master_brightness",
+        "set_head_desk",
         "bpm_sync",
         "auto_next_look",
         "set_live_fx_speed",
@@ -531,6 +541,7 @@ class CloudDeviceAgent:
                 "episode_count": state.engine.episode_count,
                 "cycle_duration_s": state.engine.cycle_duration_s,
                 "face_brightness": state.engine.face_brightness,
+                "master_brightness": state.engine.master_brightness,
                 "preview_speed": state.preview_speed,
                 "bpm": state.bpm,
                 "strobe_speed": state.engine.strobe_speed,
@@ -643,6 +654,14 @@ class CloudDeviceAgent:
             return
         if msg_type not in ALLOWED and msg_type not in {"session_hello"}:
             await self._ack(ws, msg, "failed", "not_allowlisted", msg_type)
+            return
+        if msg_type == "set_head_desk":
+            raw = msg.get("payload") if isinstance(msg.get("payload"), dict) else {}
+            try:
+                await self._dispatch("set_head_desk", dict(raw), command_id="")
+                await self._ack(ws, msg, "applied")
+            except Exception as exc:  # noqa: BLE001
+                await self._ack(ws, msg, "failed", "apply_error", str(exc))
             return
         if msg_type == "session_hello":
             self.installation_id = str(msg.get("device_id") or self.installation_id)
@@ -808,6 +827,22 @@ class CloudDeviceAgent:
                 client_command_id=command_id or None,
             )
             return None
+        if msg_type == "set_master_brightness":
+            self.runtime.apply_master_brightness(
+                float(payload.get("value", 1)),
+                client_command_id=command_id or None,
+            )
+            return None
+        if msg_type == "set_head_desk":
+            self.runtime.apply_head_desk(
+                enabled=bool(payload.get("enabled", False)),
+                light=bool(payload.get("light", False)),
+                scene=bool(payload.get("scene", True)),
+                color=str(payload.get("color") or "red"),
+                x=float(payload.get("x", 0)),
+                y=float(payload.get("y", 0)),
+            )
+            return None
         if msg_type == "bpm_sync":
             self.runtime.apply_bpm_sync(
                 **bpm_sync_args(payload),
@@ -949,7 +984,7 @@ class CloudDeviceAgent:
             )
 
     def _touch_calibration_lease(self) -> None:
-        self._calibration_until = time.monotonic() + 20.0
+        self._calibration_until = time.monotonic() + 120.0
 
     def _expire_calibration_lease(self) -> None:
         """Pi-local lease. Does not depend on a heartbeat reaching the Worker."""
@@ -973,9 +1008,8 @@ class CloudDeviceAgent:
         owner = str(payload.get("source") or "") or None
         session_id = payload.get("session_id")
         session_id = str(session_id) if session_id else None
-        if msg_type != "calibration_end":
-            self._require_blackout_for_test()
         if msg_type == "calibration_begin":
+            self._require_blackout_for_test()
             fixture_id = str(payload.get("fixture_id") or "")
             if not fixture_id:
                 raise SceneSyncError("calibration_invalid", "fixture_id is required")
@@ -987,6 +1021,7 @@ class CloudDeviceAgent:
             self._touch_calibration_lease()
             return None
         if msg_type == "calibration_set":
+            self._require_blackout_for_test()
             pan = payload.get("pan")
             tilt = payload.get("tilt")
             self.runtime.set_beam_calibration_position(
@@ -998,6 +1033,7 @@ class CloudDeviceAgent:
             self._touch_calibration_lease()
             return None
         if msg_type == "calibration_visible":
+            self._require_blackout_for_test()
             self.runtime.set_beam_calibration_visible(
                 enabled=bool(payload.get("enabled")),
                 confirmed=bool(payload.get("confirmed")),
@@ -1007,6 +1043,7 @@ class CloudDeviceAgent:
             self._touch_calibration_lease()
             return None
         if msg_type == "calibration_home":
+            self._require_blackout_for_test()
             self.runtime.beam_calibration_go_home(session_id=session_id, owner=owner)
             self._touch_calibration_lease()
             return None

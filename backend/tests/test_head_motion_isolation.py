@@ -134,7 +134,7 @@ def test_skipped_beat_stays_inside_the_speed_limit() -> None:
     assert goal[0] is None or abs(moved[0] - home[0]) <= abs(float(goal[0]) - home[0]) + 1e-9
 
 
-def test_heads_share_one_pan_amplitude_about_the_stage_centre() -> None:
+def test_heads_share_one_pan_amplitude_about_each_home() -> None:
     from orng_led.audio.head_motion import _mirror_goals, _period
 
     show = load_show_config()
@@ -151,7 +151,8 @@ def test_heads_share_one_pan_amplitude_about_the_stage_centre() -> None:
     left = goals["beam_left"]
     right = goals["beam_right"]
     assert left[0] is not None and right[0] is not None and left[1] is not None
-    assert abs((float(left[0]) + float(right[0])) - 1.0) < 1e-3
+    homes = {fixture.id: float(fixture.spatial.home_pan) for fixture in beams}
+    assert abs((homes["beam_left"] - float(left[0])) - (float(right[0]) - homes["beam_right"])) < 0.01
     assert float(left[1]) == pytest.approx(float(right[1]))
     assert _period("heads_only_oval", "groove", 1.0) == _period("heads_only_oval", "groove", None)
     assert _period("heads_only_oval", "groove", 1.0) in {2.0, 4.0, 8.0}

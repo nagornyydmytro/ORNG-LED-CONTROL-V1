@@ -55,7 +55,7 @@ def test_discover_and_load_orng_bar() -> None:
     assert list(bundle.show.app.pad_presets) == [
         "A01",
         "A02",
-        "A03",
+        "Mix",
         "P01",
         "P02",
         "P03",

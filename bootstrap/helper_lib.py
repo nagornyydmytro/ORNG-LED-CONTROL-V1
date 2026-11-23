@@ -160,7 +160,7 @@ def apply_staged_release(
     simulate_crash_after_swap: bool = False,
     simulate_crash_before_swap: bool = False,
     health_url: str | None = None,
-    health_timeout_s: float = 30.0,
+    health_timeout_s: float = 90.0,
     on_after_swap: Callable[[], None] | None = None,
     on_after_rollback: Callable[[], None] | None = None,
 ) -> dict[str, Any]:

@@ -88,6 +88,7 @@ export type CloudDeviceLiveState = {
   preset_time_s?: number | null;
   cycle_duration_s?: number | null;
   face_brightness?: number | null;
+  master_brightness?: number | null;
   preview_speed?: number | null;
   bpm?: import("../vite-env").BpmSyncState | null;
   capabilities?: string[] | null;
@@ -121,6 +122,15 @@ export interface CloudControlTransport extends ControlTransport {
     persist?: boolean;
   }): Promise<void>;
   setProgramSpeed(value: number): Promise<void>;
+  setMasterBrightness(value: number): Promise<void>;
+  sendHeadDesk(payload: {
+    enabled: boolean;
+    light: boolean;
+    scene: boolean;
+    color: string;
+    x: number;
+    y: number;
+  }): void;
   setBpmSync(
     enabled: boolean,
     patch?: {
@@ -135,6 +145,8 @@ export interface CloudControlTransport extends ControlTransport {
       period?: "auto" | 0.5 | 1 | 2 | 4 | 8;
       parRhythm?: boolean;
       accent?: number;
+      intentMs?: number;
+      commandId?: string;
     },
   ): Promise<void>;
   nextAutoLook(): Promise<void>;

@@ -68,7 +68,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         _ep(
             1,
             groups=["all_rear"],
-            palette="warm_orange",
+            palette="rose",
             effect="breathe",
             speed=0.18,
             intensity=0.45,
@@ -77,7 +77,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         _ep(
             2,
             groups=["par"],
-            palette="amber",
+            palette="deep_red",
             effect="pulse",
             speed=0.2,
             intensity=0.42,
@@ -86,7 +86,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         _ep(
             3,
             groups=["bar"],
-            palette="warm_orange",
+            palette="rose",
             effect="wave",
             speed=0.22,
             intensity=0.4,
@@ -95,7 +95,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         _ep(
             4,
             groups=["all_rear"],
-            palette="white_warm",
+            palette="rose",
             effect="breathe",
             speed=0.16,
             intensity=0.48,
@@ -104,7 +104,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         _ep(
             5,
             groups=["outer"],
-            palette="amber",
+            palette="deep_red",
             effect="pulse",
             speed=0.2,
             intensity=0.44,
@@ -113,7 +113,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         _ep(
             6,
             groups=["par", "beam"],
-            palette="warm_orange",
+            palette="rose",
             effect="mirror_sweep",
             speed=0.15,
             intensity=0.4,
@@ -122,7 +122,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         _ep(
             7,
             groups=["inner", "bar"],
-            palette="amber",
+            palette="deep_red",
             effect="wave",
             speed=0.2,
             intensity=0.46,
@@ -131,7 +131,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         _ep(
             8,
             groups=["all_rear"],
-            palette="warm_orange",
+            palette="rose",
             effect="breathe",
             speed=0.18,
             intensity=0.5,
@@ -140,7 +140,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         _ep(
             9,
             groups=["left", "right"],
-            palette="white_warm",
+            palette="rose",
             effect="pulse",
             speed=0.17,
             intensity=0.43,
@@ -149,7 +149,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         _ep(
             10,
             groups=["all_rear"],
-            palette="warm_orange",
+            palette="rose",
             effect="breathe",
             speed=0.18,
             intensity=0.45,
@@ -213,7 +213,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         ),
         _ep(
             7,
-            groups=["left", "par"],
+            groups=["par"],
             palette="cool_blue",
             effect="pulse",
             speed=0.22,
@@ -222,7 +222,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         ),
         _ep(
             8,
-            groups=["right", "bar"],
+            groups=["bar"],
             palette="mint",
             effect="wave",
             speed=0.24,
@@ -252,7 +252,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         _ep(
             1,
             groups=["left", "right"],
-            palette="warm_orange",
+            palette="rose",
             effect="mirror_sweep",
             speed=0.3,
             intensity=0.55,
@@ -261,7 +261,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         _ep(
             2,
             groups=["bar"],
-            palette="amber",
+            palette="rose",
             effect="wave",
             speed=0.32,
             intensity=0.58,
@@ -278,7 +278,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         ),
         _ep(
             4,
-            groups=["left", "bar"],
+            groups=["bar"],
             palette="cool_blue",
             effect="wave",
             speed=0.34,
@@ -287,7 +287,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         ),
         _ep(
             5,
-            groups=["right", "bar"],
+            groups=["bar"],
             palette="mint",
             effect="wave",
             speed=0.34,
@@ -306,7 +306,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         _ep(
             7,
             groups=["outer", "par"],
-            palette="warm_orange",
+            palette="rose",
             effect="pulse",
             speed=0.3,
             intensity=0.57,
@@ -324,7 +324,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         _ep(
             9,
             groups=["all_rear"],
-            palette="amber",
+            palette="rose",
             effect="breathe",
             speed=0.28,
             intensity=0.58,
@@ -333,7 +333,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         _ep(
             10,
             groups=["left", "right"],
-            palette="warm_orange",
+            palette="rose",
             effect="mirror_sweep",
             speed=0.3,
             intensity=0.55,
@@ -344,7 +344,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         _ep(
             1,
             groups=["all_rear"],
-            palette="amber",
+            palette="rose",
             effect="pulse",
             speed=0.4,
             intensity=0.62,
@@ -353,7 +353,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         _ep(
             2,
             groups=["par", "bar"],
-            palette="warm_orange",
+            palette="rose",
             effect="wave",
             speed=0.42,
             intensity=0.6,
@@ -371,7 +371,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         _ep(
             4,
             groups=["inner", "bar"],
-            palette="amber",
+            palette="rose",
             effect="chase",
             speed=0.4,
             intensity=0.61,
@@ -380,7 +380,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         _ep(
             5,
             groups=["beam"],
-            palette="warm_orange",
+            palette="rose",
             effect="mirror_sweep",
             speed=0.35,
             intensity=0.57,
@@ -389,7 +389,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         _ep(
             6,
             groups=["all_rear"],
-            palette="white_warm",
+            palette="rose",
             effect="breathe",
             speed=0.36,
             intensity=0.6,
@@ -398,7 +398,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         _ep(
             7,
             groups=["par"],
-            palette="amber",
+            palette="rose",
             effect="pulse",
             speed=0.42,
             intensity=0.63,
@@ -407,7 +407,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         _ep(
             8,
             groups=["bar"],
-            palette="warm_orange",
+            palette="rose",
             effect="wave",
             speed=0.44,
             intensity=0.62,
@@ -425,7 +425,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         _ep(
             10,
             groups=["all_rear"],
-            palette="amber",
+            palette="rose",
             effect="pulse",
             speed=0.4,
             intensity=0.62,
@@ -436,7 +436,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         _ep(
             1,
             groups=["all_rear"],
-            palette="warm_orange",
+            palette="rose",
             effect="pulse",
             speed=0.45,
             intensity=0.7,
@@ -445,7 +445,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         _ep(
             2,
             groups=["par", "bar"],
-            palette="amber",
+            palette="rose",
             effect="wave",
             speed=0.5,
             intensity=0.68,
@@ -481,7 +481,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         _ep(
             6,
             groups=["par", "beam"],
-            palette="warm_orange",
+            palette="rose",
             effect="mirror_sweep",
             speed=0.35,
             intensity=0.66,
@@ -490,7 +490,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         _ep(
             7,
             groups=["all_rear"],
-            palette="white_warm",
+            palette="rose",
             effect="pulse",
             speed=0.48,
             intensity=0.6,
@@ -508,7 +508,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         _ep(
             9,
             groups=["all_rear"],
-            palette="amber",
+            palette="rose",
             effect="breathe",
             speed=0.42,
             intensity=0.74,
@@ -517,7 +517,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         _ep(
             10,
             groups=["all_rear"],
-            palette="warm_orange",
+            palette="rose",
             effect="pulse",
             speed=0.45,
             intensity=0.7,
@@ -537,7 +537,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         _ep(
             2,
             groups=["par"],
-            palette="warm_orange",
+            palette="deep_red",
             effect="pulse",
             speed=0.5,
             intensity=0.7,
@@ -546,7 +546,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         _ep(
             3,
             groups=["bar", "outer"],
-            palette="amber",
+            palette="deep_red",
             effect="chase",
             speed=0.58,
             intensity=0.74,
@@ -573,7 +573,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         _ep(
             6,
             groups=["beam"],
-            palette="warm_orange",
+            palette="deep_red",
             effect="mirror_sweep",
             speed=0.45,
             intensity=0.68,
@@ -581,8 +581,8 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         ),
         _ep(
             7,
-            groups=["left", "bar"],
-            palette="amber",
+            groups=["bar"],
+            palette="deep_red",
             effect="chase",
             speed=0.6,
             intensity=0.73,
@@ -590,7 +590,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         ),
         _ep(
             8,
-            groups=["right", "bar"],
+            groups=["bar"],
             palette="magenta",
             effect="chase",
             speed=0.6,
@@ -629,7 +629,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         _ep(
             2,
             groups=["outer", "par"],
-            palette="amber",
+            palette="rose",
             effect="pulse",
             speed=0.62,
             intensity=0.76,
@@ -647,7 +647,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         _ep(
             4,
             groups=["inner", "outer"],
-            palette="warm_orange",
+            palette="rose",
             effect="chase",
             speed=0.66,
             intensity=0.77,
@@ -721,7 +721,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         _ep(
             2,
             groups=["par"],
-            palette="warm_orange",
+            palette="deep_red",
             effect="pulse",
             speed=0.7,
             intensity=0.82,
@@ -756,7 +756,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         ),
         _ep(
             6,
-            groups=["left", "bar"],
+            groups=["bar"],
             palette="violet_orange",
             effect="chase",
             speed=0.74,
@@ -765,7 +765,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         ),
         _ep(
             7,
-            groups=["right", "par"],
+            groups=["par"],
             palette="magenta",
             effect="pulse",
             speed=0.71,
@@ -775,7 +775,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         _ep(
             8,
             groups=["all_rear"],
-            palette="warm_orange",
+            palette="deep_red",
             effect="chase",
             speed=0.76,
             intensity=0.86,
@@ -784,7 +784,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         _ep(
             9,
             groups=["bar", "beam"],
-            palette="amber",
+            palette="deep_red",
             effect="wave",
             speed=0.72,
             intensity=0.82,
@@ -813,7 +813,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         _ep(
             2,
             groups=["par"],
-            palette="white_warm",
+            palette="rose",
             effect="pulse",
             speed=0.68,
             intensity=0.85,
@@ -831,7 +831,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         _ep(
             4,
             groups=["outer"],
-            palette="white_warm",
+            palette="rose",
             effect="wave",
             speed=0.65,
             intensity=0.84,
@@ -858,7 +858,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         _ep(
             7,
             groups=["inner", "bar"],
-            palette="white_warm",
+            palette="rose",
             effect="chase",
             speed=0.7,
             intensity=0.86,
@@ -876,7 +876,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         _ep(
             9,
             groups=["left", "right"],
-            palette="white_warm",
+            palette="rose",
             effect="wave",
             speed=0.66,
             intensity=0.85,
@@ -896,7 +896,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         _ep(
             1,
             groups=["all_rear"],
-            palette="warm_orange",
+            palette="deep_red",
             effect="chase",
             speed=0.8,
             intensity=0.95,
@@ -932,7 +932,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         _ep(
             5,
             groups=["all_rear"],
-            palette="white_warm",
+            palette="deep_red",
             effect="chase",
             speed=0.85,
             intensity=0.95,
@@ -959,7 +959,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         _ep(
             8,
             groups=["left", "right"],
-            palette="warm_orange",
+            palette="deep_red",
             effect="wave",
             speed=0.82,
             intensity=0.94,
@@ -977,7 +977,7 @@ _EPISODES: dict[str, list[EpisodeCard]] = {
         _ep(
             10,
             groups=["all_rear"],
-            palette="warm_orange",
+            palette="deep_red",
             effect="chase",
             speed=0.8,
             intensity=0.95,

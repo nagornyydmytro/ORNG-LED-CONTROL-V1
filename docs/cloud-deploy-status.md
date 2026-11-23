@@ -1,5 +1,9 @@
 # Cloud deploy status (Phase 6)
 
+**Historical snapshot from 2026-10-25.** It is not proof of what is live on the
+venue or in Cloudflare today. Current worker / R2 / Access state must be read
+from the live account or a fresh deploy log, not from this file.
+
 Updated: 2026-10-25
 
 ## Correct account (trusted)

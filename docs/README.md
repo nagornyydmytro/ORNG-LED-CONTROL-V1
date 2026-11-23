@@ -22,6 +22,8 @@
 
 Размер каталога Auto берётся из `backend/orng_led/audio/library.py` (`COMPOSITIONS`), не из этих файлов.
 
+Облачный preview сохранённого Mix — упакованные кадры `frontend/src/runtime/mixCatalogClip.json` (пересборка: `scripts/dump_mix_catalog_clip.py`). Локальный пульт для превью использует движок (`AppRuntime.preview_clip`), не этот JSON.
+
 ## История
 
 Отчёты ниже — записи прошлых прогонов. «Готово» и «проверки пройдены» в них не переносятся на текущий HEAD.
@@ -33,7 +35,7 @@
 - `docs/phase-11-report.md`, `docs/phase-12-report.md`
 - `docs/stage-a-report.md`, `docs/stage-b-report.md`, `docs/stage-c-report.md`
 - `docs/scene-editors-report.md`
-- `docs/cloud-deploy-status.md`
+- `docs/cloud-deploy-status.md` — снимок Cloudflare от 2026-10-25, не текущий live-статус
 - `docs/orng-wtf-zone-decision.md`
 - `docs/r2-billing-runbook.md`
 - `.context/PROJECT_CANON.md` — замысел от 2026-07-28

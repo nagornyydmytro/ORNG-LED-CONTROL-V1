@@ -39,6 +39,10 @@ Pad slot → preset IDs are owned only by `app.yaml` (`pad_presets`). Q–O in
 |---|---|
 | `runtime.yaml` | Device-local active scene (`active_scene_id`) — **gitignored** |
 | `runtime.example.yaml` | Tracked example / template |
+| `location-show/<scene_id>.json` | Local Auto / show prefs for this desk — **gitignored** |
+| `bpm-epoch` | Local BPM epoch marker — **gitignored** |
+| `instance.json` / `desk-role.json` | Desk identity and role — **gitignored** |
+| `desk-operator.secret` | LAN desk operator password hash — **gitignored** |
 
 `runtime.yaml` is **not** inside a scene folder and must not be shipped with
 scene releases or overwritten by project updates. If missing, the default

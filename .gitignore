@@ -63,8 +63,15 @@ config/runtime.yaml
 # This desk's generated id and saved execution role. Created on first use.
 config/instance.json
 config/desk-role.json
+# Local Auto/BPM prefs and the BPM epoch marker. Device-local, not a scene file.
+config/location-show/
+config/bpm-epoch
+# Mistaken path if a process used backend/ as config root. Keep on disk; do not commit.
+backend/location-show/
 # Legacy/mistaken path — cloud metadata must never live under config/
 config/cloud-metadata.json
+# Operator password hash for the LAN desk. Created by the password CLI.
+config/desk-operator.secret
 
 # Home show bench: audio, video, traces. Regenerated locally. Not a source archive.
 show-bench/

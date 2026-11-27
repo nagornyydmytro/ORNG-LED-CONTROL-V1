@@ -10,6 +10,7 @@ import { fetchStageLayout } from "../api/client";
 import { getPreset, type EpisodeCard, type PresetDocument } from "../api/presets";
 import { isCloudAdminBuild } from "../cloud/mode";
 import { APP_STATE_KEY } from "../composables/appStateKey";
+import { usePreviewClip } from "../composables/usePreviewClip";
 import { acceptedBpmValue, bpmDeskReason } from "../lib/acceptedBpm";
 import { bpmDesk, choiceKeyFor } from "../lib/bpmIntent";
 import { BPM_INTENSITIES, bpmControlsLocked, hasBpmSync } from "../lib/bpmPalettes";
@@ -154,8 +155,29 @@ const executorFrame = computed(() => {
     : 0;
   return fixtures > 0;
 });
+const catalog = usePreviewClip();
+const catalogPicture = computed(() => cloudScene && catalog.frameCount.value > 0);
+let catalogTicket = 0;
+
+async function syncCatalogPreview() {
+  if (!cloudScene) return;
+  if (autoDesk.value) {
+    catalog.clear();
+    return;
+  }
+  const id = engine.value?.preset_id;
+  if (!id || id === "NONE") {
+    catalog.clear();
+    return;
+  }
+  const fromS = Math.max(0, Number(engine.value?.preset_time_s) || 0);
+  const ticket = ++catalogTicket;
+  await catalog.load(id, 12, 15, fromS);
+  if (ticket !== catalogTicket) return;
+}
+
 const playingSeconds = computed(() => {
-  if (remoteDesk.value && !executorFrame.value) return null;
+  if (remoteDesk.value && !executorFrame.value && !catalogPicture.value) return null;
   return engine.value?.preset_time_s ?? 0;
 });
 const playingMeta = computed(() => {
@@ -170,7 +192,15 @@ const frameNote = computed(() => {
   const fixtures = view
     ? view.pars.length + view.bars.length + view.beams.length + view.faces.length
     : 0;
-  if (cloudScene || state.value?.desk_role === "raspberry") {
+  if (cloudScene) {
+    if (catalogPicture.value) return "прев'ю епізоду";
+    if (!executorFrame.value) return "немає кадру виконавця";
+    const bpm = state.value?.bpm;
+    if (bpm?.look) return String(bpm.look);
+    if (bpm?.program === "beat" || bpm?.program === "smooth") return String(bpm.program);
+    return fixtures > 0 ? "кадр виконавця" : "ефект виконавця";
+  }
+  if (state.value?.desk_role === "raspberry") {
     if (!executorFrame.value) return "немає кадру виконавця";
     const bpm = state.value?.bpm;
     if (bpm?.look) return String(bpm.look);
@@ -403,7 +433,12 @@ const confirmedLive = computed(() => {
   if (state.value?.executor_online === false) return false;
   return executorFrame.value;
 });
+const stageHasPicture = computed(() => catalogPicture.value || confirmedLive.value);
 const stageNote = computed(() => {
+  if (cloudScene && catalogPicture.value) {
+    if (blackoutShown.value) return "Blackout · прев'ю епізоду, вихід темний";
+    return "Прев'ю епізоду · не кадр залу";
+  }
   if (!confirmedLive.value) return "Немає живого кадру";
   if (blackoutShown.value) return "Blackout · на екрані план, вихід темний";
   const bpm = state.value?.bpm;
@@ -424,9 +459,34 @@ const stageNote = computed(() => {
 });
 
 function stageView() {
+  if (cloudScene && catalogPicture.value) return catalog.view();
   if (!confirmedLive.value) return null;
   return liveView();
 }
+
+watch(
+  () =>
+    [
+      cloudScene,
+      autoDesk.value,
+      engine.value?.preset_id ?? null,
+      engine.value?.episode_index ?? null,
+    ] as const,
+  () => {
+    void syncCatalogPreview();
+  },
+  { immediate: true },
+);
+
+watch(
+  () => engine.value?.preset_time_s,
+  (time) => {
+    if (!cloudScene || autoDesk.value || catalog.loading.value) return;
+    if (typeof time !== "number") return;
+    if (Math.abs(time - catalog.timeS.value) < 2.5) return;
+    void syncCatalogPreview();
+  },
+);
 
 function toggleBpm() {
   void setBpmSync({ enabled: !bpmOn.value });
@@ -544,8 +604,12 @@ function goNextEpisode() {
               :frame="liveFrame"
               :nonzero-channels="cloudScene ? undefined : (state?.simulator?.nonzero_channels ?? 0)"
               :blackout="blackoutShown"
-              :disabled="offline || !confirmedLive"
+              :disabled="offline || !stageHasPicture"
               :show-inspector="false"
+              :engine-preset-id="shownPreset ?? '—'"
+              :preset-time-s="playingSeconds ?? 0"
+              :episode-index="episodeShown"
+              :episode-count="episodeCount"
             />
           </div>
         </section>

@@ -2909,13 +2909,7 @@ select {
     max-height: 132px;
   }
 
-  /* Presets / Auto keep a readable stage; desk stage-card already does. */
-  .preview-column .stage-canvas,
-  .preview-column .simulator--plain,
-  .preview-column .simulator--plain .stage,
-  .auto-preview .stage-canvas,
-  .auto-preview .simulator--plain,
-  .auto-preview .simulator--plain .stage,
+  /* Desk stage-card stays compact; presets/auto match the wide aspect stage. */
   .stage-card__body .stage-canvas,
   .stage-card__body .simulator--plain,
   .stage-card__body .simulator--plain .stage {
@@ -2923,6 +2917,25 @@ select {
     height: min(42vh, 280px);
     max-height: none;
     min-height: 180px;
+  }
+
+  .preview-column .simulator--plain,
+  .preview-column .simulator--plain .stage,
+  .auto-preview .simulator--plain,
+  .auto-preview .simulator--plain .stage {
+    width: 100%;
+    height: auto;
+    min-height: 0;
+    max-height: none;
+  }
+
+  .preview-column .stage-canvas,
+  .auto-preview .stage-canvas {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 1024 / 724;
+    max-height: 62vh;
+    min-height: 0;
   }
 
   .main {

@@ -185,7 +185,7 @@ const playingMeta = computed(() => {
   const index = episodeShown.value + 1;
   const seconds = playingSeconds.value == null ? "—" : playingSeconds.value.toFixed(1);
   const clock = !count ? `${seconds} с` : `Епізод ${index}/${count} · ${seconds} с`;
-  return `${clock} · ${frameNote.value}`;
+  return frameNote.value ? `${clock} · ${frameNote.value}` : clock;
 });
 const frameNote = computed(() => {
   const view = state.value?.simulator;
@@ -193,7 +193,7 @@ const frameNote = computed(() => {
     ? view.pars.length + view.bars.length + view.beams.length + view.faces.length
     : 0;
   if (cloudScene) {
-    if (catalogPicture.value) return "прев'ю епізоду";
+    if (catalogPicture.value) return "";
     if (!executorFrame.value) return "немає кадру виконавця";
     const bpm = state.value?.bpm;
     if (bpm?.look) return String(bpm.look);
@@ -436,8 +436,7 @@ const confirmedLive = computed(() => {
 const stageHasPicture = computed(() => catalogPicture.value || confirmedLive.value);
 const stageNote = computed(() => {
   if (cloudScene && catalogPicture.value) {
-    if (blackoutShown.value) return "Blackout · прев'ю епізоду, вихід темний";
-    return "Прев'ю епізоду · не кадр залу";
+    return blackoutShown.value ? "Blackout · вихід темний" : "";
   }
   if (!confirmedLive.value) return "Немає живого кадру";
   if (blackoutShown.value) return "Blackout · на екрані план, вихід темний";
@@ -591,6 +590,7 @@ function goNextEpisode() {
             class="stage-card__body"
           >
             <p
+              v-if="stageNote"
               class="hint"
               data-stage-note
             >

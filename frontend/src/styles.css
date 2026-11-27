@@ -2909,29 +2909,22 @@ select {
     max-height: 132px;
   }
 
-  /* Desk stage-card stays compact; presets/auto match the wide aspect stage. */
-  .stage-card__body .stage-canvas,
-  .stage-card__body .simulator--plain,
-  .stage-card__body .simulator--plain .stage {
-    width: 100%;
-    height: min(42vh, 280px);
-    max-height: none;
-    min-height: 180px;
-  }
-
   .preview-column .simulator--plain,
   .preview-column .simulator--plain .stage,
   .auto-preview .simulator--plain,
-  .auto-preview .simulator--plain .stage {
+  .auto-preview .simulator--plain .stage,
+  .stage-card__body .simulator--plain,
+  .stage-card__body .simulator--plain .stage {
     width: 100%;
     height: auto;
     min-height: 0;
     max-height: none;
   }
 
-  /* Same vertical budget as the wide presets column (aspect × width there ≈ 62vh). */
+  /* Same vertical budget on desk and presets (wide column ≈ 62vh). */
   .preview-column .stage-canvas,
-  .auto-preview .stage-canvas {
+  .auto-preview .stage-canvas,
+  .stage-card__body .stage-canvas {
     width: 100%;
     aspect-ratio: auto;
     height: min(62vh, 560px);

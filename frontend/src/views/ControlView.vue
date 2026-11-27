@@ -172,8 +172,10 @@ async function syncCatalogPreview() {
   }
   const fromS = Math.max(0, Number(engine.value?.preset_time_s) || 0);
   const ticket = ++catalogTicket;
-  await catalog.load(id, 12, 15, fromS);
+  // Desk tracks the venue clock: no loop, free-run only between heartbeats.
+  await catalog.load(id, 16, 8, fromS, { loop: false, freeRun: true });
   if (ticket !== catalogTicket) return;
+  catalog.follow(fromS, true);
 }
 
 const playingSeconds = computed(() => {
@@ -482,7 +484,7 @@ watch(
   (time) => {
     if (!cloudScene || autoDesk.value || catalog.loading.value) return;
     if (typeof time !== "number") return;
-    if (Math.abs(time - catalog.timeS.value) < 2.5) return;
+    if (catalog.follow(time, true)) return;
     void syncCatalogPreview();
   },
 );

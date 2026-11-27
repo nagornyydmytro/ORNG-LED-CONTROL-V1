@@ -309,8 +309,27 @@ export function createCloudScenePort(opts: {
 
   async function ensureLoaded() {
     if (!mine()) return;
-    if (restoreDraft()) return;
     const remoteVersion = canonicalVersion();
+    const saved = readStored();
+    // Draft base older than the live release is leftover after a newer
+    // publish (e.g. Mix grew from 27→42). Park it and load the workspace.
+    if (
+      saved &&
+      Array.isArray(saved.files) &&
+      saved.files.length > 0 &&
+      remoteVersion != null &&
+      typeof saved.version === "number" &&
+      saved.version < remoteVersion
+    ) {
+      parkRecovery(saved);
+      try {
+        localStorage.removeItem(storageKey());
+      } catch {
+        /* private mode */
+      }
+    } else if (restoreDraft()) {
+      return;
+    }
     const stale =
       loaded &&
       remoteVersion != null &&

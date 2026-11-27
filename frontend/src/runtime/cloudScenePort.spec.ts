@@ -246,6 +246,45 @@ describe("scene draft isolation", () => {
     expect(localStorage.getItem(draftStorageKey("alice", "loc-a", "orng-bar"))).toContain("local");
   });
 
+  it("drops a local draft based on an older published release", async () => {
+    const key = draftStorageKey("alice", "loc-a", "orng-bar");
+    localStorage.setItem(
+      key,
+      JSON.stringify({
+        sceneId: "orng-bar",
+        version: 3,
+        revision: 2,
+        token: "stale:2",
+        files: [
+          ["scene.yaml", "name: Room\n"],
+          ["app.yaml", "transport: mock\nnote: stale-mix-27\n"],
+          ["patch.yaml", "fixtures: []\n"],
+          ["layout.yaml", "placements: []\n"],
+        ],
+      }),
+    );
+    loadLocation.mockResolvedValueOnce({
+      ...workspace(),
+      version: 7,
+      content_hash: "hash-7",
+      files: [
+        ...workspace().files,
+        { path: "app.yaml", text: "transport: mock\nnote: live-mix-42\n" },
+      ],
+    });
+    const editor = createCloudScenePort({
+      installationId: "inst-1",
+      locationId: "loc-a",
+      sceneId: "orng-bar",
+      accountId: "alice",
+      live: () => ({ current_release_version: 7 }),
+    });
+    expect(await editor.fetchAppConfig()).toMatchObject({ note: "live-mix-42" });
+    expect(localStorage.getItem(key)).toBeNull();
+    const parked = localStorage.getItem(draftRecoveryKey("alice", "loc-a", "orng-bar"));
+    expect(parked).toContain("stale-mix-27");
+  });
+
   it("keeps the other tab's newer draft when an older publish returns", async () => {
     let release: (value: unknown) => void = () => undefined;
     publishLocation.mockImplementation(

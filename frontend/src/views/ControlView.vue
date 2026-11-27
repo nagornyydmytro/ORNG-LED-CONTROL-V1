@@ -66,9 +66,13 @@ const presetDoc = ref<PresetDocument | null>(null);
 const loadError = ref<string | null>(null);
 const episodes = computed<EpisodeCard[]>(() => presetDoc.value?.episodes ?? []);
 
-const episodeCount = computed(
-  () => episodes.value.length || engine.value?.episode_count || 0,
-);
+const episodeCount = computed(() => {
+  // Live executor clock is authoritative. The open scene document can lag
+  // behind the show Mix (cloud draft vs venue), so prefer engine.episode_count.
+  const live = engine.value?.episode_count;
+  if (typeof live === "number" && live > 0) return live;
+  return episodes.value.length || 0;
+});
 
 watch(
   activePresetId,

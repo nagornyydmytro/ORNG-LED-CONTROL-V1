@@ -2909,6 +2909,13 @@ select {
     max-height: 132px;
   }
 
+  /* Presets / Auto keep a readable stage; desk stage-card already does. */
+  .preview-column .stage-canvas,
+  .preview-column .simulator--plain,
+  .preview-column .simulator--plain .stage,
+  .auto-preview .stage-canvas,
+  .auto-preview .simulator--plain,
+  .auto-preview .simulator--plain .stage,
   .stage-card__body .stage-canvas,
   .stage-card__body .simulator--plain,
   .stage-card__body .simulator--plain .stage {

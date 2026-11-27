@@ -2929,13 +2929,14 @@ select {
     max-height: none;
   }
 
+  /* Same vertical budget as the wide presets column (aspect × width there ≈ 62vh). */
   .preview-column .stage-canvas,
   .auto-preview .stage-canvas {
     width: 100%;
-    height: auto;
-    aspect-ratio: 1024 / 724;
+    aspect-ratio: auto;
+    height: min(62vh, 560px);
     max-height: 62vh;
-    min-height: 0;
+    min-height: 320px;
   }
 
   .main {
